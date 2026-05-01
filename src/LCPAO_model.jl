@@ -1,0 +1,44 @@
+struct LCPAO_model
+    Natom::Int32
+    Nspecies::Int32
+    Nspin::Int32
+    atom2spe::Vector{Int32}
+    Atoms_symbol::Vector{String}
+    Atoms_Cut1::Vector{Float64}
+    Atoms_pao::Vector{String}
+    Atoms_Core_Charge::Vector{Float64}
+    Init_Atoms_Nspin::Vector{Vector{Float64}}
+    Init_Atoms_Angle::Vector{Vector{Float64}}
+    Atoms_Angle::Vector{Vector{Float64}}
+    Latvecs::Matrix{Float64}
+    Recvecs::Matrix{Float64}
+    Gxyz::Vector{Vector{Float64}}
+    TCpyCell::Int32
+    atv::Vector{Vector{Float64}}
+    atv_ijk::Vector{Vector{Int32}}
+    FNAN::Vector{Int32}
+    natn::Vector{Vector{Int32}}
+    ncn::Vector{Vector{Int32}}
+    Total_NumOrbs::Vector{Int32}
+    MP::Vector{Int32}
+    Grid_Origin::Vector{Float64}
+    Ngrid::Tuple{Int32,Int32,Int32}
+    SO_switch::Bool
+    SpinPol::String
+    xc_type::String
+    time_rev::Bool
+    E_Temp::Float64
+    kmesh::Tuple{Int32,Int32,Int32}
+    SCF_criterion::Float64
+    pao_file::Vector{String}
+    pspot_file::Vector{String}
+    OLP::Vector{Vector{Vector{Vector{Float64}}}}
+    Hks::Vector{Vector{Vector{Vector{Vector{Float64}}}}}
+    iHks::Union{Vector{Vector{Vector{Vector{Vector{Float64}}}}}, Nothing}
+    DM::Vector{Vector{Vector{Vector{Vector{Float64}}}}}
+    iDM::Union{Vector{Vector{Vector{Vector{Vector{Float64}}}}}, Nothing}
+    ChemP::Float64
+    Eele::Float64
+    Etot::Float64
+    ForceAll::Matrix{Float64}
+end

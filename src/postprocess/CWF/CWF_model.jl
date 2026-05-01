@@ -1,0 +1,34 @@
+struct CWF_model
+    Natom::Int32
+    Nspecies::Int32
+    spinsize::Int32
+    Guide_Symbol::Vector{String}
+    # Guide_Orbs_scale::Vector{String}
+    Guide_atom2spe::Vector{Int32}
+    Guide_Cutoff::Vector{Float64}
+    Guide_Total_NumOrbs::Vector{Int32}
+    Guide_MP::Vector{Int32}
+    Guide_Gxyz::Vector{Vector{Float64}}
+    Guide_Gxyz_frac::Vector{Vector{Float64}}
+    Latvecs::Matrix{Float64}
+    Recvecs::Matrix{Float64}
+    SpinPol::String
+    gsize::Int32
+    Ngsize::Int32
+    kmesh::Tuple{Int32,Int32,Int32}
+    ε::Vector{Float64}
+    kBT::Vector{Float64}
+    DM::Float64
+    NCell::Int32
+    cell_list::Vector{UnitRange{Int32}}
+    cell_list_ijk::Vector{Vector{Int32}}
+    HmnR::Array{ComplexF64,4}
+    ChemP::Float64
+    Ecut::Union{Float64,Nothing}
+    CWF_Plot_atom::Union{Vector{Int32},Nothing}
+    CWF_Plot_SuperCells::Union{Vector{Int32},Nothing}
+    RotMat::Vector{Matrix{Float64}}
+    PAO_scale::Vector{Float64}
+    gtype::String
+    scf_inputfile::String
+end
