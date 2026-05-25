@@ -10,6 +10,7 @@ struct Pspot
     Spe_VPS_List::Vector{Int64}
     Spe_VNLE::Array{Float64,2}
     Spe_VNL::Vector{Vector{Vector{Float64}}}
+    Spe_VPS_XV::Vector{Float64}
     Spe_VPS_RV::Vector{Float64}
     Spe_Vcore::Vector{Float64}
     is_pcc::Bool
@@ -28,7 +29,6 @@ function Print_Pspot(pspot::Pspot)
     Spe_Num_Mesh_VPS = pspot.Spe_Num_Mesh_VPS
     is_pcc = pspot.is_pcc
     psfile = pspot.psfile
-
 
     println("<Pspot>")
     println("\tAtom_symbol : $(Atom_symbol)")
@@ -166,11 +166,16 @@ function _Read_VPS(psfile)
     Spe_VNLE_wSOC = zeros(Float64, 2, Spe_Num_RVPS)
     Spe_VNLE_woSOC = zeros(Float64, 2, Spe_Num_RVPS)
 
-    @views Spe_VNLE_wSOC[1,:] = Spe_VNLE_temp[1,1:Spe_Num_RVPS]
-    @views Spe_VNLE_wSOC[2,:] = Spe_VNLE_temp[2,1:Spe_Num_RVPS]
+    @. @views Spe_VNLE_wSOC[1,:] = Spe_VNLE_temp[1,1:Spe_Num_RVPS]
+    @. @views Spe_VNLE_wSOC[2,:] = Spe_VNLE_temp[2,1:Spe_Num_RVPS]
 
-    @. @views Spe_VNLE_woSOC[1,:] = (((Spe_VPS_List+1)*Spe_VNLE_wSOC[1,:]+Spe_VPS_List*Spe_VNLE_wSOC[2,:])/(2*Spe_VPS_List+1))
-    Spe_VNLE_woSOC[2,:] = deepcopy(Spe_VNLE_woSOC[1,:])
+    for l = 1:Spe_Num_RVPS
+        LVPS = Spe_VPS_List[l]
+        tmp = ((LVPS+1)*Spe_VNLE_wSOC[1,l]+LVPS*Spe_VNLE_wSOC[2,l])/(2*LVPS+1)
+        Spe_VNLE_woSOC[1,l] = tmp
+        Spe_VNLE_woSOC[2,l] = tmp
+    end
+    
 
 
 
@@ -187,6 +192,7 @@ function _Read_VPS(psfile)
 
 
     po = 0
+    Spe_VPS_XV = zeros(Float64, Spe_Num_Mesh_VPS)
     Spe_VPS_RV = zeros(Float64, Spe_Num_Mesh_VPS)
     Spe_Vcore = zeros(Float64, Spe_Num_Mesh_VPS)
 
@@ -197,6 +203,7 @@ function _Read_VPS(psfile)
             if occursin(mark_begin_Pseudo_Potentials, line)
                 for i = 1:Spe_Num_Mesh_VPS
                     line = srline()
+                    Spe_VPS_XV[i] = parse(Float64, split(line)[1])
                     Spe_VPS_RV[i] = parse(Float64, split(line)[2])
                     Spe_Vcore[i] = parse(Float64, split(line)[3])
 
@@ -263,7 +270,7 @@ function _Read_VPS(psfile)
 
     
     return (Spe_Core_Charge, Spe_Num_Mesh_VPS, is_pcc, Spe_Num_RVPS, Spe_VPS_List, 
-            Spe_VNLE_woSOC, Spe_VNLE_wSOC, Spe_VNL_woSOC, Spe_VNL_wSOC, Spe_VPS_RV, Spe_Vcore, Spe_Atomic_PCC)
+            Spe_VNLE_woSOC, Spe_VNLE_wSOC, Spe_VNL_woSOC, Spe_VNL_wSOC, Spe_VPS_XV, Spe_VPS_RV, Spe_Vcore, Spe_Atomic_PCC)
 end
 
 
@@ -276,7 +283,7 @@ Mandatory arguments:
 
 - `Atom_symbol`: Atom symbol (`H`, `He`, `Li` ...)
 - `Atom_extra`: Atom symbol (`H`, `S`)
-- `xc_type`: which use xc type (`LDA`, `LSDA`, `GGA-PBE`)  
+- `xc_type`: which use xc type (`LDA`, `LSDA`, `GGA_PBE`)  
              default `LDA`  
              if use `LDA` or `LSDA` when CA type calculation
 
@@ -316,7 +323,7 @@ julia> Read_VPS("Fe", "S", "LDA", false)
 
     (Spe_Core_Charge, Spe_Num_Mesh_VPS, is_pcc, Spe_Num_RVPS, Spe_VPS_List, 
     Spe_VNLE_woSOC, Spe_VNLE_wSOC, Spe_VNL_woSOC, Spe_VNL_wSOC, 
-    Spe_VPS_RV, Spe_Vcore, Spe_Atomic_PCC) = _Read_VPS(VPS_File_path*VPS_Name*".vps")
+    Spe_VPS_XV, Spe_VPS_RV, Spe_Vcore, Spe_Atomic_PCC) = _Read_VPS(VPS_File_path*VPS_Name*".vps")
 
 
     if SO_switch
@@ -338,7 +345,7 @@ julia> Read_VPS("Fe", "S", "LDA", false)
                    Spe_Num_Mesh_VPS,
                    Spe_Num_RVPS, Spe_VPS_List,
                    Spe_VNLE, Spe_VNL, 
-                   Spe_VPS_RV, Spe_Vcore,
+                   Spe_VPS_XV, Spe_VPS_RV, Spe_Vcore,
                    is_pcc, Spe_Atomic_PCC,
                    VPS_File_path*filename )
 

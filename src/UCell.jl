@@ -22,8 +22,6 @@ struct System_Grid
     MPI_FNAN::Vector{Int32}
     MPI_natn::Vector{Int32}
     MPI_ncn::Vector{Int32}
-    MPI_Dis::Vector{Float64}
-    MPI_RMI::Vector{Vector{Int32}}
     Atom_Cut1::Vector{Float64}
     Total_NumOrbs::Vector{Int32}
     MP::Vector{Int32}
@@ -55,8 +53,6 @@ function split_system_grid(Natom, FNAN, natn, ncn, Dis, RMI, Total_NumOrbs)
     OneD2FNAN = zeros(Int32, Nloop)
     OneD2natn = zeros(Int32, Nloop)
     OneD2ncn = zeros(Int32, Nloop)
-    OneD2Dis = zeros(Float64, Nloop)
-    OneD2RMI = Vector{Vector{Int32}}(undef, Nloop)
 
     count = 1
     for atom = 1:Natom, Rn = 1:FNAN[atom]+1
@@ -64,14 +60,6 @@ function split_system_grid(Natom, FNAN, natn, ncn, Dis, RMI, Total_NumOrbs)
         OneD2FNAN[count] = Rn
         OneD2natn[count] = natn[atom][Rn]
         OneD2ncn[count] = ncn[atom][Rn]
-        OneD2Dis[count] = Dis[atom][Rn]
-
-
-        OneD2RMI[count] = zeros(Int32, FNAN[atom]+1)
-        for Rm = 1:FNAN[atom]+1
-            OneD2RMI[count][Rm] = RMI[atom][Rn][Rm]
-        end
-
         count += 1
     end
 
@@ -85,33 +73,19 @@ function split_system_grid(Natom, FNAN, natn, ncn, Dis, RMI, Total_NumOrbs)
     MPI_FNAN = OneD2FNAN[myrange[myrank+1]]
     MPI_natn = OneD2natn[myrange[myrank+1]]
     MPI_ncn = OneD2ncn[myrange[myrank+1]]
-    MPI_Dis = OneD2Dis[myrange[myrank+1]]
-    MPI_RMI = OneD2RMI[myrange[myrank+1]]
 
     
+    MPI_Hsize = zeros(Int32, nprocs)
+    MPHks = zeros(Int32, nprocs)
+
     myHsize = 0
     for loop = 1:MPI_size, _ = 1:Total_NumOrbs[MPI_atom[loop]], _ = 1:Total_NumOrbs[MPI_natn[loop]]
         myHsize += 1
     end
+    MPI_Hsize[myrank+1] = myHsize
     Total_Hsize = MPI.Allreduce(myHsize, MPI.SUM, comm)
-    MPI.Barrier(comm)
+    MPI.Allreduce!(MPI_Hsize, MPI.SUM, comm)
 
-    
-	_counts1 = zeros(Int32, nprocs)
-    for id = 1:nprocs
-        if id-1 == myrank
-            _counts1[id] = myHsize
-        end
-        MPI.Barrier(comm)
-    end
-    MPI.Barrier(comm)
-
-    MPI_Hsize = zeros(Int32, nprocs)
-    MPI.Allreduce!(_counts1,MPI_Hsize,nprocs,MPI.SUM,comm) 
-    MPI.Barrier(comm)
-
-
-    MPHks = zeros(Int32, nprocs)
     Sum = 0
     for id = 1:nprocs
         MPHks[id] = Sum
@@ -119,7 +93,7 @@ function split_system_grid(Natom, FNAN, natn, ncn, Dis, RMI, Total_NumOrbs)
     end
 
 
-    return Total_Hsize, MPI_Hsize, MPHks, Nloop, MPI_size, MPI_atom, MPI_FNAN, MPI_natn, MPI_ncn, MPI_Dis, MPI_RMI 
+    return Total_Hsize, MPI_Hsize, MPHks, Nloop, MPI_size, MPI_atom, MPI_FNAN, MPI_natn, MPI_ncn
 end
 
 
@@ -167,8 +141,8 @@ end
 
 
     # split element for MPI
-    # one dimensionalization Natom, FNAN, natn, ncn, Dis, RMI
-    Total_Hsize, MPI_Hsize, MPHks, Nloop, MPI_size, MPI_atom, MPI_FNAN, MPI_natn, MPI_ncn, MPI_Dis, MPI_RMI = split_system_grid(Natom, FNAN, natn, ncn, Dis, RMI, Total_NumOrbs)
+    # one dimensionalization Natom, FNAN, natn, ncn
+    Total_Hsize, MPI_Hsize, MPHks, Nloop, MPI_size, MPI_atom, MPI_FNAN, MPI_natn, MPI_ncn = split_system_grid(Natom, FNAN, natn, ncn, Dis, RMI, Total_NumOrbs)
     
 
 
@@ -176,7 +150,7 @@ end
                               atv, atv_ijk, Gxyz, GridVol, Grid_Origin,
                               FNAN, natn, ncn, Dis, RMI, 
                               Total_Hsize, MPI_Hsize, MPHks, Nloop, MPI_size, 
-                              MPI_atom, MPI_FNAN, MPI_natn, MPI_ncn, MPI_Dis, MPI_RMI,
+                              MPI_atom, MPI_FNAN, MPI_natn, MPI_ncn,
                               Atom_Cut1, Total_NumOrbs, MP, Ngrid)
     
 

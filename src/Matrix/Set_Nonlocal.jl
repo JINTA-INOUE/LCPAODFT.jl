@@ -66,11 +66,16 @@
     MPI_atom = system_grid.MPI_atom
     MPI_natn = system_grid.MPI_natn
     MPI_ncn = system_grid.MPI_ncn
-    myNloop = system_grid.MPI_size
+    MPI_size = system_grid.MPI_size
+    atv = system_grid.atv
+	Gxyz = system_grid.Gxyz
 
+
+    MPI_NLPsize = zeros(Int64, nprocs)
+    MP_NLP = zeros(Int64, nprocs)
 
     myNLPsize = 0
-    for loop = 1:myNloop
+    for loop = 1:MPI_size
         atom = MPI_atom[loop]
         jatom = MPI_natn[loop]
         jspe = atom2spe[jatom]
@@ -80,12 +85,21 @@
         end
     end
 
+    MPI_NLPsize[myrank+1] = myNLPsize
+    Total_NLPsize = MPI.Allreduce(myNLPsize, MPI.SUM, comm)
+    MPI.Allreduce!(MPI_NLPsize, MPI.SUM, comm)
+
+    Sum = 0
+    for id = 1:nprocs
+        MP_NLP[id] = Sum
+        Sum += MPI_NLPsize[id]
+    end
+    NLP_Num = MP_NLP[myrank+1]
+    MPI_NLP = zeros(Float64, Total_NLPsize)
+
+
+
     
-    MPI_NLP = zeros(Float64, myNLPsize)
-
-
-    atv = system_grid.atv
-	Gxyz = system_grid.Gxyz
 
 
     fsize = maximum(Total_NumOrbs)
@@ -115,9 +129,8 @@
 
 
 
-    MPI.Barrier(comm)
-    counts = 0
-    for loop = 1:myNloop
+    hst = 0
+    for loop = 1:MPI_size
 
         atom = MPI_atom[loop]
         ispe = atom2spe[atom]
@@ -143,7 +156,7 @@
         VPS_j_dependency = pspot[jspe].VPS_j_dependency
 
         Lmax = maximum(jVPS_List)
-        Lmax_Four_Int = 2*ifelse(Lmax>iMaxL_Basis, Lmax, iMaxL_Basis)
+        Lmax_Four_Int = 2*max(Lmax, iMaxL_Basis)
 
         for so = 1:VPS_j_dependency+1
 
@@ -184,51 +197,23 @@
             # complex to real        
             for ist = 1:NO0
                 @views mul!(tmpH2, Cjβ[jspe], NLPiαjβ[ist,:])
-                @views NLPiαjβ[ist,:] = tmpH2
+                @. @views NLPiαjβ[ist,:] = tmpH2
             end
 
             for jst = 1:NO1
                 @views mul!(tmpH1, Ciα[ispe], NLPiαjβ[:,jst])
-                @views NLPiαjβ[:,jst] = tmpH1
+                @. @views NLPiαjβ[:,jst] = tmpH1
             end
             
             for ist = 1:NO0, jst = 1:NO1
-                counts += 1
-                MPI_NLP[counts] = 8*real(NLPiαjβ[ist,jst])
+                hst += 1
+                MPI_NLP[NLP_Num+hst] = 8*real(NLPiαjβ[ist,jst])
             end
         end
     end
-    MPI.Barrier(comm)
-    
-
 
     
-    Total_NLPsize = MPI.Allreduce(myNLPsize, MPI.SUM, comm) 
-
-    _counts = zeros(Int64, nprocs)
-    for id = 1:nprocs
-        if id-1 == myrank
-            _counts[id] = myNLPsize
-        end
-        MPI.Barrier(comm)
-    end
-    MPI.Barrier(comm)
-
-    watemp = similar(_counts)
-    MPI.Allreduce!(_counts,watemp,nprocs,MPI.SUM,comm)  
-
-
-
-    if myrank == 0
-        All_NLP = zeros(Float64, Total_NLPsize)
-        MPI.Gatherv!(MPI_NLP,VBuffer(All_NLP,watemp),comm)
-    else
-        All_NLP = Vector{Float64}(undef, Total_NLPsize)
-        MPI.Gatherv!(MPI_NLP,nothing,0,comm)
-    end
-    MPI.Barrier(comm)
-    MPI.Bcast!(All_NLP, 0, comm)
-
+    MPI.Allreduce!(MPI_NLP, MPI.SUM, comm) 
 
 
     FNAN = system_grid.FNAN
@@ -251,14 +236,14 @@
 		end
 	end
 
-    counts = 0
+    hst = 0
     for atom = 1:Natom, Rn = 1:FNAN[atom]+1
         jatom = natn[atom][Rn]
         jspe = atom2spe[jatom]
         VPS_j_dependency = pspot[jspe].VPS_j_dependency
         for so = 1:VPS_j_dependency+1, ist = 1:Total_NumOrbs[atom], jst = 1:NLTotal_Num[jatom]
-            counts += 1
-            NLP[atom][Rn][ist][so][jst] = All_NLP[counts]
+            hst += 1
+            NLP[atom][Rn][ist][so][jst] = MPI_NLP[hst]
         end
     end
     MPI.Barrier(comm)
@@ -282,10 +267,10 @@
             end
         end
 
-        Set_Nonlocal_Col!( HNL, NLP, VNLE, NLTotal_Num, system_grid )
+        Set_Nonlocal_Col!(HNL, NLP, VNLE, NLTotal_Num, system_grid)
 
     elseif SpinPol == "nc"
-        Set_Nonlocal_NonCol!( HNL, iHNL, NLP, pspot, system_grid )
+        Set_Nonlocal_NonCol!(HNL, iHNL, NLP, pspot, system_grid)
     end
 end
 
@@ -303,13 +288,14 @@ function Set_Nonlocal_Col!(HNL, NLP, VNLE, NLTotal_Num, system_grid::System_Grid
     Atom_Cut1 = system_grid.Atom_Cut1
 
     MPI_atom = system_grid.MPI_atom
+    MPI_FNAN = system_grid.MPI_FNAN
     MPI_natn = system_grid.MPI_natn
-    MPI_Dis = system_grid.MPI_Dis
-    MPI_RMI = system_grid.MPI_RMI
+    Dis = system_grid.Dis
+    RMI = system_grid.RMI
 
-    myNloop = system_grid.MPI_size
-    MPI_Hsize = system_grid.MPI_Hsize
-    MPI_HNL = zeros(Float64, MPI_Hsize[myrank+1])
+    MPI_size = system_grid.MPI_size
+    MPHks = system_grid.MPHks
+    Hks_Num = MPHks[myrank+1]
 
 
     tmpL = Vector{Vector{Float64}}(undef, Natom)
@@ -319,36 +305,37 @@ function Set_Nonlocal_Col!(HNL, NLP, VNLE, NLTotal_Num, system_grid::System_Grid
 
 
     HNL_temp = zeros(Float64, maximum(Total_NumOrbs), maximum(Total_NumOrbs))
-    counts = 0
-    for loop = 1:myNloop
+    hst = 0
+    for loop = 1:MPI_size
 
         atom = MPI_atom[loop]
+        Rn = MPI_FNAN[loop]
         jatom = MPI_natn[loop]
+        NO0 = Total_NumOrbs[atom]
+        NO1 = Total_NumOrbs[jatom]
+
         fill!(HNL_temp, 0.0)
 
         for Rm = 1:FNAN[atom]+1
             kg = natn[atom][Rm]
-            kl = MPI_RMI[loop][Rm]
+            kl = RMI[atom][Rn][Rm]
             if kl >= 0
-                for jst = 1:Total_NumOrbs[jatom], ist = 1:Total_NumOrbs[atom]
+                @inbounds for jst = 1:NO1, ist = 1:NO0
                     @. tmpL[kg] = NLP[jatom][kl+1][jst][1]*VNLE[kg]
                     HNL_temp[ist,jst] += dot(NLP[atom][Rm][ist][1], tmpL[kg])
                 end
             end
         end
 
-
         rcut = Atom_Cut1[atom] + Atom_Cut1[jatom]
-        dmp = dampingF(rcut, MPI_Dis[loop])
-        for ist = 1:Total_NumOrbs[atom], jst = 1:Total_NumOrbs[jatom]
-            counts += 1
-            MPI_HNL[counts] = dmp * HNL_temp[ist,jst]
+        dmp = dampingF(rcut, Dis[atom][Rn])
+        for ist = 1:NO0, jst = 1:NO1
+            hst += 1
+            HNL[1][Hks_Num+hst] = dmp * HNL_temp[ist,jst]
         end
     end
-    MPI.Barrier(comm)
 
-
-    MPI.Allgatherv!(MPI_HNL,VBuffer(HNL[1],MPI_Hsize),comm) 
+    MPI.Allreduce!(HNL[1], MPI.SUM, comm) 
 end
 
 
@@ -363,32 +350,28 @@ function Set_Nonlocal_NonCol!(HNL, iHNL, NLP, pspot::Vector{Pspot}, system_grid:
 	natn = system_grid.natn
     Atom_Cut1 = system_grid.Atom_Cut1
 
-
     MPI_atom = system_grid.MPI_atom
+    MPI_FNAN = system_grid.MPI_FNAN
     MPI_natn = system_grid.MPI_natn
-    MPI_Dis = system_grid.MPI_Dis
-    MPI_RMI = system_grid.MPI_RMI
+    Dis = system_grid.Dis
+    RMI = system_grid.RMI
 
-    myNloop = system_grid.MPI_size
-    MPI_Hsize = system_grid.MPI_Hsize
-
-
-    MPI_HNL1 = zeros(Float64, MPI_Hsize[myrank+1])
-    MPI_HNL2 = zeros(Float64, MPI_Hsize[myrank+1])
-    MPI_HNL3 = zeros(Float64, MPI_Hsize[myrank+1])
-    MPI_iHNL1 = zeros(Float64, MPI_Hsize[myrank+1])
-    MPI_iHNL2 = zeros(Float64, MPI_Hsize[myrank+1])
-    MPI_iHNL3 = zeros(Float64, MPI_Hsize[myrank+1])
+    MPI_size = system_grid.MPI_size
+    MPHks = system_grid.MPHks
+    Hks_Num = MPHks[myrank+1]
 
     
     HNL_temp = zeros(Float64, maximum(Total_NumOrbs), maximum(Total_NumOrbs), 3)
     iHNL_temp = zeros(Float64, maximum(Total_NumOrbs), maximum(Total_NumOrbs), 3)
 
-    counts = 0
-    for loop = 1:myNloop
+    hst = 0
+    for loop = 1:MPI_size
 
         atom = MPI_atom[loop]
+        Rn = MPI_FNAN[loop]
         jatom = MPI_natn[loop]
+        NO0 = Total_NumOrbs[atom]
+        NO1 = Total_NumOrbs[jatom]
 
         fill!(HNL_temp, 0.0)
         fill!(iHNL_temp, 0.0)
@@ -396,14 +379,14 @@ function Set_Nonlocal_NonCol!(HNL, iHNL, NLP, pspot::Vector{Pspot}, system_grid:
         for Rm = 1:FNAN[atom]+1
             kg = natn[atom][Rm]
             kgspe = atom2spe[kg]
-            kl = MPI_RMI[loop][Rm]
+            kl = RMI[atom][Rn][Rm]
 
             Spe_Num_RVPS = pspot[kgspe].Spe_Num_RVPS
             Spe_VNLE = pspot[kgspe].Spe_VNLE
             Spe_VPS_List = pspot[kgspe].Spe_VPS_List 
 
             if kl >= 0
-                for ist = 1:Total_NumOrbs[atom], jst = 1:Total_NumOrbs[jatom]
+                for ist = 1:NO0, jst = 1:NO1
 
                     Sum0_r = 0.0
                     Sum0_i = 0.0
@@ -413,7 +396,7 @@ function Set_Nonlocal_NonCol!(HNL, iHNL, NLP, pspot::Vector{Pspot}, system_grid:
                     Sum2_i = 0.0
                     
                     L = 1
-                    for lnum = 1:Spe_Num_RVPS
+                    @inbounds for lnum = 1:Spe_Num_RVPS
                         ene_p = Spe_VNLE[1,lnum]
                         ene_m = Spe_VNLE[2,lnum]
                         if Spe_VPS_List[lnum] == 0
@@ -619,24 +602,23 @@ function Set_Nonlocal_NonCol!(HNL, iHNL, NLP, pspot::Vector{Pspot}, system_grid:
         end
 
         rcut = Atom_Cut1[atom] + Atom_Cut1[jatom]
-        dmp = dampingF(rcut, MPI_Dis[loop])
-        for ist = 1:Total_NumOrbs[atom], jst = 1:Total_NumOrbs[jatom]
-            counts += 1
-            MPI_HNL1[counts] = dmp * HNL_temp[ist,jst,1]
-            MPI_HNL2[counts] = dmp * HNL_temp[ist,jst,2]
-            MPI_HNL3[counts] = dmp * HNL_temp[ist,jst,3]
-            MPI_iHNL1[counts] = dmp * iHNL_temp[ist,jst,1]
-            MPI_iHNL2[counts] = dmp * iHNL_temp[ist,jst,2]
-            MPI_iHNL3[counts] = dmp * iHNL_temp[ist,jst,3]
+        dmp = dampingF(rcut, Dis[atom][Rn])
+        for ist = 1:NO0, jst = 1:NO1
+            hst += 1
+            HNL[1][Hks_Num+hst] = dmp * HNL_temp[ist,jst,1]
+            HNL[2][Hks_Num+hst] = dmp * HNL_temp[ist,jst,2]
+            HNL[3][Hks_Num+hst] = dmp * HNL_temp[ist,jst,3]
+            iHNL[1][Hks_Num+hst] = dmp * iHNL_temp[ist,jst,1]
+            iHNL[2][Hks_Num+hst] = dmp * iHNL_temp[ist,jst,2]
+            iHNL[3][Hks_Num+hst] = dmp * iHNL_temp[ist,jst,3]
         end
     end
-    MPI.Barrier(comm)
 
 
-    MPI.Allgatherv!(MPI_HNL1,VBuffer(HNL[1],MPI_Hsize),comm)
-    MPI.Allgatherv!(MPI_HNL2,VBuffer(HNL[2],MPI_Hsize),comm)
-    MPI.Allgatherv!(MPI_HNL3,VBuffer(HNL[3],MPI_Hsize),comm)
-    MPI.Allgatherv!(MPI_iHNL1,VBuffer(iHNL[1],MPI_Hsize),comm)
-    MPI.Allgatherv!(MPI_iHNL2,VBuffer(iHNL[2],MPI_Hsize),comm)
-    MPI.Allgatherv!(MPI_iHNL3,VBuffer(iHNL[3],MPI_Hsize),comm)
+    MPI.Allreduce!(HNL[1], MPI.SUM, comm)
+    MPI.Allreduce!(HNL[2], MPI.SUM, comm)
+    MPI.Allreduce!(HNL[3], MPI.SUM, comm)
+    MPI.Allreduce!(iHNL[1], MPI.SUM, comm)
+    MPI.Allreduce!(iHNL[2], MPI.SUM, comm)
+    MPI.Allreduce!(iHNL[3], MPI.SUM, comm)
 end

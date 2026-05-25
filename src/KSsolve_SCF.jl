@@ -27,6 +27,7 @@ function KSsolve_SCF(dft_setup::DFT_Setup)
     SO_switch = dft_setup.SO_switch
     xc_type = dft_setup.xc_type
     Ngrid = dft_setup.Ngrid
+    NN = prod(Ngrid)
     kmesh = dft_setup.kmesh
     E_Temp = dft_setup.E_Temp
     pao_file = dft_setup.pao_file
@@ -85,10 +86,10 @@ function KSsolve_SCF(dft_setup::DFT_Setup)
 
 
 
-    dVHart_Grid = zeros(Float64, prod(Ngrid))
+    dVHart_Grid = zeros(Float64, NN)
 	Vpot_Grid = Vector{Vector{Float64}}(undef, Nspin)
 	for spin = 1:Nspin
-		Vpot_Grid[spin] = zeros(Float64, prod(Ngrid))
+		Vpot_Grid[spin] = zeros(Float64, NN)
 	end
 
 
@@ -135,11 +136,7 @@ function KSsolve_SCF(dft_setup::DFT_Setup)
 
         if SCF_iter ≠ 1
             if Mixing_method == "RMM-DIISH"
-                if SpinPol == "off"
-                    Solve_Poisson!(dft_mixing, 2*Density_Grid[1]-2*ADensity_Grid, dVHart_Grid)
-                elseif SpinPol ∈ ("on", "nc")
-                    Solve_Poisson!(dft_mixing, Density_Grid[1]+Density_Grid[2]-2*ADensity_Grid, dVHart_Grid)
-                end
+                Solve_Poisson!(SpinPol, dft_mixing, Density_Grid, ADensity_Grid, dVHart_Grid)
             elseif Mixing_method ∈ ("Simple", "Kerker", "RMM-DIISK")
                 error("not support")
             end
@@ -191,6 +188,10 @@ function KSsolve_SCF(dft_setup::DFT_Setup)
                 Set_Density_Grid_nc!(ucell, Orbs_Grid, DM, Density_Grid)
             end
 
+            # Solve_Poisson!(SpinPol, dft_mixing, Density_Grid, ADensity_Grid, dVHart_Grid)
+            # Set_XC_Grid!(xc_func, PCCDensity_Grid, Density_Grid)
+            # Set_Vpot_Grid!(xc_func, dVHart_Grid, Vpot_Grid)
+
             break
         end
 
@@ -209,7 +210,7 @@ function KSsolve_SCF(dft_setup::DFT_Setup)
                 Set_Density_Grid_pol!(ucell, Orbs_Grid, DM, Density_Grid)
             elseif SpinPol == "nc"
                 Set_Density_Grid_nc!(ucell, Orbs_Grid, DM, Density_Grid)
-                diagonalize_nc_density!( Density_Grid )
+                diagonalize_nc_density!(Density_Grid)
             end
         else
             error("Please check Mixing_method")
@@ -270,9 +271,9 @@ function KSsolve_SCF(dft_setup::DFT_Setup)
             println("Eele = $(electron.Eele)  dEele = $dEele")
             println("NormRD = $(sqrt(abs(dft_mixing.NormRD[1])))  Criterion = $SCF_criterion")
         else
-            println("SCF not convergence")
             println("Eele = $(electron.Eele)  dEele = $dEele")
             println("NormRD = $(sqrt(abs(dft_mixing.NormRD[1])))  Criterion = $SCF_criterion")
+            println("SCF not convergence")
         end
 
 

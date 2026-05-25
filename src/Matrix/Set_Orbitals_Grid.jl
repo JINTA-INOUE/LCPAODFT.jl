@@ -4,12 +4,12 @@
     Natom = system_grid.Natom
     Total_NumOrbs = system_grid.Total_NumOrbs
     GridN_Atom = ucell.GridN_Atom
-
+    
     Orbs_Grid = Vector{Vector{Vector{Float64}}}(undef, Natom)
     for atom = 1:Natom
-        Orbs_Grid[atom] = Vector{Vector{Float64}}(undef, Total_NumOrbs[atom])
-        for ist = 1:Total_NumOrbs[atom]
-            Orbs_Grid[atom][ist] = zeros(Float64, GridN_Atom[atom])
+        Orbs_Grid[atom] = Vector{Vector{Float64}}(undef, GridN_Atom[atom])
+        for Nc = 1:GridN_Atom[atom]
+            Orbs_Grid[atom][Nc] = zeros(Float64, Total_NumOrbs[atom])
         end
     end
     Set_Orbitals_Grid!(Orbs_Grid, pao, ucell)
@@ -23,6 +23,7 @@ function Set_Orbitals_Grid!(Orbs_Grid, pao::Vector{PAO}, ucell::UCell)
     
     system_grid = ucell.system_grid
     Natom = system_grid.Natom
+    Nspecies = length(pao)
     Latvecs = system_grid.Latvecs
     atv = system_grid.atv
     Grid_Origin = system_grid.Grid_Origin
@@ -43,7 +44,7 @@ function Set_Orbitals_Grid!(Orbs_Grid, pao::Vector{PAO}, ucell::UCell)
 
 
 
-    Nspecies = maximum(atom2spe)
+    pmax = 4
     maxSpe_MaxL_Basis = 0
     for spe = 1:Nspecies
         maxSpe_MaxL_Basis = max(maxSpe_MaxL_Basis, pao[spe].Spe_MaxL_Basis)
@@ -52,7 +53,7 @@ function Set_Orbitals_Grid!(Orbs_Grid, pao::Vector{PAO}, ucell::UCell)
     RF = Vector{Vector{Float64}}(undef, maxSpe_MaxL_Basis+1)
     AF = Vector{Vector{Float64}}(undef, maxSpe_MaxL_Basis+1)
     for l = 0:maxSpe_MaxL_Basis
-        RF[l+1] = zeros(Float64, 4)
+        RF[l+1] = zeros(Float64, pmax)
         AF[l+1] = zeros(Float64, 2*l+1)
     end
 
@@ -92,9 +93,8 @@ function Set_Orbitals_Grid!(Orbs_Grid, pao::Vector{PAO}, ucell::UCell)
             mp_min = 1
             mp_max = Spe_Num_Mesh_PAO
 
-            for l = 0:maxSpe_MaxL_Basis
-                fill!(RF[l+1], 0.0)
-                fill!(AF[l+1], 0.0)
+            for l = 0:Spe_MaxL_Basis, p = 1:Spe_Num_Basis[l+1]
+                RF[l+1][p] = 0.0
             end
 
 
@@ -163,7 +163,7 @@ function Set_Orbitals_Grid!(Orbs_Grid, pao::Vector{PAO}, ucell::UCell)
                     RF[l+1][p] = a*R^3 + b*R^2 + c*R + d
                 end
             else
-                while mp_max-mp_min ≠ 1
+                while (mp_max-mp_min) ≠ 1
                     m = div(mp_min + mp_max, 2)
                     if (Spe_PAO_RV[m]<R)
                         mp_min = m
@@ -247,9 +247,9 @@ function Set_Orbitals_Grid!(Orbs_Grid, pao::Vector{PAO}, ucell::UCell)
             end
 
             ist = 0
-            for l = 0:Spe_MaxL_Basis, p = 1:Spe_Num_Basis[l+1], m = 1:2*l+1
+            @inbounds for l = 0:Spe_MaxL_Basis, p = 1:Spe_Num_Basis[l+1], m = 1:2*l+1
                 ist += 1
-                Orbs_Grid[atom][ist][xyz] = RF[l+1][p]*AF[l+1][m]
+                Orbs_Grid[atom][xyz][ist] = RF[l+1][p]*AF[l+1][m]
             end
         end
     end

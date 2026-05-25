@@ -101,43 +101,34 @@ Mandatory arguments:
 	Hkin = Ham.Hkin
 	HVNA = Ham.HVNA
 	HNL = Ham.HNL
-	Total_Hsize = ucell.system_grid.Total_Hsize
 
 
 	if SpinPol == "off"
 		Calc_MatrixElements_dVH_Vxc_off!(ucell, Orbs_Grid, Vpot_Grid, Hks)
-		MPI.Allreduce!(Hks[1],MPI.SUM,comm)
+		MPI.Allreduce!(Hks[1], MPI.SUM, comm)
 	elseif SpinPol == "on"
 		Calc_MatrixElements_dVH_Vxc_on!(ucell, Orbs_Grid, Vpot_Grid, Hks)
-		MPI.Allreduce!(Hks[1],MPI.SUM,comm)
-		MPI.Allreduce!(Hks[2],MPI.SUM,comm)
+		MPI.Allreduce!(Hks[1], MPI.SUM, comm)
+		MPI.Allreduce!(Hks[2], MPI.SUM, comm)
 	elseif SpinPol == "nc"
 		Calc_MatrixElements_dVH_Vxc_nc!(ucell, Orbs_Grid, Vpot_Grid, Hks)
-		MPI.Allreduce!(Hks[1],MPI.SUM,comm)
-		MPI.Allreduce!(Hks[2],MPI.SUM,comm)
-		MPI.Allreduce!(Hks[3],MPI.SUM,comm)
-		MPI.Allreduce!(Hks[4],MPI.SUM,comm)
+		MPI.Allreduce!(Hks[1], MPI.SUM, comm)
+		MPI.Allreduce!(Hks[2], MPI.SUM, comm)
+		MPI.Allreduce!(Hks[3], MPI.SUM, comm)
+		MPI.Allreduce!(Hks[4], MPI.SUM, comm)
 	end
 	
 	
 
 	if SpinPol == "off"
-		for hst = 1:Total_Hsize
-			Hks[1][hst] += Hkin[hst] + HVNA[hst] + HNL[1][hst]
-		end
+		@. Hks[1] = Hks[1] + Hkin + HVNA + HNL[1]
 	elseif SpinPol == "on"
-		for hst = 1:Total_Hsize
-			tmp = Hkin[hst] + HVNA[hst] + HNL[1][hst]
-			Hks[1][hst] += tmp
-			Hks[2][hst] += tmp
-		end
+		@. Hks[1] = Hks[1] + Hkin + HVNA + HNL[1]
+		@. Hks[2] = Hks[2] + Hkin + HVNA + HNL[1]
 	elseif SpinPol == "nc"
-		for hst = 1:Total_Hsize
-			tmp = Hkin[hst] + HVNA[hst]
-			Hks[1][hst] += tmp + HNL[1][hst]
-			Hks[2][hst] += tmp + HNL[2][hst]
-			Hks[3][hst] += HNL[3][hst]
-		end
+		@. Hks[1] = Hks[1] + Hkin + HVNA + HNL[1]
+		@. Hks[2] = Hks[2] + Hkin + HVNA + HNL[2]
+		@. Hks[3] = Hks[3] + HNL[3]
 	end
 end
 
@@ -162,7 +153,6 @@ function Calc_MatrixElements_dVH_Vxc_off!(ucell::UCell, Orbs_Grid, Vpot_Grid::Ve
 
 	Hks_temp = zeros(Float64, maximum(Total_NumOrbs), maximum(Total_NumOrbs))
 
-	
 
 	fill!(Hks[1], 0.0)
 
@@ -177,7 +167,7 @@ function Calc_MatrixElements_dVH_Vxc_off!(ucell::UCell, Orbs_Grid, Vpot_Grid::Ve
 		fill!(Hks_temp, 0.0)
 		_Calc_Ham8_off!(Hks_temp, NO0, NO1, MPI_NumOLG[loop], GridListAtom[atom], MPI_GListTAtoms1[loop], MPI_GListTAtoms2[loop], Orbs_Grid[atom], Orbs_Grid[jatom], Vpot_Grid[1])
 
-		for ist = 1:NO0, jst = 1:NO1
+		@inbounds for ist = 1:NO0, jst = 1:NO1
 			hst += 1
 			Hks[1][HksNum+hst] = GridVol*Hks_temp[jst,ist]
 		end
@@ -195,6 +185,7 @@ function Calc_MatrixElements_dVH_Vxc_on!(ucell::UCell, Orbs_Grid, Vpot_Grid::Vec
 	Total_NumOrbs = ucell.system_grid.Total_NumOrbs
 	MPHks = ucell.system_grid.MPHks
 	MPI_size = ucell.system_grid.MPI_size
+	HksNum = MPHks[myrank+1]
 
 	GridVol = ucell.system_grid.GridVol
 	GridListAtom = ucell.GridListAtom
@@ -205,7 +196,8 @@ function Calc_MatrixElements_dVH_Vxc_on!(ucell::UCell, Orbs_Grid, Vpot_Grid::Vec
 	Hks_temp = zeros(Float64, maximum(Total_NumOrbs), maximum(Total_NumOrbs), 2)
 
 
-	HksNum = MPHks[myrank+1]
+	fill!(Hks[1], 0.0)
+	fill!(Hks[2], 0.0)
 
 
 	hst = 0
@@ -219,7 +211,7 @@ function Calc_MatrixElements_dVH_Vxc_on!(ucell::UCell, Orbs_Grid, Vpot_Grid::Vec
 		fill!(Hks_temp, 0.0)
 		_Calc_Ham8_on!(Hks_temp, NO0, NO1, MPI_NumOLG[loop], GridListAtom[atom], MPI_GListTAtoms1[loop], MPI_GListTAtoms2[loop], Orbs_Grid[atom], Orbs_Grid[jatom], Vpot_Grid)
 
-		for ist = 1:NO0, jst = 1:NO1
+		@inbounds for ist = 1:NO0, jst = 1:NO1
 			hst += 1
 			Hks[1][HksNum+hst] = GridVol*Hks_temp[jst,ist,1]
 			Hks[2][HksNum+hst] = GridVol*Hks_temp[jst,ist,2]
@@ -238,6 +230,7 @@ function Calc_MatrixElements_dVH_Vxc_nc!(ucell::UCell, Orbs_Grid, Vpot_Grid::Vec
 	Total_NumOrbs = ucell.system_grid.Total_NumOrbs
 	MPHks = ucell.system_grid.MPHks
 	MPI_size = ucell.system_grid.MPI_size
+	HksNum = MPHks[myrank+1]
 
 	GridVol = ucell.system_grid.GridVol
 	GridListAtom = ucell.GridListAtom
@@ -248,7 +241,10 @@ function Calc_MatrixElements_dVH_Vxc_nc!(ucell::UCell, Orbs_Grid, Vpot_Grid::Vec
 	Hks_temp = zeros(Float64, maximum(Total_NumOrbs), maximum(Total_NumOrbs), 4)
 
 
-	HksNum = MPHks[myrank+1]
+	fill!(Hks[1], 0.0)
+	fill!(Hks[2], 0.0)	
+	fill!(Hks[3], 0.0)	
+	fill!(Hks[4], 0.0)	
 
 
 	hst = 0
@@ -262,7 +258,7 @@ function Calc_MatrixElements_dVH_Vxc_nc!(ucell::UCell, Orbs_Grid, Vpot_Grid::Vec
 		fill!(Hks_temp, 0.0)
 		_Calc_Ham8_nc!(Hks_temp, NO0, NO1, MPI_NumOLG[loop], GridListAtom[atom], MPI_GListTAtoms1[loop], MPI_GListTAtoms2[loop], Orbs_Grid[atom], Orbs_Grid[jatom], Vpot_Grid)
 
-		for ist = 1:NO0, jst = 1:NO1
+		@inbounds for ist = 1:NO0, jst = 1:NO1
 			hst += 1
 			Hks[1][HksNum+hst] = GridVol*Hks_temp[jst,ist,1]
 			Hks[2][HksNum+hst] = GridVol*Hks_temp[jst,ist,2]
@@ -314,23 +310,23 @@ function _Calc_Ham8_off!(Hks_temp, NO0, NO1, NumOLG, GridListAtom, GListTAtoms1,
 		temp7 = Vpot_Grid[MN7]
 
 		for ist = 1:NO0
-			Sum0 = temp0 * Orbs_Grid1[ist][Nc0]
-			Sum1 = temp1 * Orbs_Grid1[ist][Nc1]
-			Sum2 = temp2 * Orbs_Grid1[ist][Nc2]
-			Sum3 = temp3 * Orbs_Grid1[ist][Nc3]
-			Sum4 = temp4 * Orbs_Grid1[ist][Nc4]
-			Sum5 = temp5 * Orbs_Grid1[ist][Nc5]
-			Sum6 = temp6 * Orbs_Grid1[ist][Nc6]
-			Sum7 = temp7 * Orbs_Grid1[ist][Nc7]
-			for jst = 1:NO1
-				Hks_temp[jst,ist] += Sum0 * Orbs_Grid2[jst][Nh0]
-				Hks_temp[jst,ist] += Sum1 * Orbs_Grid2[jst][Nh1]
-				Hks_temp[jst,ist] += Sum2 * Orbs_Grid2[jst][Nh2]
-				Hks_temp[jst,ist] += Sum3 * Orbs_Grid2[jst][Nh3]
-				Hks_temp[jst,ist] += Sum4 * Orbs_Grid2[jst][Nh4]
-				Hks_temp[jst,ist] += Sum5 * Orbs_Grid2[jst][Nh5]
-				Hks_temp[jst,ist] += Sum6 * Orbs_Grid2[jst][Nh6]
-				Hks_temp[jst,ist] += Sum7 * Orbs_Grid2[jst][Nh7]
+			Sum0 = temp0 * Orbs_Grid1[Nc0][ist]
+			Sum1 = temp1 * Orbs_Grid1[Nc1][ist]
+			Sum2 = temp2 * Orbs_Grid1[Nc2][ist]
+			Sum3 = temp3 * Orbs_Grid1[Nc3][ist]
+			Sum4 = temp4 * Orbs_Grid1[Nc4][ist]
+			Sum5 = temp5 * Orbs_Grid1[Nc5][ist]
+			Sum6 = temp6 * Orbs_Grid1[Nc6][ist]
+			Sum7 = temp7 * Orbs_Grid1[Nc7][ist]
+			@inbounds for jst = 1:NO1
+				Hks_temp[jst,ist] += Sum0 * Orbs_Grid2[Nh0][jst]
+				Hks_temp[jst,ist] += Sum1 * Orbs_Grid2[Nh1][jst]
+				Hks_temp[jst,ist] += Sum2 * Orbs_Grid2[Nh2][jst]
+				Hks_temp[jst,ist] += Sum3 * Orbs_Grid2[Nh3][jst]
+				Hks_temp[jst,ist] += Sum4 * Orbs_Grid2[Nh4][jst]
+				Hks_temp[jst,ist] += Sum5 * Orbs_Grid2[Nh5][jst]
+				Hks_temp[jst,ist] += Sum6 * Orbs_Grid2[Nh6][jst]
+				Hks_temp[jst,ist] += Sum7 * Orbs_Grid2[Nh7][jst]
 			end
 		end
 	end
@@ -345,15 +341,13 @@ function _Calc_Ham8_off!(Hks_temp, NO0, NO1, NumOLG, GridListAtom, GListTAtoms1,
 
         temp = Vpot_Grid[MN]
         for ist = 1:NO0
-            Sum = temp * Orbs_Grid1[ist][Nc]
-            for jst = 1:NO1
-                Hks_temp[jst,ist] += Sum * Orbs_Grid2[jst][Nh]
+            Sum = temp * Orbs_Grid1[Nc][ist]
+            @inbounds for jst = 1:NO1
+                Hks_temp[jst,ist] += Sum * Orbs_Grid2[Nh][jst]
             end
         end
     end
 end
-
-
 
 
 function _Calc_Ham8_on!(Hks_temp, NO0, NO1, NumOLG, GridListAtom, GListTAtoms1, GListTAtoms2, Orbs_Grid1, Orbs_Grid2, Vpot_Grid)
@@ -407,14 +401,14 @@ function _Calc_Ham8_on!(Hks_temp, NO0, NO1, NumOLG, GridListAtom, GListTAtoms1, 
 
 		for ist = 1:NO0
 
-			orbs1_0 = Orbs_Grid1[ist][Nc0]
-			orbs1_1 = Orbs_Grid1[ist][Nc1]
-			orbs1_2 = Orbs_Grid1[ist][Nc2]
-			orbs1_3 = Orbs_Grid1[ist][Nc3]
-			orbs1_4 = Orbs_Grid1[ist][Nc4]
-			orbs1_5 = Orbs_Grid1[ist][Nc5]
-			orbs1_6 = Orbs_Grid1[ist][Nc6]
-			orbs1_7 = Orbs_Grid1[ist][Nc7]
+			orbs1_0 = Orbs_Grid1[Nc0][ist]
+			orbs1_1 = Orbs_Grid1[Nc1][ist]
+			orbs1_2 = Orbs_Grid1[Nc2][ist]
+			orbs1_3 = Orbs_Grid1[Nc3][ist]
+			orbs1_4 = Orbs_Grid1[Nc4][ist]
+			orbs1_5 = Orbs_Grid1[Nc5][ist]
+			orbs1_6 = Orbs_Grid1[Nc6][ist]
+			orbs1_7 = Orbs_Grid1[Nc7][ist]
 
 			Sum0_up = temp0_up * orbs1_0
 			Sum1_up = temp1_up * orbs1_1
@@ -434,33 +428,37 @@ function _Calc_Ham8_on!(Hks_temp, NO0, NO1, NumOLG, GridListAtom, GListTAtoms1, 
 			Sum6_dn = temp6_dn * orbs1_6
 			Sum7_dn = temp7_dn * orbs1_7
 
-			for jst = 1:NO1
-				orbs2_0 = Orbs_Grid2[jst][Nh0]
-				orbs2_1 = Orbs_Grid2[jst][Nh1]
-				orbs2_2 = Orbs_Grid2[jst][Nh2]
-				orbs2_3 = Orbs_Grid2[jst][Nh3]
-				orbs2_4 = Orbs_Grid2[jst][Nh4]
-				orbs2_5 = Orbs_Grid2[jst][Nh5]
-				orbs2_6 = Orbs_Grid2[jst][Nh6]
-				orbs2_7 = Orbs_Grid2[jst][Nh7]
+			@inbounds for jst = 1:NO1
+				orbs2_0 = Orbs_Grid2[Nh0][jst]
+				orbs2_1 = Orbs_Grid2[Nh1][jst]
+				orbs2_2 = Orbs_Grid2[Nh2][jst]
+				orbs2_3 = Orbs_Grid2[Nh3][jst]
+				orbs2_4 = Orbs_Grid2[Nh4][jst]
+				orbs2_5 = Orbs_Grid2[Nh5][jst]
+				orbs2_6 = Orbs_Grid2[Nh6][jst]
+				orbs2_7 = Orbs_Grid2[Nh7][jst]
 
-				Hks_temp[jst,ist,1] += Sum0_up * orbs2_0
-				Hks_temp[jst,ist,1] += Sum1_up * orbs2_1
-				Hks_temp[jst,ist,1] += Sum2_up * orbs2_2
-				Hks_temp[jst,ist,1] += Sum3_up * orbs2_3
-				Hks_temp[jst,ist,1] += Sum4_up * orbs2_4
-				Hks_temp[jst,ist,1] += Sum5_up * orbs2_5
-				Hks_temp[jst,ist,1] += Sum6_up * orbs2_6
-				Hks_temp[jst,ist,1] += Sum7_up * orbs2_7
+				tmp = 0.0
+				tmp += Sum0_up * orbs2_0
+				tmp += Sum1_up * orbs2_1
+				tmp += Sum2_up * orbs2_2
+				tmp += Sum3_up * orbs2_3
+				tmp += Sum4_up * orbs2_4
+				tmp += Sum5_up * orbs2_5
+				tmp += Sum6_up * orbs2_6
+				tmp += Sum7_up * orbs2_7
+				Hks_temp[jst,ist,1] += tmp
 
-				Hks_temp[jst,ist,2] += Sum0_dn * orbs2_0
-				Hks_temp[jst,ist,2] += Sum1_dn * orbs2_1
-				Hks_temp[jst,ist,2] += Sum2_dn * orbs2_2
-				Hks_temp[jst,ist,2] += Sum3_dn * orbs2_3
-				Hks_temp[jst,ist,2] += Sum4_dn * orbs2_4
-				Hks_temp[jst,ist,2] += Sum5_dn * orbs2_5
-				Hks_temp[jst,ist,2] += Sum6_dn * orbs2_6
-				Hks_temp[jst,ist,2] += Sum7_dn * orbs2_7
+				tmp = 0.0
+				tmp += Sum0_dn * orbs2_0
+				tmp += Sum1_dn * orbs2_1
+				tmp += Sum2_dn * orbs2_2
+				tmp += Sum3_dn * orbs2_3
+				tmp += Sum4_dn * orbs2_4
+				tmp += Sum5_dn * orbs2_5
+				tmp += Sum6_dn * orbs2_6
+				tmp += Sum7_dn * orbs2_7
+				Hks_temp[jst,ist,2] += tmp
 			end
 		end
 	end
@@ -476,19 +474,17 @@ function _Calc_Ham8_on!(Hks_temp, NO0, NO1, NumOLG, GridListAtom, GListTAtoms1, 
         temp_up = Vpot_Grid[1][MN]
         temp_dn = Vpot_Grid[2][MN]
         for ist = 1:NO0
-			orbs1 = Orbs_Grid1[ist][Nc]
+			orbs1 = Orbs_Grid1[Nc][ist]
             Sum_up = temp_up * orbs1
             Sum_dn = temp_dn * orbs1
-            for jst = 1:NO1
-				orbs2 = Orbs_Grid2[jst][Nh]
+            @inbounds for jst = 1:NO1
+				orbs2 = Orbs_Grid2[Nh][jst]
                 Hks_temp[jst,ist,1] += Sum_up * orbs2
                 Hks_temp[jst,ist,2] += Sum_dn * orbs2
             end
         end
     end
 end
-
-
 
 
 function _Calc_Ham8_nc!(Hks_temp, NO0, NO1, NumOLG, GridListAtom, GListTAtoms1, GListTAtoms2, Orbs_Grid1, Orbs_Grid2, Vpot_Grid)
@@ -560,14 +556,14 @@ function _Calc_Ham8_nc!(Hks_temp, NO0, NO1, NumOLG, GridListAtom, GListTAtoms1, 
 
 		for ist = 1:NO0
 
-			orbs1_0 = Orbs_Grid1[ist][Nc0]
-			orbs1_1 = Orbs_Grid1[ist][Nc1]
-			orbs1_2 = Orbs_Grid1[ist][Nc2]
-			orbs1_3 = Orbs_Grid1[ist][Nc3]
-			orbs1_4 = Orbs_Grid1[ist][Nc4]
-			orbs1_5 = Orbs_Grid1[ist][Nc5]
-			orbs1_6 = Orbs_Grid1[ist][Nc6]
-			orbs1_7 = Orbs_Grid1[ist][Nc7]
+			orbs1_0 = Orbs_Grid1[Nc0][ist]
+			orbs1_1 = Orbs_Grid1[Nc1][ist]
+			orbs1_2 = Orbs_Grid1[Nc2][ist]
+			orbs1_3 = Orbs_Grid1[Nc3][ist]
+			orbs1_4 = Orbs_Grid1[Nc4][ist]
+			orbs1_5 = Orbs_Grid1[Nc5][ist]
+			orbs1_6 = Orbs_Grid1[Nc6][ist]
+			orbs1_7 = Orbs_Grid1[Nc7][ist]
 
 			Sum0_uu = temp0_uu * orbs1_0
 			Sum1_uu = temp1_uu * orbs1_1
@@ -605,52 +601,60 @@ function _Calc_Ham8_nc!(Hks_temp, NO0, NO1, NumOLG, GridListAtom, GListTAtoms1, 
 			Sum6_ud_i = temp6_ud_i * orbs1_6
 			Sum7_ud_i = temp7_ud_i * orbs1_7
 
-			for jst = 1:NO1
+			@inbounds for jst = 1:NO1
 
-				orbs2_0 = Orbs_Grid2[jst][Nh0]
-				orbs2_1 = Orbs_Grid2[jst][Nh1]
-				orbs2_2 = Orbs_Grid2[jst][Nh2]
-				orbs2_3 = Orbs_Grid2[jst][Nh3]
-				orbs2_4 = Orbs_Grid2[jst][Nh4]
-				orbs2_5 = Orbs_Grid2[jst][Nh5]
-				orbs2_6 = Orbs_Grid2[jst][Nh6]
-				orbs2_7 = Orbs_Grid2[jst][Nh7]
+				orbs2_0 = Orbs_Grid2[Nh0][jst]
+				orbs2_1 = Orbs_Grid2[Nh1][jst]
+				orbs2_2 = Orbs_Grid2[Nh2][jst]
+				orbs2_3 = Orbs_Grid2[Nh3][jst]
+				orbs2_4 = Orbs_Grid2[Nh4][jst]
+				orbs2_5 = Orbs_Grid2[Nh5][jst]
+				orbs2_6 = Orbs_Grid2[Nh6][jst]
+				orbs2_7 = Orbs_Grid2[Nh7][jst]
 
-				Hks_temp[jst,ist,1] += Sum0_uu * orbs2_0
-				Hks_temp[jst,ist,1] += Sum1_uu * orbs2_1
-				Hks_temp[jst,ist,1] += Sum2_uu * orbs2_2
-				Hks_temp[jst,ist,1] += Sum3_uu * orbs2_3
-				Hks_temp[jst,ist,1] += Sum4_uu * orbs2_4
-				Hks_temp[jst,ist,1] += Sum5_uu * orbs2_5
-				Hks_temp[jst,ist,1] += Sum6_uu * orbs2_6
-				Hks_temp[jst,ist,1] += Sum7_uu * orbs2_7
+				tmp = 0.0
+				tmp += Sum0_uu * orbs2_0
+				tmp += Sum1_uu * orbs2_1
+				tmp += Sum2_uu * orbs2_2
+				tmp += Sum3_uu * orbs2_3
+				tmp += Sum4_uu * orbs2_4
+				tmp += Sum5_uu * orbs2_5
+				tmp += Sum6_uu * orbs2_6
+				tmp += Sum7_uu * orbs2_7
+				Hks_temp[jst,ist,1] += tmp
 
-				Hks_temp[jst,ist,2] += Sum0_dd * orbs2_0
-				Hks_temp[jst,ist,2] += Sum1_dd * orbs2_1
-				Hks_temp[jst,ist,2] += Sum2_dd * orbs2_2
-				Hks_temp[jst,ist,2] += Sum3_dd * orbs2_3
-				Hks_temp[jst,ist,2] += Sum4_dd * orbs2_4
-				Hks_temp[jst,ist,2] += Sum5_dd * orbs2_5
-				Hks_temp[jst,ist,2] += Sum6_dd * orbs2_6
-				Hks_temp[jst,ist,2] += Sum7_dd * orbs2_7
+				tmp = 0.0
+				tmp += Sum0_dd * orbs2_0
+				tmp += Sum1_dd * orbs2_1
+				tmp += Sum2_dd * orbs2_2
+				tmp += Sum3_dd * orbs2_3
+				tmp += Sum4_dd * orbs2_4
+				tmp += Sum5_dd * orbs2_5
+				tmp += Sum6_dd * orbs2_6
+				tmp += Sum7_dd * orbs2_7
+				Hks_temp[jst,ist,2] += tmp
 
-				Hks_temp[jst,ist,3] += Sum0_ud_r * orbs2_0
-				Hks_temp[jst,ist,3] += Sum1_ud_r * orbs2_1
-				Hks_temp[jst,ist,3] += Sum2_ud_r * orbs2_2
-				Hks_temp[jst,ist,3] += Sum3_ud_r * orbs2_3
-				Hks_temp[jst,ist,3] += Sum4_ud_r * orbs2_4
-				Hks_temp[jst,ist,3] += Sum5_ud_r * orbs2_5
-				Hks_temp[jst,ist,3] += Sum6_ud_r * orbs2_6
-				Hks_temp[jst,ist,3] += Sum7_ud_r * orbs2_7
+				tmp = 0.0
+				tmp += Sum0_ud_r * orbs2_0
+				tmp += Sum1_ud_r * orbs2_1
+				tmp += Sum2_ud_r * orbs2_2
+				tmp += Sum3_ud_r * orbs2_3
+				tmp += Sum4_ud_r * orbs2_4
+				tmp += Sum5_ud_r * orbs2_5
+				tmp += Sum6_ud_r * orbs2_6
+				tmp += Sum7_ud_r * orbs2_7
+				Hks_temp[jst,ist,3] += tmp
 
-				Hks_temp[jst,ist,4] += Sum0_ud_i * orbs2_0
-				Hks_temp[jst,ist,4] += Sum1_ud_i * orbs2_1
-				Hks_temp[jst,ist,4] += Sum2_ud_i * orbs2_2
-				Hks_temp[jst,ist,4] += Sum3_ud_i * orbs2_3
-				Hks_temp[jst,ist,4] += Sum4_ud_i * orbs2_4
-				Hks_temp[jst,ist,4] += Sum5_ud_i * orbs2_5
-				Hks_temp[jst,ist,4] += Sum6_ud_i * orbs2_6
-				Hks_temp[jst,ist,4] += Sum7_ud_i * orbs2_7
+				tmp = 0.0
+				tmp += Sum0_ud_i * orbs2_0
+				tmp += Sum1_ud_i * orbs2_1
+				tmp += Sum2_ud_i * orbs2_2
+				tmp += Sum3_ud_i * orbs2_3
+				tmp += Sum4_ud_i * orbs2_4
+				tmp += Sum5_ud_i * orbs2_5
+				tmp += Sum6_ud_i * orbs2_6
+				tmp += Sum7_ud_i * orbs2_7
+				Hks_temp[jst,ist,4] += tmp
 			end
 		end
 	end
@@ -668,13 +672,13 @@ function _Calc_Ham8_nc!(Hks_temp, NO0, NO1, NumOLG, GridListAtom, GListTAtoms1, 
         temp_ud_r = Vpot_Grid[3][MN]
         temp_ud_i = Vpot_Grid[4][MN]
         for ist = 1:NO0
-			orbs1 = Orbs_Grid1[ist][Nc]
+			orbs1 = Orbs_Grid1[Nc][ist]
             Sum_uu = temp_uu * orbs1
             Sum_dd = temp_dd * orbs1
             Sum_ud_r = temp_ud_r * orbs1
             Sum_ud_i = temp_ud_i * orbs1
-            for jst = 1:NO1
-				orbs2 = Orbs_Grid2[jst][Nh]
+            @inbounds for jst = 1:NO1
+				orbs2 = Orbs_Grid2[Nh][jst]
                 Hks_temp[jst,ist,1] += Sum_uu * orbs2
                 Hks_temp[jst,ist,2] += Sum_dd * orbs2
                 Hks_temp[jst,ist,3] += Sum_ud_r * orbs2

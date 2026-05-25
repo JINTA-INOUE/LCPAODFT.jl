@@ -77,11 +77,11 @@ function Set_OLP_Kinforce!(OLP_force, Hkin_force, pao::Vector{PAO}, system_grid:
     MPI_natn = system_grid.MPI_natn
     MPI_ncn = system_grid.MPI_ncn
     Total_Hsize = system_grid.Total_Hsize
-    MPHks = system_grid.MPHks
     MPI_Hsize = system_grid.MPI_Hsize
+    MPHks = system_grid.MPHks
     MPI_size = system_grid.MPI_size
-    HksNum = MPHks[myrank+1]
     myHsize = MPI_Hsize[myrank+1]
+    HksNum = MPHks[myrank+1]
 
     natn = system_grid.natn
     FNAN = system_grid.FNAN
@@ -90,12 +90,10 @@ function Set_OLP_Kinforce!(OLP_force, Hkin_force, pao::Vector{PAO}, system_grid:
     Total_NumOrbs = system_grid.Total_NumOrbs
 
 
-    MPI_OLPx = zeros(Float64, myHsize)
-    MPI_OLPy = zeros(Float64, myHsize)
-    MPI_OLPz = zeros(Float64, myHsize)
-    MPI_Hkinx = zeros(Float64, myHsize)
-    MPI_Hkiny = zeros(Float64, myHsize)
-    MPI_Hkinz = zeros(Float64, myHsize)
+    Hkinforce1D = Vector{Vector{Float64}}(undef, 3)
+    for xyz = 1:3
+        Hkinforce1D[xyz] = zeros(Float64, myHsize)
+    end 
 
 
  
@@ -299,59 +297,51 @@ function Set_OLP_Kinforce!(OLP_force, Hkin_force, pao::Vector{PAO}, system_grid:
             if abs(siT) < 1.0e-13
                 for ist = 1:NO0, jst = 1:NO1
                     hst += 1
-                    MPI_OLPx[hst] = -8*real(siT*coP*OLPriαjβ[ist,jst] + coT*coP/R*OLPtiαjβ[ist,jst])
-                    MPI_OLPy[hst] = -8*real(siT*siP*OLPriαjβ[ist,jst] + coT*siP/R*OLPtiαjβ[ist,jst])
-                    MPI_OLPz[hst] = -8*real(coT*OLPriαjβ[ist,jst] - siT/R*OLPtiαjβ[ist,jst])
-                    MPI_Hkinx[hst] = -4*real(siT*coP*Hkinriαjβ[ist,jst] + coT*coP/R*Hkintiαjβ[ist,jst])
-                    MPI_Hkiny[hst] = -4*real(siT*siP*Hkinriαjβ[ist,jst] + coT*siP/R*Hkintiαjβ[ist,jst])
-                    MPI_Hkinz[hst] = -4*real(coT*Hkinriαjβ[ist,jst] - siT/R*Hkintiαjβ[ist,jst])
+                    OLP_force[1][HksNum+hst] = -8*real(siT*coP*OLPriαjβ[ist,jst] + coT*coP/R*OLPtiαjβ[ist,jst])
+                    OLP_force[2][HksNum+hst] = -8*real(siT*siP*OLPriαjβ[ist,jst] + coT*siP/R*OLPtiαjβ[ist,jst])
+                    OLP_force[3][HksNum+hst] = -8*real(coT*OLPriαjβ[ist,jst] - siT/R*OLPtiαjβ[ist,jst])
+                    Hkinforce1D[1][hst] = -4*real(siT*coP*Hkinriαjβ[ist,jst] + coT*coP/R*Hkintiαjβ[ist,jst])
+                    Hkinforce1D[2][hst] = -4*real(siT*siP*Hkinriαjβ[ist,jst] + coT*siP/R*Hkintiαjβ[ist,jst])
+                    Hkinforce1D[3][hst] = -4*real(coT*Hkinriαjβ[ist,jst] - siT/R*Hkintiαjβ[ist,jst])
                 end
             else
                 for ist = 1:NO0, jst = 1:NO1
                     hst += 1
-                    MPI_OLPx[hst] = -8*real(siT*coP*OLPriαjβ[ist,jst] + coT*coP/R*OLPtiαjβ[ist,jst] - siP/siT/R*OLPpiαjβ[ist,jst])
-                    MPI_OLPy[hst] = -8*real(siT*siP*OLPriαjβ[ist,jst] + coT*siP/R*OLPtiαjβ[ist,jst] + coP/siT/R*OLPpiαjβ[ist,jst])
-                    MPI_OLPz[hst] = -8*real(coT*OLPriαjβ[ist,jst] - siT/R*OLPtiαjβ[ist,jst])
-                    MPI_Hkinx[hst] = -4*real(siT*coP*Hkinriαjβ[ist,jst] + coT*coP/R*Hkintiαjβ[ist,jst] - siP/siT/R*Hkinpiαjβ[ist,jst])
-                    MPI_Hkiny[hst] = -4*real(siT*siP*Hkinriαjβ[ist,jst] + coT*siP/R*Hkintiαjβ[ist,jst] + coP/siT/R*Hkinpiαjβ[ist,jst])
-                    MPI_Hkinz[hst] = -4*real(coT*Hkinriαjβ[ist,jst] - siT/R*Hkintiαjβ[ist,jst])
+                    OLP_force[1][HksNum+hst] = -8*real(siT*coP*OLPriαjβ[ist,jst] + coT*coP/R*OLPtiαjβ[ist,jst] - siP/siT/R*OLPpiαjβ[ist,jst])
+                    OLP_force[2][HksNum+hst] = -8*real(siT*siP*OLPriαjβ[ist,jst] + coT*siP/R*OLPtiαjβ[ist,jst] + coP/siT/R*OLPpiαjβ[ist,jst])
+                    OLP_force[3][HksNum+hst] = -8*real(coT*OLPriαjβ[ist,jst] - siT/R*OLPtiαjβ[ist,jst])
+                    Hkinforce1D[1][hst] = -4*real(siT*coP*Hkinriαjβ[ist,jst] + coT*coP/R*Hkintiαjβ[ist,jst] - siP/siT/R*Hkinpiαjβ[ist,jst])
+                    Hkinforce1D[2][hst] = -4*real(siT*siP*Hkinriαjβ[ist,jst] + coT*siP/R*Hkintiαjβ[ist,jst] + coP/siT/R*Hkinpiαjβ[ist,jst])
+                    Hkinforce1D[3][hst] = -4*real(coT*Hkinriαjβ[ist,jst] - siT/R*Hkintiαjβ[ist,jst])
                 end
             end
         else
             for ist = 1:NO0, jst = 1:NO1
                 hst += 1
-                MPI_OLPx[hst] = 0.0
-                MPI_OLPy[hst] = 0.0
-                MPI_OLPz[hst] = 0.0
-                MPI_Hkinx[hst] = 0.0
-                MPI_Hkiny[hst] = 0.0
-                MPI_Hkinz[hst] = 0.0
+                OLP_force[1][HksNum+hst] = 0.0
+                OLP_force[2][HksNum+hst] = 0.0
+                OLP_force[3][HksNum+hst] = 0.0
+                Hkinforce1D[1][hst] = 0.0
+                Hkinforce1D[2][hst] = 0.0
+                Hkinforce1D[3][hst] = 0.0
             end
         end
     end
-    MPI.Barrier(comm)
-
     
 
-    Hkinforce1Dx = zeros(Float64, Total_Hsize)
-    Hkinforce1Dy = zeros(Float64, Total_Hsize)
-    Hkinforce1Dz = zeros(Float64, Total_Hsize)
-    
-    MPI.Allgatherv!(MPI_OLPx, VBuffer(OLP_force[1], MPI_Hsize), comm)
-    MPI.Allgatherv!(MPI_OLPy, VBuffer(OLP_force[2], MPI_Hsize), comm)
-    MPI.Allgatherv!(MPI_OLPz, VBuffer(OLP_force[3], MPI_Hsize), comm)
-    MPI.Allgatherv!(MPI_Hkinx, VBuffer(Hkinforce1Dx, MPI_Hsize), comm)
-    MPI.Allgatherv!(MPI_Hkiny, VBuffer(Hkinforce1Dy, MPI_Hsize), comm)
-    MPI.Allgatherv!(MPI_Hkinz, VBuffer(Hkinforce1Dz, MPI_Hsize), comm)
 
 
+    MPI.Allreduce!(OLP_force[1], MPI.SUM, comm)
+    MPI.Allreduce!(OLP_force[2], MPI.SUM, comm)
+    MPI.Allreduce!(OLP_force[3], MPI.SUM, comm)
 
-    counts = 0
-    for atom = 1:Natom, Rn = 1:FNAN[atom]+1, ist = 1:Total_NumOrbs[atom], jst = 1:Total_NumOrbs[natn[atom][Rn]]
-        counts += 1
-        Hkin_force[1][atom][Rn][ist][jst] = Hkinforce1Dx[counts]
-        Hkin_force[2][atom][Rn][ist][jst] = Hkinforce1Dy[counts]
-        Hkin_force[3][atom][Rn][ist][jst] = Hkinforce1Dz[counts]
+    Hkinforce1Dxyz = zeros(Float64, Total_Hsize)
+    for i = 1:3
+        MPI.Allgatherv!(Hkinforce1D[i], VBuffer(Hkinforce1Dxyz, MPI_Hsize), comm)
+        hst = 0
+        for atom = 1:Natom, Rn = 1:FNAN[atom]+1, ist = 1:Total_NumOrbs[atom], jst = 1:Total_NumOrbs[natn[atom][Rn]]
+            hst += 1
+            Hkin_force[i][atom][Rn][ist][jst] = Hkinforce1Dxyz[hst]
+        end
     end
-    MPI.Barrier(comm)
 end

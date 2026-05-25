@@ -11,9 +11,9 @@ function Set_DS_VNAforce(pao::Vector{PAO}, pspot::Vector{Pspot}, system_grid::Sy
 
     maxFNAN = maximum(FNAN)
 	maxTotal_NumOrbs = maximum(Total_NumOrbs)
-	DS_VNAforce = Vector{Vector{Vector{Vector{Vector{Float32}}}}}(undef, 4)
+	DS_VNAforce = Vector{Vector{Vector{Vector{Vector{Float64}}}}}(undef, 4)
 	for xyz = 1:4
-		DS_VNAforce[xyz] = Vector{Vector{Vector{Vector{Float32}}}}(undef, Natom+1)
+		DS_VNAforce[xyz] = Vector{Vector{Vector{Vector{Float64}}}}(undef, Natom+1)
 		for atom = 1:Natom+1
 			if atom == Natom+1
 				fan = maxFNAN+1
@@ -22,11 +22,11 @@ function Set_DS_VNAforce(pao::Vector{PAO}, pspot::Vector{Pspot}, system_grid::Sy
 				fan = FNAN[atom]+1
 				NO0 = Total_NumOrbs[atom]
 			end
-			DS_VNAforce[xyz][atom] = Vector{Vector{Vector{Float32}}}(undef, fan)
+			DS_VNAforce[xyz][atom] = Vector{Vector{Vector{Float64}}}(undef, fan)
 			for Rn = 1:fan
-				DS_VNAforce[xyz][atom][Rn] = Vector{Vector{Float32}}(undef, NO0)
+				DS_VNAforce[xyz][atom][Rn] = Vector{Vector{Float64}}(undef, NO0)
 				for ist = 1:NO0
-					DS_VNAforce[xyz][atom][Rn][ist] = zeros(Float32, VNATotal_Num)
+					DS_VNAforce[xyz][atom][Rn][ist] = zeros(Float64, VNATotal_Num)
 				end
 			end
 		end
@@ -124,14 +124,23 @@ function Set_DS_VNAforce!(DS_VNAforce, pao::Vector{PAO}, pspot::Vector{Pspot}, s
 	Gxyz = system_grid.Gxyz
 
 
+    # Set MPI_DS_VNAsize
+    MPI_DS_VNAsize = zeros(Int32, nprocs)
+
     myDS_VNAsize = 0
     for loop = 1:MPI_size, ist = 1:Total_NumOrbs[MPI_atom[loop]], jst = 1:VNATotal_Num
         myDS_VNAsize += 1
     end
-    MPI_DS_VNA1D = zeros(Float32, myDS_VNAsize)
-    MPI_DS_VNA1Dx = zeros(Float32, myDS_VNAsize)
-    MPI_DS_VNA1Dy = zeros(Float32, myDS_VNAsize)
-    MPI_DS_VNA1Dz = zeros(Float32, myDS_VNAsize)
+    
+    MPI_DS_VNAsize[myrank+1] = myDS_VNAsize
+    Total_DS_VNAsize = MPI.Allreduce(myDS_VNAsize, MPI.SUM, comm)
+    MPI.Allreduce!(MPI_DS_VNAsize, MPI.SUM, comm)
+
+
+    MPI_DS_VNA = Vector{Vector{Float64}}(undef, 4)
+    for xyz = 1:4
+        MPI_DS_VNA[xyz] = zeros(Float64, myDS_VNAsize)
+    end
 
     
 
@@ -149,7 +158,7 @@ function Set_DS_VNAforce!(DS_VNAforce, pao::Vector{PAO}, pspot::Vector{Pspot}, s
         Set_Comp2Real!(Ciα[spe], pao[spe].Spe_MaxL_Basis, pao[spe].Spe_Num_Basis)
         conj!(Ciα[spe])
     end
-    Cjβ = Set_VNAComp2Real( maxL )
+    Cjβ = Set_VNAComp2Real(maxL)
 
 
     f = zeros(Float64, S3J_MAX_FACT)
@@ -189,7 +198,7 @@ function Set_DS_VNAforce!(DS_VNAforce, pao::Vector{PAO}, pspot::Vector{Pspot}, s
 
 
     MPI.Barrier(comm)
-    counts = 0
+    hst = 0
     for loop = 1:MPI_size
 
         atom = MPI_atom[loop]
@@ -311,28 +320,28 @@ function Set_DS_VNAforce!(DS_VNAforce, pao::Vector{PAO}, pspot::Vector{Pspot}, s
         if Rn ≠ 1
             if abs(siT) < 1.0e-13
                 for ist = 1:NO0, jst = 1:VNATotal_Num
-                    counts += 1
-                    MPI_DS_VNA1D[counts] = 8*real(VNAiαjβ[ist,jst])
-                    MPI_DS_VNA1Dx[counts] = -8*real(siT*coP*VNAriαjβ[ist,jst] + coT*coP/R*VNAtiαjβ[ist,jst])
-                    MPI_DS_VNA1Dy[counts] = -8*real(siT*siP*VNAriαjβ[ist,jst] + coT*siP/R*VNAtiαjβ[ist,jst])
-                    MPI_DS_VNA1Dz[counts] = -8*real(coT*VNAriαjβ[ist,jst] - siT/R*VNAtiαjβ[ist,jst])
+                    hst += 1
+                    MPI_DS_VNA[1][hst] = 8*real(VNAiαjβ[ist,jst])
+                    MPI_DS_VNA[2][hst] = -8*real(siT*coP*VNAriαjβ[ist,jst] + coT*coP/R*VNAtiαjβ[ist,jst])
+                    MPI_DS_VNA[3][hst] = -8*real(siT*siP*VNAriαjβ[ist,jst] + coT*siP/R*VNAtiαjβ[ist,jst])
+                    MPI_DS_VNA[4][hst] = -8*real(coT*VNAriαjβ[ist,jst] - siT/R*VNAtiαjβ[ist,jst])
                 end
             else
                 for ist = 1:NO0, jst = 1:VNATotal_Num
-                    counts += 1
-                    MPI_DS_VNA1D[counts] = 8*real(VNAiαjβ[ist,jst])
-                    MPI_DS_VNA1Dx[counts] = -8*real(siT*coP*VNAriαjβ[ist,jst] + coT*coP/R*VNAtiαjβ[ist,jst] - siP/siT/R*VNApiαjβ[ist,jst])
-                    MPI_DS_VNA1Dy[counts] = -8*real(siT*siP*VNAriαjβ[ist,jst] + coT*siP/R*VNAtiαjβ[ist,jst] + coP/siT/R*VNApiαjβ[ist,jst])
-                    MPI_DS_VNA1Dz[counts] = -8*real(coT*VNAriαjβ[ist,jst] - siT/R*VNAtiαjβ[ist,jst])
+                    hst += 1
+                    MPI_DS_VNA[1][hst] = 8*real(VNAiαjβ[ist,jst])
+                    MPI_DS_VNA[2][hst] = -8*real(siT*coP*VNAriαjβ[ist,jst] + coT*coP/R*VNAtiαjβ[ist,jst] - siP/siT/R*VNApiαjβ[ist,jst])
+                    MPI_DS_VNA[3][hst] = -8*real(siT*siP*VNAriαjβ[ist,jst] + coT*siP/R*VNAtiαjβ[ist,jst] + coP/siT/R*VNApiαjβ[ist,jst])
+                    MPI_DS_VNA[4][hst] = -8*real(coT*VNAriαjβ[ist,jst] - siT/R*VNAtiαjβ[ist,jst])
                 end
             end
         else
             for ist = 1:NO0, jst = 1:VNATotal_Num
-                counts += 1
-                MPI_DS_VNA1D[counts] = 8*real(VNAiαjβ[ist,jst])
-                MPI_DS_VNA1Dx[counts] = 0.0
-                MPI_DS_VNA1Dy[counts] = 0.0
-                MPI_DS_VNA1Dz[counts] = 0.0
+                hst += 1
+                MPI_DS_VNA[1][hst] = 8*real(VNAiαjβ[ist,jst])
+                MPI_DS_VNA[2][hst] = 0.0
+                MPI_DS_VNA[3][hst] = 0.0
+                MPI_DS_VNA[4][hst] = 0.0
             end
         end
     end
@@ -357,54 +366,28 @@ function Set_DS_VNAforce!(DS_VNAforce, pao::Vector{PAO}, pspot::Vector{Pspot}, s
     end
 
     
-    counts = 0
+    hst = 0
     for loop = 1:MPI_size
         atom = MPI_atom[loop]
         jatom = MPI_natn[loop]
         for ist = 1:Total_NumOrbs[atom], jst = 1:VNATotal_Num
             ene = VNAE[jatom][jst]
-            counts += 1
-            MPI_DS_VNA1Dx[counts] = ene*MPI_DS_VNA1Dx[counts]
-            MPI_DS_VNA1Dy[counts] = ene*MPI_DS_VNA1Dy[counts]
-            MPI_DS_VNA1Dz[counts] = ene*MPI_DS_VNA1Dz[counts]
+            hst += 1
+            MPI_DS_VNA[2][hst] = ene*MPI_DS_VNA[2][hst]
+            MPI_DS_VNA[3][hst] = ene*MPI_DS_VNA[3][hst]
+            MPI_DS_VNA[4][hst] = ene*MPI_DS_VNA[4][hst]
         end
     end
-    MPI.Barrier(comm)
-
-  
-
-    Total_DS_VNAsize = MPI.Allreduce(myDS_VNAsize, MPI.SUM, comm) 
-
-    _counts = zeros(Int64, nprocs)
-    for id = 1:nprocs
-        if id-1 == myrank
-            _counts[id] = myDS_VNAsize
-        end
-        MPI.Barrier(comm)
-    end
-    MPI.Barrier(comm)
-
-    MPI_DS_VNAsize = zeros(Int64, nprocs)
-    MPI.Allreduce!(_counts, MPI_DS_VNAsize, nprocs, MPI.SUM, comm)  
 
 
-    
-    MPI_DS_VNAxyz = zeros(Float32, Total_DS_VNAsize)
+    MPI_DS_VNAxyz = zeros(Float64, Total_DS_VNAsize)
+
     for i = 1:4
-        if i == 1
-            MPI.Allgatherv!(MPI_DS_VNA1D, VBuffer(MPI_DS_VNAxyz, MPI_DS_VNAsize), comm)
-        elseif i == 2
-            MPI.Allgatherv!(MPI_DS_VNA1Dx, VBuffer(MPI_DS_VNAxyz, MPI_DS_VNAsize), comm)
-        elseif i == 3
-            MPI.Allgatherv!(MPI_DS_VNA1Dy, VBuffer(MPI_DS_VNAxyz, MPI_DS_VNAsize), comm)
-        elseif i == 4
-            MPI.Allgatherv!(MPI_DS_VNA1Dz, VBuffer(MPI_DS_VNAxyz, MPI_DS_VNAsize), comm)
-        end
-
-        counts = 0
-        for atom = 1:Natom, Rn = 1:FNAN[atom]+1, ist = 1:Total_NumOrbs[atom], jst = 1:VNATotal_Num
-            counts += 1
-            DS_VNAforce[i][atom][Rn][ist][jst] = MPI_DS_VNAxyz[counts]
+        MPI.Allgatherv!(MPI_DS_VNA[i], VBuffer(MPI_DS_VNAxyz, MPI_DS_VNAsize), comm)
+        hst = 0
+        @inbounds for atom = 1:Natom, Rn = 1:FNAN[atom]+1, ist = 1:Total_NumOrbs[atom], jst = 1:VNATotal_Num
+            hst += 1
+            DS_VNAforce[i][atom][Rn][ist][jst] = MPI_DS_VNAxyz[hst]
         end
     end
 end
@@ -480,7 +463,7 @@ function Set_HVNA2_3force!(HVNA2force, HVNA3force, pao::Vector{PAO}, pspot::Vect
     for spe = 1:Nspecies
         Spe_CrudeVNA_Bessel[spe] = zeros(Float64, GL_Mesh)
     end
-    FT_VNA!( pao, pspot, Spe_CrudeVNA_Bessel )
+    FT_VNA!(pao, pspot, Spe_CrudeVNA_Bessel)
 
     for spe = 1:Nspecies
         @. Spe_CrudeVNA_Bessel[spe] = 0.5*Dk*GL_Weight*k1*k1*Spe_CrudeVNA_Bessel[spe]
@@ -517,7 +500,7 @@ function Set_HVNA2_3force!(HVNA2force, HVNA3force, pao::Vector{PAO}, pspot::Vect
     end
 
     for spe = 1:Nspecies
-        FT_ProductPAO!( pao[spe], pspot[spe].Spe_VPS_RV[begin], Spe_ProductRF_Bessel[spe] )
+        FT_ProductPAO!(pao[spe], pspot[spe].Spe_VPS_RV[begin], Spe_ProductRF_Bessel[spe])
     end
 
 
@@ -532,22 +515,34 @@ function Set_HVNA2_3force!(HVNA2force, HVNA3force, pao::Vector{PAO}, pspot::Vect
     MPI_size = system_grid.MPI_size
 
 
+    # Set MPI_HVNA2size, MPI_HVNA3size
+    MPI_HVNA2size = zeros(Int32, nprocs)
     myHVNA2size = 0
     for loop = 1:MPI_size, ist = 1:Total_NumOrbs[MPI_atom[loop]], jst = 1:Total_NumOrbs[MPI_atom[loop]]
         myHVNA2size += 1
     end
 
+    MPI_HVNA3size = zeros(Int32, nprocs)
     myHVNA3size = 0
     for loop = 1:MPI_size, ist = 1:Total_NumOrbs[MPI_natn[loop]], jst = 1:Total_NumOrbs[MPI_natn[loop]]
         myHVNA3size += 1
     end
 
-    MPI_HVNA21Dx = zeros(Float64, myHVNA2size)
-    MPI_HVNA21Dy = zeros(Float64, myHVNA2size)
-    MPI_HVNA21Dz = zeros(Float64, myHVNA2size)
-    MPI_HVNA31Dx = zeros(Float64, myHVNA3size)
-    MPI_HVNA31Dy = zeros(Float64, myHVNA3size)
-    MPI_HVNA31Dz = zeros(Float64, myHVNA3size)
+    MPI_HVNA2size[myrank+1] = myHVNA2size
+    MPI_HVNA3size[myrank+1] = myHVNA3size
+    MPI.Allreduce!(MPI_HVNA2size, MPI.SUM, comm)
+    MPI.Allreduce!(MPI_HVNA3size, MPI.SUM, comm)
+
+
+    Total_HVNA2size = MPI.Allreduce(myHVNA2size, MPI.SUM, comm) 
+    Total_HVNA3size = MPI.Allreduce(myHVNA3size, MPI.SUM, comm) 
+
+    MPI_HVNA2 = Vector{Vector{Float64}}(undef, 3)
+    MPI_HVNA3 = Vector{Vector{Float64}}(undef, 3)
+    for xyz = 1:3
+        MPI_HVNA2[xyz] = zeros(Float64, myHVNA2size)
+        MPI_HVNA3[xyz] = zeros(Float64, myHVNA3size)
+    end
      
 
 
@@ -578,7 +573,7 @@ function Set_HVNA2_3force!(HVNA2force, HVNA3force, pao::Vector{PAO}, pspot::Vect
     Cjβ = Vector{Matrix{ComplexF64}}(undef, Nspecies)
     for spe = 1:Nspecies
         Ciα[spe] = zeros(ComplexF64, fsize, fsize)
-        Set_Comp2Real!( Ciα[spe], pao[spe].Spe_MaxL_Basis, pao[spe].Spe_Num_Basis )
+        Set_Comp2Real!(Ciα[spe], pao[spe].Spe_MaxL_Basis, pao[spe].Spe_Num_Basis)
         Cjβ[spe] = deepcopy(Ciα[spe])
         conj!(Ciα[spe])
     end
@@ -614,9 +609,8 @@ function Set_HVNA2_3force!(HVNA2force, HVNA3force, pao::Vector{PAO}, pspot::Vect
     dSHp = zeros(Float64, 2)
 
 
-    MPI.Barrier(comm)
-    counts1 = 0
-    counts2 = 0
+    hst2 = 0
+    hst3 = 0
     for loop = 1:MPI_size
 
         atom = MPI_atom[loop]
@@ -842,104 +836,73 @@ function Set_HVNA2_3force!(HVNA2force, HVNA3force, pao::Vector{PAO}, pspot::Vect
         if Rn ≠ 1
             if abs(siT2) < 1.0e-13
                 for ist = 1:NO2, jst = 1:NO2
-                    counts1 += 1
-                    MPI_HVNA21Dx[counts1] = -8*real(siT2*coP2*VNA2riαjβ[ist,jst] + coT2*coP2/R*VNA2tiαjβ[ist,jst])
-                    MPI_HVNA21Dy[counts1] = -8*real(siT2*siP2*VNA2riαjβ[ist,jst] + coT2*siP2/R*VNA2tiαjβ[ist,jst])
-                    MPI_HVNA21Dz[counts1] = -8*real(coT2*VNA2riαjβ[ist,jst] - siT2/R*VNA2tiαjβ[ist,jst])
+                    hst2 += 1
+                    MPI_HVNA2[1][hst2] = -8*real(siT2*coP2*VNA2riαjβ[ist,jst] + coT2*coP2/R*VNA2tiαjβ[ist,jst])
+                    MPI_HVNA2[2][hst2] = -8*real(siT2*siP2*VNA2riαjβ[ist,jst] + coT2*siP2/R*VNA2tiαjβ[ist,jst])
+                    MPI_HVNA2[3][hst2] = -8*real(coT2*VNA2riαjβ[ist,jst] - siT2/R*VNA2tiαjβ[ist,jst])
                 end
             else
                 for ist = 1:NO2, jst = 1:NO2
-                    counts1 += 1
-                    MPI_HVNA21Dx[counts1] = -8*real(siT2*coP2*VNA2riαjβ[ist,jst] + coT2*coP2/R*VNA2tiαjβ[ist,jst] - siP2/siT2/R*VNA2piαjβ[ist,jst])
-                    MPI_HVNA21Dy[counts1] = -8*real(siT2*siP2*VNA2riαjβ[ist,jst] + coT2*siP2/R*VNA2tiαjβ[ist,jst] + coP2/siT2/R*VNA2piαjβ[ist,jst])
-                    MPI_HVNA21Dz[counts1] = -8*real(coT2*VNA2riαjβ[ist,jst] - siT2/R*VNA2tiαjβ[ist,jst])
+                    hst2 += 1
+                    MPI_HVNA2[1][hst2] = -8*real(siT2*coP2*VNA2riαjβ[ist,jst] + coT2*coP2/R*VNA2tiαjβ[ist,jst] - siP2/siT2/R*VNA2piαjβ[ist,jst])
+                    MPI_HVNA2[2][hst2] = -8*real(siT2*siP2*VNA2riαjβ[ist,jst] + coT2*siP2/R*VNA2tiαjβ[ist,jst] + coP2/siT2/R*VNA2piαjβ[ist,jst])
+                    MPI_HVNA2[3][hst2] = -8*real(coT2*VNA2riαjβ[ist,jst] - siT2/R*VNA2tiαjβ[ist,jst])
                 end
             end
 
             if abs(siT3) < 1.0e-13
                 for ist = 1:NO3, jst = 1:NO3
-                    counts2 += 1
-                    MPI_HVNA31Dx[counts2] = -8*real(siT3*coP3*VNA3riαjβ[ist,jst] + coT3*coP3/R*VNA3tiαjβ[ist,jst])
-                    MPI_HVNA31Dy[counts2] = -8*real(siT3*siP3*VNA3riαjβ[ist,jst] + coT3*siP3/R*VNA3tiαjβ[ist,jst])
-                    MPI_HVNA31Dz[counts2] = -8*real(coT3*VNA3riαjβ[ist,jst] - siT3/R*VNA3tiαjβ[ist,jst])
+                    hst3 += 1
+                    MPI_HVNA3[1][hst3] = -8*real(siT3*coP3*VNA3riαjβ[ist,jst] + coT3*coP3/R*VNA3tiαjβ[ist,jst])
+                    MPI_HVNA3[2][hst3] = -8*real(siT3*siP3*VNA3riαjβ[ist,jst] + coT3*siP3/R*VNA3tiαjβ[ist,jst])
+                    MPI_HVNA3[3][hst3] = -8*real(coT3*VNA3riαjβ[ist,jst] - siT3/R*VNA3tiαjβ[ist,jst])
                 end
             else
                 for ist = 1:NO3, jst = 1:NO3
-                    counts2 += 1
-                    MPI_HVNA31Dx[counts2] = -8*real(siT3*coP3*VNA3riαjβ[ist,jst] + coT3*coP3/R*VNA3tiαjβ[ist,jst] - siP3/siT3/R*VNA3piαjβ[ist,jst])
-                    MPI_HVNA31Dy[counts2] = -8*real(siT3*siP3*VNA3riαjβ[ist,jst] + coT3*siP3/R*VNA3tiαjβ[ist,jst] + coP3/siT3/R*VNA3piαjβ[ist,jst])
-                    MPI_HVNA31Dz[counts2] = -8*real(coT3*VNA3riαjβ[ist,jst] - siT3/R*VNA3tiαjβ[ist,jst])
+                    hst3 += 1
+                    MPI_HVNA3[1][hst3] = -8*real(siT3*coP3*VNA3riαjβ[ist,jst] + coT3*coP3/R*VNA3tiαjβ[ist,jst] - siP3/siT3/R*VNA3piαjβ[ist,jst])
+                    MPI_HVNA3[2][hst3] = -8*real(siT3*siP3*VNA3riαjβ[ist,jst] + coT3*siP3/R*VNA3tiαjβ[ist,jst] + coP3/siT3/R*VNA3piαjβ[ist,jst])
+                    MPI_HVNA3[3][hst3] = -8*real(coT3*VNA3riαjβ[ist,jst] - siT3/R*VNA3tiαjβ[ist,jst])
                 end
             end
         else
             for ist = 1:NO2, jst = 1:NO2
-                counts1 += 1
-                MPI_HVNA21Dx[counts1] = 0.0
-                MPI_HVNA21Dy[counts1] = 0.0
-                MPI_HVNA21Dz[counts1] = 0.0
+                hst2 += 1
+                MPI_HVNA2[1][hst2] = 0.0
+                MPI_HVNA2[2][hst2] = 0.0
+                MPI_HVNA2[3][hst2] = 0.0
             end
 
             for ist = 1:NO3, jst = 1:NO3
-                counts2 += 1
-                MPI_HVNA31Dx[counts2] = 0.0
-                MPI_HVNA31Dy[counts2] = 0.0
-                MPI_HVNA31Dz[counts2] = 0.0
+                hst3 += 1
+                MPI_HVNA3[1][hst3] = 0.0
+                MPI_HVNA3[2][hst3] = 0.0
+                MPI_HVNA3[3][hst3] = 0.0
             end
         end
     end
-    MPI.Barrier(comm)
 
 
+    
 
-    Total_HVNA2size = MPI.Allreduce(myHVNA2size, MPI.SUM, comm) 
-    Total_HVNA3size = MPI.Allreduce(myHVNA3size, MPI.SUM, comm) 
-
-    _counts2 = zeros(Int64, nprocs)
-    _counts3 = zeros(Int64, nprocs)
-    for id = 1:nprocs
-        if id-1 == myrank
-            _counts2[id] = myHVNA2size
-            _counts3[id] = myHVNA3size
+    MPI_HVNA2xyz = zeros(Float64, Total_HVNA2size)
+    MPI_HVNA3xyz = zeros(Float64, Total_HVNA3size)
+    
+    for i = 1:3
+        MPI.Allgatherv!(MPI_HVNA2[i], VBuffer(MPI_HVNA2xyz, MPI_HVNA2size), comm)
+        hst = 0
+        for atom = 1:Natom, Rn = 1:FNAN[atom]+1, ist = 1:Total_NumOrbs[atom], jst = 1:Total_NumOrbs[atom]
+            hst += 1
+            HVNA2force[i][atom][Rn][ist][jst] = MPI_HVNA2xyz[hst]
         end
-        MPI.Barrier(comm)
-    end
-    MPI.Barrier(comm)
-
-    MPI_HVNA2size = zeros(Int64, nprocs)
-    MPI_HVNA3size = zeros(Int64, nprocs)
-    MPI.Allreduce!(_counts2, MPI_HVNA2size, nprocs, MPI.SUM, comm)  
-    MPI.Allreduce!(_counts3, MPI_HVNA3size, nprocs, MPI.SUM, comm)  
-
-
-    MPI_HVNA2x = zeros(Float64, Total_HVNA2size)
-    MPI_HVNA2y = zeros(Float64, Total_HVNA2size)
-    MPI_HVNA2z = zeros(Float64, Total_HVNA2size)
-    MPI_HVNA3x = zeros(Float64, Total_HVNA3size)
-    MPI_HVNA3y = zeros(Float64, Total_HVNA3size)
-    MPI_HVNA3z = zeros(Float64, Total_HVNA3size)
-
-
-    MPI.Allgatherv!(MPI_HVNA21Dx, VBuffer(MPI_HVNA2x, MPI_HVNA2size), comm)
-    MPI.Allgatherv!(MPI_HVNA21Dy, VBuffer(MPI_HVNA2y, MPI_HVNA2size), comm)
-    MPI.Allgatherv!(MPI_HVNA21Dz, VBuffer(MPI_HVNA2z, MPI_HVNA2size), comm)
-    MPI.Allgatherv!(MPI_HVNA31Dx, VBuffer(MPI_HVNA3x, MPI_HVNA3size), comm)
-    MPI.Allgatherv!(MPI_HVNA31Dy, VBuffer(MPI_HVNA3y, MPI_HVNA3size), comm)
-    MPI.Allgatherv!(MPI_HVNA31Dz, VBuffer(MPI_HVNA3z, MPI_HVNA3size), comm)
-    
-    counts = 0
-    for atom = 1:Natom, Rn = 1:FNAN[atom]+1, ist = 1:Total_NumOrbs[atom], jst = 1:Total_NumOrbs[atom]
-        counts += 1
-        HVNA2force[1][atom][Rn][ist][jst] = MPI_HVNA2x[counts]
-        HVNA2force[2][atom][Rn][ist][jst] = MPI_HVNA2y[counts]
-        HVNA2force[3][atom][Rn][ist][jst] = MPI_HVNA2z[counts]
+        
+        MPI.Allgatherv!(MPI_HVNA3[i], VBuffer(MPI_HVNA3xyz, MPI_HVNA3size), comm)
+        hst = 0
+        for atom = 1:Natom, Rn = 1:FNAN[atom]+1, ist = 1:Total_NumOrbs[natn[atom][Rn]], jst = 1:Total_NumOrbs[natn[atom][Rn]]
+            hst += 1
+            HVNA3force[i][atom][Rn][ist][jst] = MPI_HVNA3xyz[hst]
+        end
     end
     
-    counts = 0
-    for atom = 1:Natom, Rn = 1:FNAN[atom]+1, ist = 1:Total_NumOrbs[natn[atom][Rn]], jst = 1:Total_NumOrbs[natn[atom][Rn]]
-        counts += 1
-        HVNA3force[1][atom][Rn][ist][jst] = MPI_HVNA3x[counts]
-        HVNA3force[2][atom][Rn][ist][jst] = MPI_HVNA3y[counts]
-        HVNA3force[3][atom][Rn][ist][jst] = MPI_HVNA3z[counts]
-    end
     MPI.Barrier(comm)
 end

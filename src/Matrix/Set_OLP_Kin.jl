@@ -17,7 +17,7 @@
     k1 = zeros(Float64, NkGrid+1)
     k2 = zeros(Float64, NkGrid+1)
     dk = (Nkmax-Radial_kmin)/NkGrid
-    for ik = 1:NkGrid
+    for ik = 1:NkGrid+1
         k1[ik] = Radial_kmin + (ik-1)*dk
     end
     @. k2 = k1^2
@@ -29,16 +29,13 @@
     MPI_atom = system_grid.MPI_atom
     MPI_natn = system_grid.MPI_natn
     MPI_ncn = system_grid.MPI_ncn
-    MPI_Hsize = system_grid.MPI_Hsize
     MPI_size = system_grid.MPI_size
-    myHsize = MPI_Hsize[myrank+1]
+    MPHks = system_grid.MPHks
+    Hks_Num = MPHks[myrank+1]
     atv = system_grid.atv
 	Gxyz = system_grid.Gxyz
     Total_NumOrbs = system_grid.Total_NumOrbs
 
-
-    MPI_OLP = zeros(Float64, myHsize)
-    MPI_Hkin = zeros(Float64, myHsize)
 
 
  
@@ -67,7 +64,6 @@
     tmpH = zeros(ComplexF64, fsize)
 
 
-    MPI.Barrier(comm)
     hst = 0
     for loop = 1:MPI_size
 
@@ -117,7 +113,7 @@
                 for l = 0:iMaxL_Basis, p = 1:iNum_Basis[l+1], m = -l:l
                     jst = 0
                     ist += 1
-                    for ll = 0:jMaxL_Basis, pp = 1:jNum_Basis[ll+1], mm = -ll:ll
+                    @inbounds for ll = 0:jMaxL_Basis, pp = 1:jNum_Basis[ll+1], mm = -ll:ll
                         jst += 1
                         if abs(ll-L) <= l <= abs(ll+L) && iszero(m-mm-M) && abs(m-M) <= ll
                             Ylm = Ylm_complex(L,M,x,y,z)
@@ -150,13 +146,12 @@
         
         for ist = 1:NO0, jst = 1:NO1
             hst += 1
-            MPI_OLP[hst] = 8*real(OLPiαjβ[ist,jst])
-            MPI_Hkin[hst] = 4*real(Hkiniαjβ[ist,jst])
+            OLP[Hks_Num+hst] = 8*real(OLPiαjβ[ist,jst])
+            Hkin[Hks_Num+hst] = 4*real(Hkiniαjβ[ist,jst])
         end
     end
-    MPI.Barrier(comm)
 
 
-    MPI.Allgatherv!(MPI_OLP,VBuffer(OLP,MPI_Hsize),comm)
-    MPI.Allgatherv!(MPI_Hkin,VBuffer(Hkin,MPI_Hsize),comm)
+    MPI.Allreduce!(OLP, MPI.SUM, comm)
+    MPI.Allreduce!(Hkin, MPI.SUM, comm)
 end

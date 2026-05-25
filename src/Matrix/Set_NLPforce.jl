@@ -29,7 +29,7 @@ function Set_NLPforce(pao::Vector{PAO}, pspot::Vector{Pspot}, system_grid::Syste
     maxFNAN = maximum(FNAN)
 	maxTotal_NumOrbs = maximum(Total_NumOrbs)
     maxVPS_j_Num = maximum(VPS_j_Num)
-	maxNLTotal_Num = maximum(NLTotal_Num)+2
+	maxNLTotal_Num = maximum(NLTotal_Num)
     NLPforce = Vector{Vector{Vector{Vector{Vector{Vector{Float64}}}}}}(undef, 4)
     for xyz = 1:4
         NLPforce[xyz] = Vector{Vector{Vector{Vector{Vector{Float64}}}}}(undef, Natom+1)
@@ -50,7 +50,7 @@ function Set_NLPforce(pao::Vector{PAO}, pspot::Vector{Pspot}, system_grid::Syste
                 else
                     jatom = natn[atom][Rn]
                     VPS_j_dependency = VPS_j_Num[jatom]
-                    NO1 = NLTotal_Num[jatom]+2
+                    NO1 = NLTotal_Num[jatom]
                 end
                 
                 NLPforce[xyz][atom][Rn] = Vector{Vector{Vector{Float64}}}(undef, NO0)
@@ -142,15 +142,18 @@ function Set_NLPforce!(NLPforce, pao::Vector{PAO}, pspot::Vector{Pspot}, system_
     MPI_FNAN = system_grid.MPI_FNAN
     MPI_natn = system_grid.MPI_natn
     MPI_ncn = system_grid.MPI_ncn
-    myNloop = system_grid.MPI_size
+    MPI_size = system_grid.MPI_size
     FNAN = system_grid.FNAN
     natn = system_grid.natn
     atv = system_grid.atv
 	Gxyz = system_grid.Gxyz
 
 
+    # Set MPI_NLPsize
+    MPI_NLPsize = zeros(Int32, nprocs)
+
     myNLPsize = 0
-    for loop = 1:myNloop
+    for loop = 1:MPI_size
         atom = MPI_atom[loop]
         jatom = MPI_natn[loop]
         jspe = atom2spe[jatom]
@@ -160,10 +163,15 @@ function Set_NLPforce!(NLPforce, pao::Vector{PAO}, pspot::Vector{Pspot}, system_
         end
     end
 
-    MPI_NLP1D = zeros(Float64, myNLPsize)
-    MPI_NLP1Dx = zeros(Float64, myNLPsize)
-    MPI_NLP1Dy = zeros(Float64, myNLPsize)
-    MPI_NLP1Dz = zeros(Float64, myNLPsize)
+    MPI_NLPsize[myrank+1] = myNLPsize
+    Total_NLPsize = MPI.Allreduce(myNLPsize, MPI.SUM, comm)
+    MPI.Allreduce!(MPI_NLPsize, MPI.SUM, comm)
+
+
+    MPI_NLP = Vector{Vector{Float64}}(undef, 4)
+    for xyz = 1:4
+        MPI_NLP[xyz] = zeros(Float64, myNLPsize)
+    end
 
 
 
@@ -220,10 +228,8 @@ function Set_NLPforce!(NLPforce, pao::Vector{PAO}, pspot::Vector{Pspot}, system_
 
 
 
-
-    MPI.Barrier(comm)
-    counts = 0
-    for loop = 1:myNloop
+    hst = 0
+    for loop = 1:MPI_size
 
         atom = MPI_atom[loop]
         ispe = atom2spe[atom]
@@ -353,75 +359,47 @@ function Set_NLPforce!(NLPforce, pao::Vector{PAO}, pspot::Vector{Pspot}, system_
             if Rn ≠ 1
                 if abs(siT) < 1.0e-13
                     for ist = 1:NO0, jst = 1:NO1
-                        counts += 1
-                        MPI_NLP1D[counts] = 8*real(NLPiαjβ[ist,jst])
-                        MPI_NLP1Dx[counts] = -8*real(siT*coP*NLPriαjβ[ist,jst] + coT*coP/R*NLPtiαjβ[ist,jst])
-                        MPI_NLP1Dy[counts] = -8*real(siT*siP*NLPriαjβ[ist,jst] + coT*siP/R*NLPtiαjβ[ist,jst])
-                        MPI_NLP1Dz[counts] = -8*real(coT*NLPriαjβ[ist,jst] - siT/R*NLPtiαjβ[ist,jst])
+                        hst += 1
+                        MPI_NLP[1][hst] = 8*real(NLPiαjβ[ist,jst])
+                        MPI_NLP[2][hst] = -8*real(siT*coP*NLPriαjβ[ist,jst] + coT*coP/R*NLPtiαjβ[ist,jst])
+                        MPI_NLP[3][hst] = -8*real(siT*siP*NLPriαjβ[ist,jst] + coT*siP/R*NLPtiαjβ[ist,jst])
+                        MPI_NLP[4][hst] = -8*real(coT*NLPriαjβ[ist,jst] - siT/R*NLPtiαjβ[ist,jst])
                     end
                 else
                     for ist = 1:NO0, jst = 1:NO1
-                        counts += 1
-                        MPI_NLP1D[counts] = 8*real(NLPiαjβ[ist,jst])
-                        MPI_NLP1Dx[counts] = -8*real(siT*coP*NLPriαjβ[ist,jst] + coT*coP/R*NLPtiαjβ[ist,jst] - siP/siT/R*NLPpiαjβ[ist,jst])
-                        MPI_NLP1Dy[counts] = -8*real(siT*siP*NLPriαjβ[ist,jst] + coT*siP/R*NLPtiαjβ[ist,jst] + coP/siT/R*NLPpiαjβ[ist,jst])
-                        MPI_NLP1Dz[counts] = -8*real(coT*NLPriαjβ[ist,jst] - siT/R*NLPtiαjβ[ist,jst])
+                        hst += 1
+                        MPI_NLP[1][hst] = 8*real(NLPiαjβ[ist,jst])
+                        MPI_NLP[2][hst] = -8*real(siT*coP*NLPriαjβ[ist,jst] + coT*coP/R*NLPtiαjβ[ist,jst] - siP/siT/R*NLPpiαjβ[ist,jst])
+                        MPI_NLP[3][hst] = -8*real(siT*siP*NLPriαjβ[ist,jst] + coT*siP/R*NLPtiαjβ[ist,jst] + coP/siT/R*NLPpiαjβ[ist,jst])
+                        MPI_NLP[4][hst] = -8*real(coT*NLPriαjβ[ist,jst] - siT/R*NLPtiαjβ[ist,jst])
                     end
                 end
             else
                 for ist = 1:NO0, jst = 1:NO1
-                    counts += 1
-                    MPI_NLP1D[counts] = 8*real(NLPiαjβ[ist,jst])
-                    MPI_NLP1Dx[counts] = 0.0
-                    MPI_NLP1Dy[counts] = 0.0
-                    MPI_NLP1Dz[counts] = 0.0
+                    hst += 1
+                    MPI_NLP[1][hst] = 8*real(NLPiαjβ[ist,jst])
+                    MPI_NLP[2][hst] = 0.0
+                    MPI_NLP[3][hst] = 0.0
+                    MPI_NLP[4][hst] = 0.0
                 end
             end
         end
     end
-    MPI.Barrier(comm)
-    
-
-
-
-    Total_NLPsize = MPI.Allreduce(myNLPsize, MPI.SUM, comm) 
-
-    _counts = zeros(Int64, nprocs)
-    for id = 1:nprocs
-        if id-1 == myrank
-            _counts[id] = myNLPsize
-        end
-        MPI.Barrier(comm)
-    end
-    MPI.Barrier(comm)
-
-    MPI_NLPsize = zeros(Int64, nprocs)
-    MPI.Allreduce!(_counts, MPI_NLPsize, nprocs, MPI.SUM, comm)  
-
-
-    MPI_NLP = zeros(Float64, Total_NLPsize)
-    MPI_NLPx = zeros(Float64, Total_NLPsize)
-    MPI_NLPy = zeros(Float64, Total_NLPsize)
-    MPI_NLPz = zeros(Float64, Total_NLPsize)
-
-    MPI.Allgatherv!(MPI_NLP1D, VBuffer(MPI_NLP, MPI_NLPsize), comm)
-    MPI.Allgatherv!(MPI_NLP1Dx, VBuffer(MPI_NLPx, MPI_NLPsize), comm)
-    MPI.Allgatherv!(MPI_NLP1Dy, VBuffer(MPI_NLPy, MPI_NLPsize), comm)
-    MPI.Allgatherv!(MPI_NLP1Dz, VBuffer(MPI_NLPz, MPI_NLPsize), comm)
 
     
     
-    counts = 0
-    for atom = 1:Natom, Rn = 1:FNAN[atom]+1
-        jatom = natn[atom][Rn]
-        jspe = atom2spe[jatom]
-        VPS_j_dependency = pspot[jspe].VPS_j_dependency
-        for so = 1:VPS_j_dependency+1, ist = 1:Total_NumOrbs[atom], jst = 1:NLTotal_Num[jatom]
-            counts += 1
-            NLPforce[1][atom][Rn][ist][so][jst] = MPI_NLP[counts]
-            NLPforce[2][atom][Rn][ist][so][jst] = MPI_NLPx[counts]
-            NLPforce[3][atom][Rn][ist][so][jst] = MPI_NLPy[counts]
-            NLPforce[4][atom][Rn][ist][so][jst] = MPI_NLPz[counts]
+    MPI_DS_NLPxyz = zeros(Float64, Total_NLPsize)
+    for i = 1:4
+        MPI.Allgatherv!(MPI_NLP[i], VBuffer(MPI_DS_NLPxyz, MPI_NLPsize), comm)
+        hst = 0
+        for atom = 1:Natom, Rn = 1:FNAN[atom]+1
+            jatom = natn[atom][Rn]
+            jspe = atom2spe[jatom]
+            VPS_j_dependency = pspot[jspe].VPS_j_dependency
+            for so = 1:VPS_j_dependency+1, ist = 1:Total_NumOrbs[atom], jst = 1:NLTotal_Num[jatom]
+                hst += 1
+                NLPforce[i][atom][Rn][ist][so][jst] = MPI_DS_NLPxyz[hst]
+            end
         end
     end
     MPI.Barrier(comm)

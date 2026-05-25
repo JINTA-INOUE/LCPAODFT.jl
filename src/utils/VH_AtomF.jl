@@ -1,15 +1,9 @@
-@inline function VH_AtomF(Spe_Core_Charge, N, r, rv, yv)
+@inline function VH_AtomF(Spe_Core_Charge, N, x, r, xv, rv, yv)
     
-    xx = log(r)
+    xmin = xv[1]
+    xmax = xv[N]
 
-    xmin = log(rv[begin])
-    xmax = log(rv[end])
-
-    if r < 1.0e-10
-        r = 1.0e-10
-    end
-
-    if xmax <= xx
+    if xmax <= x
         return Spe_Core_Charge/r
     elseif r < rv[begin]
         
@@ -51,7 +45,7 @@
         return a*r^2 + b
     else
 
-        x = max(xx, xmin)
+        x = max(x, xmin)
         tmp = (N-1)*(x-xmin)/(xmax - xmin)
         i = floor(Int, tmp)
         dt = tmp - i

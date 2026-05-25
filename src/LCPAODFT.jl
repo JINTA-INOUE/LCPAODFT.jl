@@ -67,9 +67,11 @@ export den_min
 const Num_Leb_Grid = 590
 export Num_Leb_Grid
 
-    
-const PAO_File_path = "/Users/user1/.julia/dev/LCPAODFT/DFT_DATA19/PAO/"
-const VPS_File_path = "/Users/user1/.julia/dev/LCPAODFT/DFT_DATA19/VPS/"
+
+# For Read_PAO.jl / Read_VPS.jl
+const home_path = homedir()
+const PAO_File_path = joinpath(home_path, ".julia", "dev", "LCPAODFT", "DFT_DATA19", "PAO", "")
+const VPS_File_path = joinpath(home_path, ".julia", "dev", "LCPAODFT", "DFT_DATA19", "VPS", "")
 export PAO_File_path
 export VPS_File_path
 
@@ -136,6 +138,7 @@ include("XC/LSDA_CA.jl")
 include("XC/XC_PBE.jl")
 include("XC/GGA_PBE.jl")
 export XC_Func
+export Calc_Diff_Coef
 export LDA_CA
 export LSDA_CA
 export Set_ex2primitive!
@@ -367,11 +370,11 @@ export Band_kpath
 
 
 # For Density of State
-include("postprocess/Dos/Write_Dos.jl")
-include("postprocess/Dos/Tetrahedron_Blochl.jl")
-include("postprocess/Dos/Dos_utils.jl")
-include("postprocess/Dos/Dos.jl")
-export DosMain
+# include("postprocess/Dos/Write_Dos.jl")
+# include("postprocess/Dos/Tetrahedron_Blochl.jl")
+# include("postprocess/Dos/Dos_utils.jl")
+# include("postprocess/Dos/Dos.jl")
+# export DosMain
 
 
 # For Closest Wannier Functions

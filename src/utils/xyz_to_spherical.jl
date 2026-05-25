@@ -1,6 +1,6 @@
 function xyz_to_spherical(x, y, z)
 
-    Min_r = 1e-15
+    Min_r = 1e-14
 
     dum = x^2 + y^2
     r = sqrt(dum + z^2)

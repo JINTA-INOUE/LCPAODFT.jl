@@ -1,8 +1,8 @@
-@inline function Dr_KumoF(N, x, rv, yv)
+@inline function Dr_KumoF(N, x, r, xv, rv, yv)
     
-    if x < log(rv[begin])  #   xv[1]
+    if x < xv[1]
         
-        r = exp(x)
+        rr = exp(x)
         m = 5
         rm = rv[m]
 
@@ -35,10 +35,10 @@
 
         a = 0.5*df/rm
 
-        return 2*a*r
+        return 2*a*rr
     else
-        xmin = log(rv[1])     # xv[1]
-        xmax = log(rv[end])   # xv[end]
+        xmin = xv[1]
+        xmax = xv[end]
         x = min(x, xmax)
         x = max(x, xmin)
         tmp1 = (N - 1)/(xmax - xmin)
@@ -55,6 +55,6 @@
         b = -2*d0 + 3*d1 - d2
         c = d0 + d1
 
-        return 0.5*((3*a*dt + 2*b)*dt + c)*tmp1/exp(x)
+        return 0.5*((3*a*dt + 2*b)*dt + c)*tmp1/r
     end 
 end

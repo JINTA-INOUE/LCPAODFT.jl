@@ -58,6 +58,7 @@ function KPoints(kmesh::Tuple{Signed,Signed,Signed}, time_rev::Bool; KP_flag="Gc
     nprocs = MPI.Comm_size(comm)
     myrank = MPI.Comm_rank(comm)
 
+    AllNkpt = prod(kmesh)
     Nkpt, kpts, kweight = Gen_KPoints(kmesh, time_rev; KP_flag)
 
     MPI_krange = split_evenly(1:Nkpt, nprocs)
@@ -66,26 +67,21 @@ function KPoints(kmesh::Tuple{Signed,Signed,Signed}, time_rev::Bool; KP_flag="Gc
     MPI_kpts = kpts[MPI_krange[myrank+1]]
     MPI_kweight = kweight[MPI_krange[myrank+1]]
 
+    MPI_Nkptsize = zeros(Int32, nprocs)
+    MPkpts = zeros(Int32, nprocs)
+    MPI_Nkptsize[myrank+1] = MPI_Nkpt
+    
+    MPI.Allreduce!(MPI_Nkptsize, MPI.SUM, comm)
 
-    _counts = zeros(Int32, nprocs)
-    for id = 1:nprocs
-        if id-1 == myrank
-            _counts[id] = MPI_Nkpt
-        end
-        MPI.Barrier(comm)
-    end
-    MPI.Barrier(comm)
-
-    _counts = MPI.Allreduce(_counts,MPI.SUM,comm)
     MPkpts = zeros(Int32, nprocs)
     Sum = 0
     for id = 1:nprocs
         MPkpts[id] = Sum
-        Sum += _counts[id]
+        Sum += MPI_Nkptsize[id]
     end
-    
+   
 
-    return KPoints(prod(kmesh), Nkpt, MPI_Nkpt, 
+    return KPoints(AllNkpt, Nkpt, MPI_Nkpt, 
                    kmesh, MPI_kpts, 
                    MPI_kweight, kweight, 
                    MPI_krange, MPkpts,
@@ -93,7 +89,7 @@ function KPoints(kmesh::Tuple{Signed,Signed,Signed}, time_rev::Bool; KP_flag="Gc
 end
 
 
-function Gen_KPoints(kmesh::Tuple{Signed,Signed,Signed}, time_rev::Bool; Shift_K_Point=1.0e-8, KP_flag="Gcenter")
+function Gen_KPoints(kmesh::Tuple{Signed,Signed,Signed}, time_rev::Bool; Shift_K_Point=1.0e-12, KP_flag="Gcenter")
 
     if lowercase(KP_flag) == "gcenter"
         if time_rev

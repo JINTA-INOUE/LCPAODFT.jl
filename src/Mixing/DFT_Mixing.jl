@@ -140,8 +140,7 @@ function get_Mixing_weight!(dft_options::DFT_Options, dft_mixing::Mixing)
 
 
     
-    if (sign(HisEele[1] - HisEele[2]) == sign(HisEele[2] - HisEele[3])
-        && NormRD[1] < NormRD[2])
+    if (sign(HisEele[1] - HisEele[2]) == sign(HisEele[2] - HisEele[3]) && NormRD[1] < NormRD[2])
 
         temp = NormRD[2]/max(NormRD[2]-NormRD[1], 1e-10)*Mixing_weight
 
@@ -152,8 +151,7 @@ function get_Mixing_weight!(dft_options::DFT_Options, dft_mixing::Mixing)
             dft_options.SCF_RENZOKU += 1
         end
 
-    elseif (sign(HisEele[1] - HisEele[2]) == sign(HisEele[2] - HisEele[3])
-        && NormRD[2] < NormRD[1])
+    elseif (sign(HisEele[1] - HisEele[2]) == sign(HisEele[2] - HisEele[3]) && NormRD[2] < NormRD[1])
 
         temp = NormRD[2]/max(NormRD[2]+NormRD[1], 1e-10)*Mixing_weight
 
@@ -164,8 +162,7 @@ function get_Mixing_weight!(dft_options::DFT_Options, dft_mixing::Mixing)
         end
         dft_options.SCF_RENZOKU = -1
 
-    elseif (sign(HisEele[1] - HisEele[2]) !== sign(HisEele[2] - HisEele[3])
-        && NormRD[1] < NormRD[2])
+    elseif (sign(HisEele[1] - HisEele[2]) !== sign(HisEele[2] - HisEele[3]) && NormRD[1] < NormRD[2])
 
         temp = NormRD[2]/max(NormRD[2]-NormRD[1], 1e-10)*Mixing_weight
 
@@ -176,8 +173,7 @@ function get_Mixing_weight!(dft_options::DFT_Options, dft_mixing::Mixing)
             dft_options.SCF_RENZOKU += 1
         end
 
-    elseif (sign(HisEele[1] - HisEele[2]) != sign(HisEele[2] - HisEele[3])
-        && NormRD[1] > NormRD[2])
+    elseif (sign(HisEele[1] - HisEele[2]) != sign(HisEele[2] - HisEele[3]) && NormRD[1] > NormRD[2])
 
         temp = NormRD[2]/max(NormRD[2]+NormRD[1], 1e-10)*Mixing_weight
         

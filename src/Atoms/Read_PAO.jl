@@ -7,6 +7,7 @@ struct PAO
     Spe_Total_NumOrbs::Int32
     Spe_Num_Mesh_PAO::Int64
     Spe_Atom_Cut1::Float64
+    Spe_PAO_XV::Vector{Float64}
     Spe_PAO_RV::Vector{Float64}
     Spe_Atomic_Den::Vector{Float64}
     Spe_PAO_Lmax::Int64
@@ -174,6 +175,7 @@ function _Read_PAO(Atom_cutoff, paofile::String)
 
 
     po = 0
+    Spe_PAO_XV = zeros(Float64, Spe_Num_Mesh_PAO)
     Spe_PAO_RV = zeros(Float64, Spe_Num_Mesh_PAO)
     Spe_Atomic_Den = zeros(Float64, Spe_Num_Mesh_PAO+4)
 
@@ -184,6 +186,7 @@ function _Read_PAO(Atom_cutoff, paofile::String)
             if occursin(mark_begin_valence_charge_density, line)
                 for i = 1:Spe_Num_Mesh_PAO
                     line = srline()
+                    Spe_PAO_XV[i] = parse(Float64, split(line)[1])
                     Spe_PAO_RV[i] = parse(Float64, split(line)[2])
                     Spe_Atomic_Den[i+1] = parse(Float64, split(line)[3])
                 end
@@ -217,7 +220,7 @@ function _Read_PAO(Atom_cutoff, paofile::String)
     end
 
     
-    return Spe_Num_Mesh_PAO, Spe_Atom_Cut1, Spe_PAO_RV, Spe_Atomic_Den, Spe_PAO_Lmax, Spe_PAO_Mul, Spe_PAO_RWF
+    return Spe_Num_Mesh_PAO, Spe_Atom_Cut1, Spe_PAO_XV, Spe_PAO_RV, Spe_Atomic_Den, Spe_PAO_Lmax, Spe_PAO_Mul, Spe_PAO_RWF
 end
 
 
@@ -261,7 +264,7 @@ julia> Read_PAO(4.0, "C", 5.0, "s2p2d1", "")
     filename = PAO_Name*".pao" 
 
 
-    Spe_Num_Mesh_PAO, Spe_Atom_Cut1, Spe_PAO_RV, Spe_Atomic_Den, Spe_PAO_Lmax, Spe_PAO_Mul, Spe_PAO_RWF = _Read_PAO(Atom_cutoff, PAO_File_path*filename)
+    Spe_Num_Mesh_PAO, Spe_Atom_Cut1, Spe_PAO_XV, Spe_PAO_RV, Spe_Atomic_Den, Spe_PAO_Lmax, Spe_PAO_Mul, Spe_PAO_RWF = _Read_PAO(Atom_cutoff, PAO_File_path*filename)
 
 
     Spe_MaxL_Basis, Spe_Num_Basis = get_ialpha_index( Atom_orb )
@@ -274,13 +277,15 @@ julia> Read_PAO(4.0, "C", 5.0, "s2p2d1", "")
 
     # re-normalization of atomic charge density
     Sum = 0.0
-    dx = log(Spe_PAO_RV[2]/Spe_PAO_RV[1])
+    dx = Spe_PAO_XV[2] - Spe_PAO_XV[1]
     for i = 1:Spe_Num_Mesh_PAO
-        Sum += Spe_Atomic_Den[i+1]*Spe_PAO_RV[i]^3
+        Sum += Spe_Atomic_Den[i+1]*exp(3*Spe_PAO_XV[i])
     end
     Sum *= 4*pi*dx
 
-    @. Spe_Atomic_Den = Spe_Atomic_Den * Spe_Core_Charge/Sum
+    for i = 1:Spe_Num_Mesh_PAO
+        Spe_Atomic_Den[i+1] = Spe_Atomic_Den[i+1] * Spe_Core_Charge/Sum
+    end
 
     Spe_Atomic_Den[1] = 2*Spe_Atomic_Den[2] - Spe_Atomic_Den[3]
     Spe_Atomic_Den[Spe_Num_Mesh_PAO+2] = 2*Spe_Atomic_Den[Spe_Num_Mesh_PAO+1] - Spe_Atomic_Den[Spe_Num_Mesh_PAO]
@@ -300,7 +305,7 @@ julia> Read_PAO(4.0, "C", 5.0, "s2p2d1", "")
     pao = PAO( Atom_symbol, Atom_orb, Atom_extra,
                Spe_MaxL_Basis, Spe_Num_Basis, Spe_Total_NumOrbs,
                Spe_Num_Mesh_PAO, Spe_Atom_Cut1,
-               Spe_PAO_RV, Spe_Atomic_Den,
+               Spe_PAO_XV, Spe_PAO_RV, Spe_Atomic_Den,
                Spe_PAO_Lmax, Spe_PAO_Mul,
                Spe_PAO_RWF, Spe_RF_Bessel,
                PAO_File_path*filename)

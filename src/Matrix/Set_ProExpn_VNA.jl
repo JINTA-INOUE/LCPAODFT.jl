@@ -114,7 +114,7 @@ function Set_ProExpn!(HVNA, pao::Vector{PAO}, pspot::Vector{Pspot}, system_grid:
             end
         end
     end
-    Calc_VNA_Bessel!( pao, pspot, maxL, VNA_proj_ene, VNA_Bessel )
+    Calc_VNA_Bessel!(pao, pspot, maxL, VNA_proj_ene, VNA_Bessel)
 
     
 
@@ -131,7 +131,7 @@ function Set_ProExpn!(HVNA, pao::Vector{PAO}, pspot::Vector{Pspot}, system_grid:
             end
         end
     end
-    Calc_Bessel_Pro00!( pao, Bessel_Pro00 )
+    Calc_Bessel_Pro00!(pao, Bessel_Pro00)
 
 
 
@@ -142,11 +142,26 @@ function Set_ProExpn!(HVNA, pao::Vector{PAO}, pspot::Vector{Pspot}, system_grid:
     MPI_size = system_grid.MPI_size
 
 
+    MPI_DS_VNAsize = zeros(Int32, nprocs)
+    MP_DS_VNA = zeros(Int32, nprocs)
+
     myDS_VNAsize = 0
     for loop = 1:MPI_size, ist = 1:Total_NumOrbs[MPI_atom[loop]], jst = 1:VNATotal_Num
         myDS_VNAsize += 1
     end
-    MPI_DS_VNA = zeros(Float64, myDS_VNAsize)
+    
+    MPI_DS_VNAsize[myrank+1] = myDS_VNAsize
+    Total_DS_VNAsize = MPI.Allreduce(myDS_VNAsize, MPI.SUM, comm)
+    MPI.Allreduce!(MPI_DS_VNAsize, MPI.SUM, comm)
+
+    Sum = 0
+    for id = 1:nprocs
+        MP_DS_VNA[id] = Sum
+        Sum += MPI_DS_VNAsize[id]
+    end
+    
+    DS_VNA_Num = MP_DS_VNA[myrank+1]
+    MPI_DS_VNA = zeros(Float64, Total_DS_VNAsize)
 
 
 
@@ -221,7 +236,7 @@ function Set_ProExpn!(HVNA, pao::Vector{PAO}, pspot::Vector{Pspot}, system_grid:
 
         for ik = 1:GL_Mesh
             Calc_SphericalBesselj2!(Lmax_Four_Int, R*k1[ik], tsb, SphB_l)
-            for l = 1:Lmax_Four_Int+1
+            @inbounds for l = 1:Lmax_Four_Int+1
                 SphB[l][ik] = SphB_l[l]
             end
         end
@@ -243,7 +258,7 @@ function Set_ProExpn!(HVNA, pao::Vector{PAO}, pspot::Vector{Pspot}, system_grid:
                 for l = 0:iMaxL_Basis, p = 1:iNum_Basis[l+1], m = -l:l
                     jst = 0
                     ist += 1
-                    for lnum = 1:Num_RVNA, mm = -VNA_List[lnum]:VNA_List[lnum]
+                    @inbounds for lnum = 1:Num_RVNA, mm = -VNA_List[lnum]:VNA_List[lnum]
                         ll = VNA_List[lnum]
                         jst += 1
                         if abs(ll-L) <= l <= abs(ll+L) && iszero(m-mm-M) && abs(m-M) <= ll
@@ -265,7 +280,7 @@ function Set_ProExpn!(HVNA, pao::Vector{PAO}, pspot::Vector{Pspot}, system_grid:
         # complex to real
         for ist = 1:NO0
             tot = 1
-            for lnum = 1:Num_RVNA
+            @inbounds for lnum = 1:Num_RVNA
                 ll = VNA_List[lnum]
                 @views mul!(tmpH1[ll+1], Cjβ[ll+1], VNAiαjβ[ist, tot:tot+2*ll])
                 @views VNAiαjβ[ist, tot:tot+2*ll] = tmpH1[ll+1]
@@ -281,38 +296,12 @@ function Set_ProExpn!(HVNA, pao::Vector{PAO}, pspot::Vector{Pspot}, system_grid:
         
         for ist = 1:NO0, jst = 1:VNATotal_Num
             hst += 1
-            MPI_DS_VNA[hst] = 8*real(VNAiαjβ[ist,jst])
+            MPI_DS_VNA[DS_VNA_Num+hst] = 8*real(VNAiαjβ[ist,jst])
         end
     end
-    MPI.Barrier(comm)
 
 
-
-
-    Total_DS_VNAsize = MPI.Allreduce(myDS_VNAsize, MPI.SUM, comm) 
-
-    _counts = zeros(Int64, nprocs)
-    for id = 1:nprocs
-        if id-1 == myrank
-            _counts[id] = myDS_VNAsize
-        end
-        MPI.Barrier(comm)
-    end
-    MPI.Barrier(comm)
-
-    watemp = similar(_counts)
-    MPI.Allreduce!(_counts,watemp,nprocs,MPI.SUM,comm) 
-
-
-    if myrank == 0
-        All_DS_VNA = zeros(Float64, Total_DS_VNAsize)
-        MPI.Gatherv!(MPI_DS_VNA,VBuffer(All_DS_VNA, watemp),comm)
-    else
-        All_DS_VNA = Vector{Float64}(undef, Total_DS_VNAsize)
-        MPI.Gatherv!(MPI_DS_VNA,nothing,0,comm)
-    end
-    MPI.Barrier(comm)
-    MPI.Bcast!(All_DS_VNA, 0, comm)
+    MPI.Allreduce!(MPI_DS_VNA, MPI.SUM, comm) 
 
 
     
@@ -325,15 +314,15 @@ function Set_ProExpn!(HVNA, pao::Vector{PAO}, pspot::Vector{Pspot}, system_grid:
 		for Rn = 1:FNAN[atom]+1
 			DS_VNA[atom][Rn] = Vector{Vector{Float64}}(undef, Total_NumOrbs[atom])
 			for ist = 1:Total_NumOrbs[atom]
-				DS_VNA[atom][Rn][ist] = Vector{Float64}(undef, VNATotal_Num)
+				DS_VNA[atom][Rn][ist] = zeros(Float64, VNATotal_Num)
 			end
 		end
 	end
 
-    count = 0
+    hst = 0
     for atom = 1:Natom, Rn = 1:FNAN[atom]+1, ist = 1:Total_NumOrbs[atom], jst = 1:VNATotal_Num
-        count += 1
-        DS_VNA[atom][Rn][ist][jst] = All_DS_VNA[count]
+        hst += 1
+        DS_VNA[atom][Rn][ist][jst] = MPI_DS_VNA[hst]
     end
 
 
@@ -356,20 +345,20 @@ function Set_ProExpn!(HVNA, pao::Vector{PAO}, pspot::Vector{Pspot}, system_grid:
     end
 
 
-
-    MPI_Hsize = system_grid.MPI_Hsize
-    MPI_HVNA = zeros(Float64, MPI_Hsize[myrank+1])
-
+    MPHks = system_grid.MPHks
+    Hks_Num = MPHks[myrank+1]
 
     Atom_Cut1 = system_grid.Atom_Cut1
-    MPI_Dis = system_grid.MPI_Dis
-    MPI_RMI = system_grid.MPI_RMI
+    MPI_FNAN = system_grid.MPI_FNAN
+    Dis = system_grid.Dis
+    RMI = system_grid.RMI
     HVNA_temp = zeros(Float64, fsize, fsize)
     tmp = zeros(Float64, VNATotal_Num)
-    count = 0
+    hst = 0
     for loop = 1:MPI_size
 
         atom = MPI_atom[loop]
+        Rn = MPI_FNAN[loop]
         jatom = MPI_natn[loop]
         NO0 = Total_NumOrbs[atom]
         NO1 = Total_NumOrbs[jatom]
@@ -377,9 +366,9 @@ function Set_ProExpn!(HVNA, pao::Vector{PAO}, pspot::Vector{Pspot}, system_grid:
 
         for Rm = 1:FNAN[atom]+1
             kg = natn[atom][Rm]
-            kl = MPI_RMI[loop][Rm]
+            kl = RMI[atom][Rn][Rm]
             if kl >= 0
-                for ist = 1:NO0, jst = 1:NO1
+                @inbounds for ist = 1:NO0, jst = 1:NO1
                     @. tmp = DS_VNA[jatom][kl+1][jst]*VNAE[kg]
                     HVNA_temp[ist,jst] += dot(DS_VNA[atom][Rm][ist], tmp)
                 end
@@ -388,17 +377,14 @@ function Set_ProExpn!(HVNA, pao::Vector{PAO}, pspot::Vector{Pspot}, system_grid:
 
 
         rcut = Atom_Cut1[atom] + Atom_Cut1[jatom]
-        dmp = dampingF(rcut, MPI_Dis[loop])
+        dmp = dampingF(rcut, Dis[atom][Rn])
         for ist = 1:NO0, jst = 1:NO1
-            count += 1
-            MPI_HVNA[count] = dmp * HVNA_temp[ist,jst]
+            hst += 1
+            HVNA[Hks_Num+hst] = dmp * HVNA_temp[ist,jst]
         end
     end
-    MPI.Barrier(comm)
 
-
-
-    MPI.Allgatherv!(MPI_HVNA,VBuffer(HVNA,MPI_Hsize),comm)
+    MPI.Allreduce!(HVNA, MPI.SUM, comm)
 end
 
 
@@ -500,11 +486,24 @@ function Set_VNA2!(HVNA2, pao::Vector{PAO}, pspot::Vector{Pspot}, system_grid::S
     MPI_size = system_grid.MPI_size
 
 
+    MPI_HVNA2size = zeros(Int32, nprocs)
+    MP_HVNA2 = zeros(Int32, nprocs)
+
     myHVNA2size = 0
     for loop = 1:MPI_size, _ = 1:Total_NumOrbs[MPI_atom[loop]], _ = 1:Total_NumOrbs[MPI_atom[loop]]
         myHVNA2size += 1
     end
-    MPI_HVNA2 = zeros(Float64, myHVNA2size)
+    MPI_HVNA2size[myrank+1] = myHVNA2size
+    MPI.Allreduce!(MPI_HVNA2size, MPI.SUM, comm)
+
+    Sum = 0
+    for id = 1:nprocs
+        MP_HVNA2[id] = Sum
+        Sum += MPI_HVNA2size[id]
+    end
+
+    HVNA2_Num = MP_HVNA2[myrank+1]
+
 
 
     
@@ -553,7 +552,7 @@ function Set_VNA2!(HVNA2, pao::Vector{PAO}, pspot::Vector{Pspot}, system_grid::S
 
 
     MPI.Barrier(comm)
-    counts = 0
+    hst = 0
     for loop = 1:MPI_size
 
         atom = MPI_atom[loop]
@@ -605,7 +604,7 @@ function Set_VNA2!(HVNA2, pao::Vector{PAO}, pspot::Vector{Pspot}, system_grid::S
                 jst += 1
                 if l <= ll
                     Lmax_Four_Int = 2*ll
-                    for L = 0:Lmax_Four_Int, M = -L:L
+                    @inbounds for L = 0:Lmax_Four_Int, M = -L:L
                         if abs(ll-L) <= l <= ll+L && iszero(m-mm+M)
                             gaunt = (-1.0)^abs(M)*Gaunt(f,l,m,ll,mm,L,-M)
                             Ylm = Ylm_complex(L,M,x,y,z)
@@ -645,28 +644,11 @@ function Set_VNA2!(HVNA2, pao::Vector{PAO}, pspot::Vector{Pspot}, system_grid::S
 
             
         for ist = 1:NO0, jst = 1:NO1
-            counts += 1
-            MPI_HVNA2[counts] = 8*real(VNA2iαjβ[ist,jst])
+            hst += 1
+            HVNA2[HVNA2_Num+hst] = 8*real(VNA2iαjβ[ist,jst])
         end
     end
-    MPI.Barrier(comm)
 
 
-
-
-
-    _counts = zeros(Int64, nprocs)
-    for id = 1:nprocs
-        if id-1 == myrank
-            _counts[id] = myHVNA2size
-        end
-        MPI.Barrier(comm)
-    end
-    MPI.Barrier(comm)
-
-    MPI_HVNA2size = similar(_counts)
-    MPI.Allreduce!(_counts, MPI_HVNA2size, nprocs, MPI.SUM, comm) 
-
-
-    MPI.Allgatherv!(MPI_HVNA2, VBuffer(HVNA2, MPI_HVNA2size), comm)
+    MPI.Allreduce!(HVNA2, MPI.SUM, comm)
 end

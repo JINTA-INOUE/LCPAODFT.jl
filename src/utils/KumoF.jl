@@ -1,6 +1,6 @@
-@inline function KumoF(N, x, rv, yv)
+@inline function KumoF(N, x, xv, rv, yv)
     
-    if x < log(rv[1])  #   xv[1]
+    if x < xv[1]
         
         r = exp(x)
         m = 5
@@ -39,8 +39,8 @@
 
         return a*r*r + b
     else
-        xmin = log(rv[1])     # xv[1]
-        xmax = log(rv[end])   # xv[end]
+        xmin = xv[1]
+        xmax = xv[end]
         x = min(x, xmax)
         x = max(x, xmin)
         tmp = (N-1)*(x-xmin)/(xmax - xmin)

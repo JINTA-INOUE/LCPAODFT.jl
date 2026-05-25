@@ -1,12 +1,11 @@
-@inline function Dr_VH_AtomF(Spe_Core_Charge, N, R, rv, yv)
+@inline function Dr_VH_AtomF(Spe_Core_Charge, N, x, r, xv, rv, yv)
     
-    x = log(R)
-    xmin = log(rv[begin])
-    xmax = log(rv[end])
+    xmin = xv[1]
+    xmax = xv[N]
 
     if xmax <= x
-        return -Spe_Core_Charge/R^2
-    elseif R < rv[1]
+        return -Spe_Core_Charge/r^2
+    elseif r < rv[1]
         
         m = 5
         rm = rv[m]
@@ -41,7 +40,7 @@
 
         a = 0.5*df/rm
 
-        return 2*a*R
+        return 2*a*r
     else
         x = max(x, xmin)
         tmp1 = (N - 1)/(xmax - xmin)
@@ -58,6 +57,6 @@
         b = -2*d0 + 3*d1 - d2
         c = d0 + d1
 
-        return 0.5*((3*a*dt + 2*b)*dt + c)*tmp1/R
+        return 0.5*((3*a*dt + 2*b)*dt + c)*tmp1/r
     end 
 end

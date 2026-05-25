@@ -33,7 +33,7 @@
         NO1 = Total_NumOrbs[jatom]
         
         DMst = 0
-        for ist = 1:NO0, jst = 1:NO1
+        @inbounds for ist = 1:NO0, jst = 1:NO1
             DMst += 1
             DM_atom[jst,ist] = DM[1][DMnum+DMsum+DMst]
         end
@@ -41,14 +41,13 @@
 
         _Calc_Den16_nonpol!(ai_tempDGs, NO0, NO1, MPI_NumOLG[loop], MPI_GListTAtoms1[loop], MPI_GListTAtoms2[loop], Orbs_Grid[atom], Orbs_Grid[jatom], DM_atom)
         
-        for xyz = 1:GridN_Atom[atom]
+        @inbounds for xyz = 1:GridN_Atom[atom]
             r = GridListAtom[atom][xyz]+1
             Density_Grid[1][r] += ai_tempDGs[xyz]
         end
     end
 
-
-    Density_Grid[1] = MPI.Allreduce(Density_Grid[1],MPI.SUM,comm)
+    MPI.Allreduce!(Density_Grid[1], MPI.SUM, comm)
 end
 
 
@@ -88,7 +87,7 @@ end
         NO1 = Total_NumOrbs[jatom]
 
         DMst = 0
-        for ist = 1:NO0, jst = 1:NO1
+        @inbounds for ist = 1:NO0, jst = 1:NO1
             DMst += 1
             DM_atom[jst,ist,1] = DM[1][DMnum+DMsum+DMst]
             DM_atom[jst,ist,2] = DM[2][DMnum+DMsum+DMst]
@@ -97,15 +96,15 @@ end
 
         _Calc_Den16_pol!(ai_tempDGs, NO0, NO1, MPI_NumOLG[loop], MPI_GListTAtoms1[loop], MPI_GListTAtoms2[loop], Orbs_Grid[atom], Orbs_Grid[jatom], DM_atom)
         
-        for xyz = 1:GridN_Atom[atom]
+        @inbounds for xyz = 1:GridN_Atom[atom]
             r = GridListAtom[atom][xyz]+1
             Density_Grid[1][r] += ai_tempDGs[xyz,1]
             Density_Grid[2][r] += ai_tempDGs[xyz,2]
         end
     end
 
-    Density_Grid[1] = MPI.Allreduce(Density_Grid[1],MPI.SUM,comm)
-    Density_Grid[2] = MPI.Allreduce(Density_Grid[2],MPI.SUM,comm)
+    MPI.Allreduce!(Density_Grid[1], MPI.SUM, comm)
+    MPI.Allreduce!(Density_Grid[2], MPI.SUM, comm)
 end
 
 
@@ -148,7 +147,7 @@ end
 
         
         DMst = 0
-        for ist = 1:NO0, jst = 1:NO1
+        @inbounds for ist = 1:NO0, jst = 1:NO1
             DMst += 1
             DM_atom[jst,ist,1] = DM[1][DMnum+DMsum+DMst]
             DM_atom[jst,ist,2] = DM[2][DMnum+DMsum+DMst]
@@ -159,7 +158,7 @@ end
 
         _Calc_Den16_nc!(ai_tempDGs, NO0, NO1, MPI_NumOLG[loop], MPI_GListTAtoms1[loop], MPI_GListTAtoms2[loop], Orbs_Grid[atom], Orbs_Grid[jatom], DM_atom)
         
-        for xyz = 1:GridN_Atom[atom]
+        @inbounds for xyz = 1:GridN_Atom[atom]
             r = GridListAtom[atom][xyz]+1
             Density_Grid[1][r] += ai_tempDGs[xyz,1]
             Density_Grid[2][r] += ai_tempDGs[xyz,2]
@@ -168,10 +167,10 @@ end
         end
     end
 
-    Density_Grid[1] = MPI.Allreduce(Density_Grid[1],MPI.SUM,comm)
-    Density_Grid[2] = MPI.Allreduce(Density_Grid[2],MPI.SUM,comm)
-    Density_Grid[3] = MPI.Allreduce(Density_Grid[3],MPI.SUM,comm)
-    Density_Grid[4] = MPI.Allreduce(Density_Grid[4],MPI.SUM,comm)
+    MPI.Allreduce!(Density_Grid[1], MPI.SUM, comm)
+    MPI.Allreduce!(Density_Grid[2], MPI.SUM, comm)
+    MPI.Allreduce!(Density_Grid[3], MPI.SUM, comm)
+    MPI.Allreduce!(Density_Grid[4], MPI.SUM, comm)
 end
 
 
@@ -179,7 +178,7 @@ function diagonalize_nc_density!(Density_Grid)
 
     Ngrid = length(Density_Grid[1])
 
-    for i = 1:Ngrid
+    @inbounds for i = 1:Ngrid
 
         Re11 = Density_Grid[1][i]
         Re22 = Density_Grid[2][i]
@@ -267,40 +266,41 @@ function _Calc_Den16_nonpol!(ai_tempDGs, NO0, NO1, NumOLG, GListTAtoms1, GListTA
             temp13 = 0.0
             temp14 = 0.0
             temp15 = 0.0
-            for jst = 1:NO1
-                temp0  += Orbs_Grid2[jst][Nh0]*DM[jst,ist]
-                temp1  += Orbs_Grid2[jst][Nh1]*DM[jst,ist]
-                temp2  += Orbs_Grid2[jst][Nh2]*DM[jst,ist]
-                temp3  += Orbs_Grid2[jst][Nh3]*DM[jst,ist]
-                temp4  += Orbs_Grid2[jst][Nh4]*DM[jst,ist]
-                temp5  += Orbs_Grid2[jst][Nh5]*DM[jst,ist]
-                temp6  += Orbs_Grid2[jst][Nh6]*DM[jst,ist]
-                temp7  += Orbs_Grid2[jst][Nh7]*DM[jst,ist]
-                temp8  += Orbs_Grid2[jst][Nh8]*DM[jst,ist]
-                temp9  += Orbs_Grid2[jst][Nh9]*DM[jst,ist]
-                temp10 += Orbs_Grid2[jst][Nh10]*DM[jst,ist]
-                temp11 += Orbs_Grid2[jst][Nh11]*DM[jst,ist]
-                temp12 += Orbs_Grid2[jst][Nh12]*DM[jst,ist]
-                temp13 += Orbs_Grid2[jst][Nh13]*DM[jst,ist]
-                temp14 += Orbs_Grid2[jst][Nh14]*DM[jst,ist]
-                temp15 += Orbs_Grid2[jst][Nh15]*DM[jst,ist]
+            @inbounds for jst = 1:NO1
+                tmp = DM[jst,ist]
+                temp0  += Orbs_Grid2[Nh0][jst]*tmp
+                temp1  += Orbs_Grid2[Nh1][jst]*tmp
+                temp2  += Orbs_Grid2[Nh2][jst]*tmp
+                temp3  += Orbs_Grid2[Nh3][jst]*tmp
+                temp4  += Orbs_Grid2[Nh4][jst]*tmp
+                temp5  += Orbs_Grid2[Nh5][jst]*tmp
+                temp6  += Orbs_Grid2[Nh6][jst]*tmp
+                temp7  += Orbs_Grid2[Nh7][jst]*tmp
+                temp8  += Orbs_Grid2[Nh8][jst]*tmp
+                temp9  += Orbs_Grid2[Nh9][jst]*tmp
+                temp10 += Orbs_Grid2[Nh10][jst]*tmp
+                temp11 += Orbs_Grid2[Nh11][jst]*tmp
+                temp12 += Orbs_Grid2[Nh12][jst]*tmp
+                temp13 += Orbs_Grid2[Nh13][jst]*tmp
+                temp14 += Orbs_Grid2[Nh14][jst]*tmp
+                temp15 += Orbs_Grid2[Nh15][jst]*tmp
             end
-            Sum0 += Orbs_Grid1[ist][Nc0]*temp0
-            Sum1 += Orbs_Grid1[ist][Nc1]*temp1
-            Sum2 += Orbs_Grid1[ist][Nc2]*temp2
-            Sum3 += Orbs_Grid1[ist][Nc3]*temp3
-            Sum4 += Orbs_Grid1[ist][Nc4]*temp4
-            Sum5 += Orbs_Grid1[ist][Nc5]*temp5
-            Sum6 += Orbs_Grid1[ist][Nc6]*temp6
-            Sum7 += Orbs_Grid1[ist][Nc7]*temp7
-            Sum8 += Orbs_Grid1[ist][Nc8]*temp8
-            Sum9 += Orbs_Grid1[ist][Nc9]*temp9
-            Sum10 += Orbs_Grid1[ist][Nc10]*temp10
-            Sum11 += Orbs_Grid1[ist][Nc11]*temp11
-            Sum12 += Orbs_Grid1[ist][Nc12]*temp12
-            Sum13 += Orbs_Grid1[ist][Nc13]*temp13
-            Sum14 += Orbs_Grid1[ist][Nc14]*temp14
-            Sum15 += Orbs_Grid1[ist][Nc15]*temp15
+            Sum0  += Orbs_Grid1[Nc0][ist]*temp0
+            Sum1  += Orbs_Grid1[Nc1][ist]*temp1
+            Sum2  += Orbs_Grid1[Nc2][ist]*temp2
+            Sum3  += Orbs_Grid1[Nc3][ist]*temp3
+            Sum4  += Orbs_Grid1[Nc4][ist]*temp4
+            Sum5  += Orbs_Grid1[Nc5][ist]*temp5
+            Sum6  += Orbs_Grid1[Nc6][ist]*temp6
+            Sum7  += Orbs_Grid1[Nc7][ist]*temp7
+            Sum8  += Orbs_Grid1[Nc8][ist]*temp8
+            Sum9  += Orbs_Grid1[Nc9][ist]*temp9
+            Sum10 += Orbs_Grid1[Nc10][ist]*temp10
+            Sum11 += Orbs_Grid1[Nc11][ist]*temp11
+            Sum12 += Orbs_Grid1[Nc12][ist]*temp12
+            Sum13 += Orbs_Grid1[Nc13][ist]*temp13
+            Sum14 += Orbs_Grid1[Nc14][ist]*temp14
+            Sum15 += Orbs_Grid1[Nc15][ist]*temp15
         end
         ai_tempDGs[Nc0] += Sum0
         ai_tempDGs[Nc1] += Sum1
@@ -330,10 +330,10 @@ function _Calc_Den16_nonpol!(ai_tempDGs, NO0, NO1, NumOLG, GListTAtoms1, GListTA
         Sum = 0.0
         for ist = 1:NO0
             temp = 0.0
-            for jst = 1:NO1
-                temp += Orbs_Grid2[jst][Nh]*DM[jst,ist]
+            @inbounds for jst = 1:NO1
+                temp += Orbs_Grid2[Nh][jst]*DM[jst,ist]
             end
-            Sum += Orbs_Grid1[ist][Nc]*temp
+            Sum += Orbs_Grid1[Nc][ist]*temp
         end
         ai_tempDGs[Nc] += Sum
     end
@@ -447,23 +447,23 @@ function _Calc_Den16_pol!(ai_tempDGs, NO0, NO1, NumOLG, GListTAtoms1, GListTAtom
             temp14_dn = 0.0
             temp15_dn = 0.0
 
-            for jst = 1:NO1
-                orbs2_0 = Orbs_Grid2[jst][Nh0]
-                orbs2_1 = Orbs_Grid2[jst][Nh1]
-                orbs2_2 = Orbs_Grid2[jst][Nh2]
-                orbs2_3 = Orbs_Grid2[jst][Nh3]
-                orbs2_4 = Orbs_Grid2[jst][Nh4]
-                orbs2_5 = Orbs_Grid2[jst][Nh5]
-                orbs2_6 = Orbs_Grid2[jst][Nh6]
-                orbs2_7 = Orbs_Grid2[jst][Nh7]
-                orbs2_8 = Orbs_Grid2[jst][Nh8]
-                orbs2_9 = Orbs_Grid2[jst][Nh9]
-                orbs2_10 = Orbs_Grid2[jst][Nh10]
-                orbs2_11 = Orbs_Grid2[jst][Nh11]
-                orbs2_12 = Orbs_Grid2[jst][Nh12]
-                orbs2_13 = Orbs_Grid2[jst][Nh13]
-                orbs2_14 = Orbs_Grid2[jst][Nh14]
-                orbs2_15 = Orbs_Grid2[jst][Nh15]
+            @inbounds for jst = 1:NO1
+                orbs2_0  = Orbs_Grid2[Nh0][jst]
+                orbs2_1  = Orbs_Grid2[Nh1][jst]
+                orbs2_2  = Orbs_Grid2[Nh2][jst]
+                orbs2_3  = Orbs_Grid2[Nh3][jst]
+                orbs2_4  = Orbs_Grid2[Nh4][jst]
+                orbs2_5  = Orbs_Grid2[Nh5][jst]
+                orbs2_6  = Orbs_Grid2[Nh6][jst]
+                orbs2_7  = Orbs_Grid2[Nh7][jst]
+                orbs2_8  = Orbs_Grid2[Nh8][jst]
+                orbs2_9  = Orbs_Grid2[Nh9][jst]
+                orbs2_10 = Orbs_Grid2[Nh10][jst]
+                orbs2_11 = Orbs_Grid2[Nh11][jst]
+                orbs2_12 = Orbs_Grid2[Nh12][jst]
+                orbs2_13 = Orbs_Grid2[Nh13][jst]
+                orbs2_14 = Orbs_Grid2[Nh14][jst]
+                orbs2_15 = Orbs_Grid2[Nh15][jst]
 
                 DM_up = DM[jst,ist,1]
                 DM_dn = DM[jst,ist,2]
@@ -503,22 +503,22 @@ function _Calc_Den16_pol!(ai_tempDGs, NO0, NO1, NumOLG, GListTAtoms1, GListTAtom
                 temp15_dn += orbs2_15*DM_dn
             end
 
-            orbs1_0 = Orbs_Grid1[ist][Nc0]
-            orbs1_1 = Orbs_Grid1[ist][Nc1]
-            orbs1_2 = Orbs_Grid1[ist][Nc2]
-            orbs1_3 = Orbs_Grid1[ist][Nc3]
-            orbs1_4 = Orbs_Grid1[ist][Nc4]
-            orbs1_5 = Orbs_Grid1[ist][Nc5]
-            orbs1_6 = Orbs_Grid1[ist][Nc6]
-            orbs1_7 = Orbs_Grid1[ist][Nc7]
-            orbs1_8 = Orbs_Grid1[ist][Nc8]
-            orbs1_9 = Orbs_Grid1[ist][Nc9]
-            orbs1_10 = Orbs_Grid1[ist][Nc10]
-            orbs1_11 = Orbs_Grid1[ist][Nc11]
-            orbs1_12 = Orbs_Grid1[ist][Nc12]
-            orbs1_13 = Orbs_Grid1[ist][Nc13]
-            orbs1_14 = Orbs_Grid1[ist][Nc14]
-            orbs1_15 = Orbs_Grid1[ist][Nc15]
+            orbs1_0  = Orbs_Grid1[Nc0][ist]
+            orbs1_1  = Orbs_Grid1[Nc1][ist]
+            orbs1_2  = Orbs_Grid1[Nc2][ist]
+            orbs1_3  = Orbs_Grid1[Nc3][ist]
+            orbs1_4  = Orbs_Grid1[Nc4][ist]
+            orbs1_5  = Orbs_Grid1[Nc5][ist]
+            orbs1_6  = Orbs_Grid1[Nc6][ist]
+            orbs1_7  = Orbs_Grid1[Nc7][ist]
+            orbs1_8  = Orbs_Grid1[Nc8][ist]
+            orbs1_9  = Orbs_Grid1[Nc9][ist]
+            orbs1_10 = Orbs_Grid1[Nc10][ist]
+            orbs1_11 = Orbs_Grid1[Nc11][ist]
+            orbs1_12 = Orbs_Grid1[Nc12][ist]
+            orbs1_13 = Orbs_Grid1[Nc13][ist]
+            orbs1_14 = Orbs_Grid1[Nc14][ist]
+            orbs1_15 = Orbs_Grid1[Nc15][ist]
 
             Sum0_up += orbs1_0*temp0_up
             Sum1_up += orbs1_1*temp1_up
@@ -601,12 +601,12 @@ function _Calc_Den16_pol!(ai_tempDGs, NO0, NO1, NumOLG, GListTAtoms1, GListTAtom
         for ist = 1:NO0
             temp_up = 0.0
             temp_dn = 0.0
-            for jst = 1:NO1
-                temp_up += Orbs_Grid2[jst][Nh]*DM[jst,ist,1]
-                temp_dn += Orbs_Grid2[jst][Nh]*DM[jst,ist,2]
+            @inbounds for jst = 1:NO1
+                temp_up += Orbs_Grid2[Nh][jst]*DM[jst,ist,1]
+                temp_dn += Orbs_Grid2[Nh][jst]*DM[jst,ist,2]
             end
-            Sum_up += Orbs_Grid1[ist][Nc]*temp_up
-            Sum_dn += Orbs_Grid1[ist][Nc]*temp_dn
+            Sum_up += Orbs_Grid1[Nc][ist]*temp_up
+            Sum_dn += Orbs_Grid1[Nc][ist]*temp_dn
         end
         ai_tempDGs[Nc,1] += Sum_up
         ai_tempDGs[Nc,2] += Sum_dn
@@ -789,24 +789,24 @@ function _Calc_Den16_nc!(ai_tempDGs, NO0, NO1, NumOLG, GListTAtoms1, GListTAtoms
             temp14_ud_i = 0.0
             temp15_ud_i = 0.0
 
-            for jst = 1:NO1
+            @inbounds for jst = 1:NO1
 
-                orbs2_0 = Orbs_Grid2[jst][Nh0]
-                orbs2_1 = Orbs_Grid2[jst][Nh1]
-                orbs2_2 = Orbs_Grid2[jst][Nh2]
-                orbs2_3 = Orbs_Grid2[jst][Nh3]
-                orbs2_4 = Orbs_Grid2[jst][Nh4]
-                orbs2_5 = Orbs_Grid2[jst][Nh5]
-                orbs2_6 = Orbs_Grid2[jst][Nh6]
-                orbs2_7 = Orbs_Grid2[jst][Nh7]
-                orbs2_8 = Orbs_Grid2[jst][Nh8]
-                orbs2_9 = Orbs_Grid2[jst][Nh9]
-                orbs2_10 = Orbs_Grid2[jst][Nh10]
-                orbs2_11 = Orbs_Grid2[jst][Nh11]
-                orbs2_12 = Orbs_Grid2[jst][Nh12]
-                orbs2_13 = Orbs_Grid2[jst][Nh13]
-                orbs2_14 = Orbs_Grid2[jst][Nh14]
-                orbs2_15 = Orbs_Grid2[jst][Nh15]
+                orbs2_0  = Orbs_Grid2[Nh0][jst]
+                orbs2_1  = Orbs_Grid2[Nh1][jst]
+                orbs2_2  = Orbs_Grid2[Nh2][jst]
+                orbs2_3  = Orbs_Grid2[Nh3][jst]
+                orbs2_4  = Orbs_Grid2[Nh4][jst]
+                orbs2_5  = Orbs_Grid2[Nh5][jst]
+                orbs2_6  = Orbs_Grid2[Nh6][jst]
+                orbs2_7  = Orbs_Grid2[Nh7][jst]
+                orbs2_8  = Orbs_Grid2[Nh8][jst]
+                orbs2_9  = Orbs_Grid2[Nh9][jst]
+                orbs2_10 = Orbs_Grid2[Nh10][jst]
+                orbs2_11 = Orbs_Grid2[Nh11][jst]
+                orbs2_12 = Orbs_Grid2[Nh12][jst]
+                orbs2_13 = Orbs_Grid2[Nh13][jst]
+                orbs2_14 = Orbs_Grid2[Nh14][jst]
+                orbs2_15 = Orbs_Grid2[Nh15][jst]
 
                 DM_uu = DM[jst,ist,1]
                 DM_dd = DM[jst,ist,2]
@@ -882,22 +882,22 @@ function _Calc_Den16_nc!(ai_tempDGs, NO0, NO1, NumOLG, GListTAtoms1, GListTAtoms
                 temp15_ud_i += orbs2_15*DM_ud_i
             end
 
-            orbs1_0 = Orbs_Grid1[ist][Nc0]
-            orbs1_1 = Orbs_Grid1[ist][Nc1]
-            orbs1_2 = Orbs_Grid1[ist][Nc2]
-            orbs1_3 = Orbs_Grid1[ist][Nc3]
-            orbs1_4 = Orbs_Grid1[ist][Nc4]
-            orbs1_5 = Orbs_Grid1[ist][Nc5]
-            orbs1_6 = Orbs_Grid1[ist][Nc6]
-            orbs1_7 = Orbs_Grid1[ist][Nc7]
-            orbs1_8 = Orbs_Grid1[ist][Nc8]
-            orbs1_9 = Orbs_Grid1[ist][Nc9]
-            orbs1_10 = Orbs_Grid1[ist][Nc10]
-            orbs1_11 = Orbs_Grid1[ist][Nc11]
-            orbs1_12 = Orbs_Grid1[ist][Nc12]
-            orbs1_13 = Orbs_Grid1[ist][Nc13]
-            orbs1_14 = Orbs_Grid1[ist][Nc14]
-            orbs1_15 = Orbs_Grid1[ist][Nc15]
+            orbs1_0  = Orbs_Grid1[Nc0][ist]
+            orbs1_1  = Orbs_Grid1[Nc1][ist]
+            orbs1_2  = Orbs_Grid1[Nc2][ist]
+            orbs1_3  = Orbs_Grid1[Nc3][ist]
+            orbs1_4  = Orbs_Grid1[Nc4][ist]
+            orbs1_5  = Orbs_Grid1[Nc5][ist]
+            orbs1_6  = Orbs_Grid1[Nc6][ist]
+            orbs1_7  = Orbs_Grid1[Nc7][ist]
+            orbs1_8  = Orbs_Grid1[Nc8][ist]
+            orbs1_9  = Orbs_Grid1[Nc9][ist]
+            orbs1_10 = Orbs_Grid1[Nc10][ist]
+            orbs1_11 = Orbs_Grid1[Nc11][ist]
+            orbs1_12 = Orbs_Grid1[Nc12][ist]
+            orbs1_13 = Orbs_Grid1[Nc13][ist]
+            orbs1_14 = Orbs_Grid1[Nc14][ist]
+            orbs1_15 = Orbs_Grid1[Nc15][ist]
 
             Sum0_uu += orbs1_0*temp0_uu
             Sum1_uu += orbs1_1*temp1_uu
@@ -1052,14 +1052,14 @@ function _Calc_Den16_nc!(ai_tempDGs, NO0, NO1, NumOLG, GListTAtoms1, GListTAtoms
             temp_dd = 0.0
             temp_ud_r = 0.0
             temp_ud_i = 0.0
-            for jst = 1:NO1
-                orbs2 = Orbs_Grid2[jst][Nh]
+            @inbounds for jst = 1:NO1
+                orbs2 = Orbs_Grid2[Nh][jst]
                 temp_uu += orbs2*DM[jst,ist,1]
                 temp_dd += orbs2*DM[jst,ist,2]
                 temp_ud_r += orbs2*DM[jst,ist,3]
                 temp_ud_i += orbs2*DM[jst,ist,4]
             end
-            orbs1 = Orbs_Grid1[ist][Nc]
+            orbs1 = Orbs_Grid1[Nc][ist]
             Sum_uu += orbs1*temp_uu
             Sum_dd += orbs1*temp_dd
             Sum_ud_r += orbs1*temp_ud_r

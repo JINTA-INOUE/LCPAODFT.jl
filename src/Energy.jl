@@ -128,8 +128,7 @@ function Calc_Ecore(system_grid::System_Grid, Core_Charge)
     MPI_atom = system_grid.MPI_atom
     MPI_natn = system_grid.MPI_natn
     MPI_FNAN = system_grid.MPI_FNAN
-    MPI_Dis = system_grid.MPI_Dis
-
+    Dis = system_grid.Dis
 
     Ecore = 0.0
     for loop = 1:MPI_size
@@ -138,7 +137,7 @@ function Calc_Ecore(system_grid::System_Grid, Core_Charge)
             atom = MPI_atom[loop]
             Rn = MPI_FNAN[loop]
             jatom = MPI_natn[loop]
-            dis = MPI_Dis[loop]
+            dis = Dis[atom][Rn]
             Zc = Core_Charge[atom]
             Zh = Core_Charge[jatom]
             
@@ -149,6 +148,7 @@ function Calc_Ecore(system_grid::System_Grid, Core_Charge)
     end
     Ecore = MPI.Allreduce(Ecore, MPI.SUM, comm)
 
+    
     return 0.5*Ecore
 end
 
@@ -167,12 +167,12 @@ function Calc_EH0(pao::Vector{PAO}, pspot::Vector{Pspot}, system_grid::System_Gr
     ncn = system_grid.ncn
     atv = system_grid.atv
     Dis = system_grid.Dis
+    RMI = system_grid.RMI
     MPI_size = system_grid.MPI_size
     MPI_atom = system_grid.MPI_atom
     MPI_FNAN = system_grid.MPI_FNAN
     MPI_natn = system_grid.MPI_natn
     MPI_ncn = system_grid.MPI_ncn
-    MPI_RMI = system_grid.MPI_RMI
     
 
     Nspecies = length(pao)
@@ -229,6 +229,7 @@ function Calc_EH0(pao::Vector{PAO}, pspot::Vector{Pspot}, system_grid::System_Gr
     for spe = 1:Nspecies
 
         Spe_Num_Mesh_PAO = pao[spe].Spe_Num_Mesh_PAO
+        Spe_PAO_XV = pao[spe].Spe_PAO_XV
         Spe_PAO_RV = pao[spe].Spe_PAO_RV
         Spe_Atomic_Den = pao[spe].Spe_Atomic_Den
 
@@ -267,7 +268,7 @@ function Calc_EH0(pao::Vector{PAO}, pspot::Vector{Pspot}, system_grid::System_Gr
                 GridY_EH0[spe][gnum] = y
                 GridZ_EH0[spe][gnum] = z
 
-                Arho_EH0[spe][gnum] = KumoF(Spe_Num_Mesh_PAO, xx, Spe_PAO_RV, Spe_Atomic_Den)
+                Arho_EH0[spe][gnum] = KumoF(Spe_Num_Mesh_PAO, xx, Spe_PAO_XV, Spe_PAO_RV, Spe_Atomic_Den)
                 Wt_EH0[spe][gnum] = pi*x*CoarseGL_Weight[n1]*Dx
             end
         end
@@ -299,6 +300,7 @@ function Calc_EH0(pao::Vector{PAO}, pspot::Vector{Pspot}, system_grid::System_Gr
             Z2 = Spe_Core_Charge[jspe]
 
             Spe_Num_Mesh_VPS = pspot[jspe].Spe_Num_Mesh_VPS
+            Spe_VPS_XV = pspot[jspe].Spe_VPS_XV
             Spe_VPS_RV = pspot[jspe].Spe_VPS_RV
             Spe_VH_Atom = VH_Atom[jspe]
 
@@ -313,9 +315,10 @@ function Calc_EH0(pao::Vector{PAO}, pspot::Vector{Pspot}, system_grid::System_Gr
                 z2 = z - rcut
                 r2 = x^2 + y^2 + z2^2
                 r = sqrt(r2)
+                xx = 0.5*log(r2)
                 r = ifelse(r<1e-10, 1e-10, r)
 
-                va0 = VH_AtomF(Z2, Spe_Num_Mesh_VPS, r, Spe_VPS_RV, Spe_VH_Atom)
+                va0 = VH_AtomF(Z2, Spe_Num_Mesh_VPS, xx, r, Spe_VPS_XV, Spe_VPS_RV, Spe_VH_Atom)
                 Sum += wt*va0*rho0
             end
 
@@ -341,6 +344,7 @@ function Calc_EH0(pao::Vector{PAO}, pspot::Vector{Pspot}, system_grid::System_Gr
         Z2 = Spe_Core_Charge[jspe]
 
         Spe_Num_Mesh_VPS = pspot[jspe].Spe_Num_Mesh_VPS
+        Spe_VPS_XV = pspot[jspe].Spe_VPS_XV
         Spe_VPS_RV = pspot[jspe].Spe_VPS_RV
         Spe_VH_Atom = VH_Atom[jspe]
 
@@ -357,13 +361,14 @@ function Calc_EH0(pao::Vector{PAO}, pspot::Vector{Pspot}, system_grid::System_Gr
             z2 = z - Dis[atom][Rn]
             r2 = x^2 + y^2 + z2^2
             r = sqrt(r2)
+            xx = 0.5*log(r2)
             r = ifelse(r<1e-10, 1e-10, r)
 
-            va0 = VH_AtomF(Z2, Spe_Num_Mesh_VPS, r, Spe_VPS_RV, Spe_VH_Atom)
+            va0 = VH_AtomF(Z2, Spe_Num_Mesh_VPS, xx, r, Spe_VPS_XV, Spe_VPS_RV, Spe_VH_Atom)
             Sum += wt*va0*rho0
 
             if Rn ≠ 1 && r > 1.0e-14
-                dr_va0 = Dr_VH_AtomF(Z2, Spe_Num_Mesh_VPS, r, Spe_VPS_RV, Spe_VH_Atom)
+                dr_va0 = Dr_VH_AtomF(Z2, Spe_Num_Mesh_VPS, xx, r, Spe_VPS_XV, Spe_VPS_RV, Spe_VH_Atom)
                 Sumr -= wt*dr_va0*rho0*z2/r
             end
         end
@@ -393,13 +398,14 @@ function Calc_EH0(pao::Vector{PAO}, pspot::Vector{Pspot}, system_grid::System_Gr
         EH0Force[atom,3] = EH0Force[atom,3] - 0.5*factor*Sumz
 
 
-        Rm = MPI_RMI[loop][1]+1
+        Rm = RMI[atom][Rn][1]+1
         katom = natn[jatom][Rm]
         cell2 = ncn[jatom][Rm]+1
         kspe = atom2spe[katom]
         Z2 = Spe_Core_Charge[kspe]
 
         Spe_Num_Mesh_VPS = pspot[kspe].Spe_Num_Mesh_VPS
+        Spe_VPS_XV = pspot[kspe].Spe_VPS_XV
         Spe_VPS_RV = pspot[kspe].Spe_VPS_RV
         Spe_VH_Atom = VH_Atom[kspe]
 
@@ -416,13 +422,14 @@ function Calc_EH0(pao::Vector{PAO}, pspot::Vector{Pspot}, system_grid::System_Gr
             z2 = z - Dis[jatom][Rm]
             r2 = x^2 + y^2 + z2^2
             r = sqrt(r2)
+            xx = 0.5*log(r2)
             r = ifelse(r<1e-10, 1e-10, r)
 
-            va0 = VH_AtomF(Z2, Spe_Num_Mesh_VPS, r, Spe_VPS_RV, Spe_VH_Atom)
+            va0 = VH_AtomF(Z2, Spe_Num_Mesh_VPS, xx, r, Spe_VPS_XV, Spe_VPS_RV, Spe_VH_Atom)
             Sum += wt*va0*rho0
 
             if Rm ≠ 1 && r > 1.0e-14
-                dr_va0 = Dr_VH_AtomF(Z2, Spe_Num_Mesh_VPS, r, Spe_VPS_RV, Spe_VH_Atom)
+                dr_va0 = Dr_VH_AtomF(Z2, Spe_Num_Mesh_VPS, xx, r, Spe_VPS_XV, Spe_VPS_RV, Spe_VH_Atom)
                 Sumr -= wt*dr_va0*rho0*z2/r
             end
         end
@@ -702,6 +709,7 @@ function Calc_EXC2(pao::Vector{PAO}, pspot::Vector{Pspot}, system_grid::System_G
                     r2cut = Atom_Cut1[jatom]^2
                     
                     Spe_Num_Mesh_PAO = pao[jspe].Spe_Num_Mesh_PAO
+                    Spe_PAO_XV = pao[jspe].Spe_PAO_XV
                     Spe_PAO_RV = pao[jspe].Spe_PAO_RV
 
                     x1 = Gxyz[jatom][1] + atv[cell][1]
@@ -720,7 +728,7 @@ function Calc_EXC2(pao::Vector{PAO}, pspot::Vector{Pspot}, system_grid::System_G
 
                     if r2 < r2cut
                         x = 0.5*log(r2)
-                        den += KumoF(Spe_Num_Mesh_PAO, x, Spe_PAO_RV, Spe_Atomic_Den2[jspe])
+                        den += KumoF(Spe_Num_Mesh_PAO, x, Spe_PAO_XV, Spe_PAO_RV, Spe_Atomic_Den2[jspe])
 
                         if Rn == 1
                             den0 = den
@@ -728,7 +736,7 @@ function Calc_EXC2(pao::Vector{PAO}, pspot::Vector{Pspot}, system_grid::System_G
 
                         if Rn ≠ 1
                             r1 = sqrt(r2)
-                            gden = Dr_KumoF(Spe_Num_Mesh_PAO, x, Spe_PAO_RV, Spe_Atomic_Den2[jspe])
+                            gden = Dr_KumoF(Spe_Num_Mesh_PAO, x, r1, Spe_PAO_XV, Spe_PAO_RV, Spe_Atomic_Den2[jspe])
 
                             gx[Rn] = gden/r1*dx
                             gy[Rn] = gden/r1*dy
@@ -763,7 +771,7 @@ function Calc_EXC2(pao::Vector{PAO}, pspot::Vector{Pspot}, system_grid::System_G
         Exc2 += 2*pi*Rcut*Sum
 
         MPI.Allreduce!(sum_rx, MPI.SUM, comm)
-        MPI.Allreduce!(sum_rz, MPI.SUM, comm)
+        MPI.Allreduce!(sum_ry, MPI.SUM, comm)
         MPI.Allreduce!(sum_rz, MPI.SUM, comm)
 
         for Rn = 2:FNAN[atom]+1
@@ -788,11 +796,12 @@ end
 function Calc_Atomic_Den2(pao::PAO, pspot::Pspot)
 
     Spe_Num_Mesh_PAO = pao.Spe_Num_Mesh_PAO
-    Spe_PAO_RV = pao.Spe_PAO_RV
+    Spe_PAO_XV = pao.Spe_PAO_XV
     Spe_Atomic_Den = pao.Spe_Atomic_Den
 
     Spe_Core_Charge = pspot.Spe_Core_Charge
     Spe_Num_Mesh_VPS = pspot.Spe_Num_Mesh_VPS
+    Spe_VPS_XV = pspot.Spe_VPS_XV
     Spe_VPS_RV = pspot.Spe_VPS_RV
     Spe_Atomic_PCC = pspot.Spe_Atomic_PCC
 
@@ -802,15 +811,15 @@ function Calc_Atomic_Den2(pao::PAO, pspot::Pspot)
     Spe_Atomic_Den2 = deepcopy(Spe_Atomic_Den)
 
     Sum = 0.0
-    dx = log(Spe_PAO_RV[2]/Spe_PAO_RV[1])
+    dx = Spe_PAO_XV[2] - Spe_PAO_XV[1]
     for i = 1:Spe_Num_Mesh_PAO
-        Sum += Spe_Atomic_Den[i+1]*Spe_PAO_RV[i]^3
+        Sum += Spe_Atomic_Den[i+1]*exp(3.0*Spe_PAO_XV[i])
     end
     Sum *= 4*pi*dx
     
 
     for i = 1:Spe_Num_Mesh_PAO
-        Spe_Atomic_Den2[i+1] = Spe_Atomic_Den2[i+1]*Spe_Core_Charge/Sum + KumoF(Spe_Num_Mesh_VPS, log(Spe_PAO_RV[i]), Spe_VPS_RV, Spe_Atomic_PCC)
+        Spe_Atomic_Den2[i+1] = Spe_Atomic_Den2[i+1]*Spe_Core_Charge/Sum + KumoF(Spe_Num_Mesh_VPS, Spe_PAO_XV[i], Spe_VPS_XV, Spe_VPS_RV, Spe_Atomic_PCC)
     end
     Spe_Atomic_Den2[1] = 2*Spe_Atomic_Den2[2] - Spe_Atomic_Den2[3]
     Spe_Atomic_Den2[Spe_Num_Mesh_PAO+2] = 2*Spe_Atomic_Den2[Spe_Num_Mesh_PAO+1] - Spe_Atomic_Den2[Spe_Num_Mesh_PAO]

@@ -1,4 +1,4 @@
-function Spe_VHart_Atom!(Spe_VPS_RV, Spe_PAO_RV, Spe_VH_Atom, Spe_Atom_Den)
+function Spe_VHart_Atom!(Spe_VPS_RV, Spe_PAO_XV, Spe_PAO_RV, Spe_VH_Atom, Spe_Atom_Den)
     
     FineGL_x, FineGL_Weight = Gauss_Legendre(FineGL_Mesh)
 
@@ -18,7 +18,7 @@ function Spe_VHart_Atom!(Spe_VPS_RV, Spe_PAO_RV, Spe_VH_Atom, Spe_Atom_Den)
         for j = 1:FineGL_Mesh
             x = 0.5*(Dx*FineGL_x[j] + Sx)
             rp = exp(x)
-            temp = KumoF(Num_Mesh_PAO, x, Spe_PAO_RV, Spe_Atom_Den)
+            temp = KumoF(Num_Mesh_PAO, x, Spe_PAO_XV, Spe_PAO_RV, Spe_Atom_Den)
             Inside += temp*FineGL_Weight[j]*rp^3
         end
         Inside = 0.5*Dx*Inside
@@ -35,7 +35,7 @@ function Spe_VHart_Atom!(Spe_VPS_RV, Spe_PAO_RV, Spe_VH_Atom, Spe_Atom_Den)
         for j = 1:FineGL_Mesh
             x = 0.5*(Dx*FineGL_x[j] + Sx)
             rp = exp(x)
-            temp = KumoF(Num_Mesh_PAO, x, Spe_PAO_RV, Spe_Atom_Den)
+            temp = KumoF(Num_Mesh_PAO, x, Spe_PAO_XV, Spe_PAO_RV, Spe_Atom_Den)
             Outside += temp*FineGL_Weight[j]*rp^2
         end
         Outside = 2*Dx*pi*Outside
@@ -57,6 +57,7 @@ end
 
 function Calc_Spe_VH_Atom!(pao::PAO, pspot::Pspot, Spe_VH_Atom)
 
+    Spe_PAO_XV = pao.Spe_PAO_XV
     Spe_PAO_RV = pao.Spe_PAO_RV
     Spe_Atom_Cut1 = pao.Spe_Atom_Cut1
     Spe_Atomic_Den = pao.Spe_Atomic_Den
@@ -65,7 +66,7 @@ function Calc_Spe_VH_Atom!(pao::PAO, pspot::Pspot, Spe_VH_Atom)
     Spe_Vcore = pspot.Spe_Vcore
     Spe_Core_Charge = pspot.Spe_Core_Charge
 
-    Spe_VHart_Atom!( Spe_VPS_RV, Spe_PAO_RV, Spe_VH_Atom, Spe_Atomic_Den ) 
+    Spe_VHart_Atom!( Spe_VPS_RV, Spe_PAO_XV, Spe_PAO_RV, Spe_VH_Atom, Spe_Atomic_Den ) 
     Spe_VH_Atom[1] = 2*Spe_VH_Atom[2] - Spe_VH_Atom[3]
     Spe_VH_Atom[end] = 2*Spe_VH_Atom[end-1] - Spe_VH_Atom[end-2]
 

@@ -219,7 +219,7 @@ function DFT_Setup(
     E_Temp::Union{AbstractFloat,Signed} = 300.0,
     kmesh::Tuple{Signed,Signed,Signed} = (1,1,1),
     verbosity::Int = 1,
-    fileout::Bool = true,
+    fileout::Bool = false,
     filename::AbstractString = PROGRAM_FILE
 )
 """
@@ -236,7 +236,6 @@ function DFT_Setup(
     xc_type::String = "LDA",
     Ecut::AbstractFloat = 150.0,
     Ngrid = nothing,
-    Mixing_method::AbstractString = "RMM-DIISH",
     SCF_criterion::AbstractFloat = 1e-6,
     SCF_max::Signed = 10,
     Init_Mixing_weight::AbstractFloat = 0.3,
@@ -247,7 +246,7 @@ function DFT_Setup(
     E_Temp::Union{AbstractFloat,Signed} = 300.0,
     kmesh::Tuple{Signed,Signed,Signed} = (1,1,1),
     verbosity::Int64 = 1,
-    fileout::Bool = true,
+    fileout::Bool = false,
     filename::AbstractString = PROGRAM_FILE)
 
 
@@ -272,6 +271,18 @@ function DFT_Setup(
     MPI.Barrier(comm)
 
 
+    Mixing_method = "RMM-DIISH"
+
+
+    Latvecs = lattice.Latvecs
+    Natom = Atoms_pos.Natom
+
+
+    if Natom ≠ length(Atoms_symbol)
+        println("please check atompos and atomsymbol, Atoms_orb")
+        error("please check input files")
+    end
+
 
     system = lowercase(strip(system))
     if system ∈ ("band", "bands", "crystal", "crystals")
@@ -281,6 +292,32 @@ function DFT_Setup(
 		error("please check system")
     end
 
+
+    if !isnothing(Atoms_Nspin)
+        if length(Atoms_Nspin) ≠ Natom
+            error("please check Atoms_Nspin")
+        end
+    end
+
+    if !isnothing(Atoms_Angle)
+        if length(Atoms_Angle) ≠ Natom
+            error("please check Atoms_Angle")
+        end
+    end
+
+    SpinPol = lowercase(strip(SpinPol))
+	if SpinPol ∉ ("off", "on", "nc")
+        println("Now SpinPol is $SpinPol")
+        error("please check SpinPol")
+    end
+
+    if SpinPol ∈ ("off", "on") && SO_switch
+        error("please check SpinPol and SO_switch")
+    end
+
+    if SpinPol ∈ ("on", "nc") && xc_type == "LDA"
+        error("please check SpinPol and xc_type")
+    end
 
     xc_type = lowercase(strip(xc_type))
 	if xc_type == "lda"
@@ -294,22 +331,65 @@ function DFT_Setup(
 		error("please check xc_type")
 	end
 
-
-    SpinPol = lowercase(strip(SpinPol))
-	if SpinPol ∉ ("off", "on", "nc")
-        println("Now SpinPol is $SpinPol")
-        error("please check SpinPol")
+    if Ecut < 0.0
+        error("please check Ecut")
     end
 
+    if !isnothing(Ngrid)
+        if length(Ngrid) ≠ 3
+            error("please check Ngrid")
+        end
 
-    if SpinPol ∈ ("off", "on") && SO_switch
-        error("please check SpinPol and SO_switch")
+        for i = 1:3
+            if Ngrid[i] <= 0
+                error("please check Ngrid")
+            end
+        end
     end
 
-    if SpinPol ∈ ("on", "nc") && xc_type == "LDA"
-        error("please check SpinPol and xc_type")
+    if SCF_criterion < 0.0
+        error("please check SCF_criterion")
     end
 
+    if SCF_max < 1
+        error("please check SCF_max")
+    end
+
+    if Init_Mixing_weight <= 0.0
+        error("please check Init_Mixing_weight")
+    end
+
+    if Min_Mixing_weight <= 0.0
+        error("please check Min_Mixing_weight")
+    end
+
+    if Max_Mixing_weight <= 0.0
+        error("please check Max_Mixing_weight")
+    end
+
+    if Num_Mixing_Pulay <= 0
+        error("please check Num_Mixing_Pulay")
+    end
+
+    if Start_Pulay_SCF <= 0
+        error("please check Start_Pulay_SCF")
+    end
+
+    if E_Temp <= 0.0
+        error("please check Max_Mixing_weight")
+    end
+
+    if kmesh[1] <= 0 || kmesh[2] <= 0 || kmesh[3] <= 0
+        error("please check kmesh")
+    end
+
+    if SpinPol ∈ ("off", "on") && nprocs > div(prod(kmesh),2)
+        error("not support number of process > number of Total kmesh points")
+    elseif SpinPol == "nc" && nprocs > prod(kmesh)
+        error("not support number of process > number of Total kmesh points")
+    end
+
+    
     
 
     if SpinPol == "off"
@@ -325,25 +405,7 @@ function DFT_Setup(
 
 
 
-
-    if SpinPol ∈ ("off", "on") && nprocs > div(prod(kmesh),2)
-        error("not support number of process > number of Total kmesh points")
-    elseif SpinPol == "nc" && nprocs > prod(kmesh)
-        error("not support number of process > number of Total kmesh points")
-    end
-
-
-
-    Latvecs = lattice.Latvecs
-    Natom = Atoms_pos.Natom
     Recvecs = 2*pi*inv(Latvecs')
-
-
-    if Natom ≠ length(Atoms_symbol)
-        println("please check atompos and atomsymbol, Atoms_orb")
-        error("please check input files")
-    end
-
 
     atompos_unit = Atoms_pos.unit
     if atompos_unit == "frac"
