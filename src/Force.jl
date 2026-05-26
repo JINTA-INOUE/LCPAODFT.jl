@@ -472,15 +472,15 @@ end
         NO0 = Total_NumOrbs[atom]
         NO1 = Total_NumOrbs[jatom]
 
-        sumx1, sumy1, sumz1 = _Calc_Force3_8(NO0, NO1, MPI_NumOLG[loop], GridListAtom[atom], MPI_GListTAtoms1[loop], MPI_GListTAtoms2[loop], 
-                                             dOrbs_Grid[1][atom], dOrbs_Grid[2][atom], dOrbs_Grid[3][atom], Orbs_Grid[jatom], Vpot_Grid[1], DM[1][atom][Rn])
+        sumx1_up, sumy1_up, sumz1_up = _Calc_Force3_8(NO0, NO1, MPI_NumOLG[loop], GridListAtom[atom], MPI_GListTAtoms1[loop], MPI_GListTAtoms2[loop], 
+                                                      dOrbs_Grid[1][atom], dOrbs_Grid[2][atom], dOrbs_Grid[3][atom], Orbs_Grid[jatom], Vpot_Grid[1], DM[1][atom][Rn])
 
-        sumx1, sumy1, sumz1 += _Calc_Force3_8(NO0, NO1, MPI_NumOLG[loop], GridListAtom[atom], MPI_GListTAtoms1[loop], MPI_GListTAtoms2[loop], 
-                                              dOrbs_Grid[1][atom], dOrbs_Grid[2][atom], dOrbs_Grid[3][atom], Orbs_Grid[jatom], Vpot_Grid[2], DM[2][atom][Rn])
+        sumx1_dn, sumy1_dn, sumz1_dn = _Calc_Force3_8(NO0, NO1, MPI_NumOLG[loop], GridListAtom[atom], MPI_GListTAtoms1[loop], MPI_GListTAtoms2[loop], 
+                                                      dOrbs_Grid[1][atom], dOrbs_Grid[2][atom], dOrbs_Grid[3][atom], Orbs_Grid[jatom], Vpot_Grid[2], DM[2][atom][Rn])
 
-        VpotForce[atom,1] += 2*sumx1*GridVol
-        VpotForce[atom,2] += 2*sumy1*GridVol
-        VpotForce[atom,3] += 2*sumz1*GridVol
+        VpotForce[atom,1] += 2*(sumx1_up + sumx1_dn)*GridVol
+        VpotForce[atom,2] += 2*(sumy1_up + sumx1_dn)*GridVol
+        VpotForce[atom,3] += 2*(sumz1_up + sumx1_dn)*GridVol
     end
 
     MPI.Allreduce!(VpotForce, MPI.SUM, comm)
