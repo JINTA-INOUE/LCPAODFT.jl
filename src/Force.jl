@@ -479,8 +479,8 @@ end
                                                       dOrbs_Grid[1][atom], dOrbs_Grid[2][atom], dOrbs_Grid[3][atom], Orbs_Grid[jatom], Vpot_Grid[2], DM[2][atom][Rn])
 
         VpotForce[atom,1] += 2*(sumx1_up + sumx1_dn)*GridVol
-        VpotForce[atom,2] += 2*(sumy1_up + sumx1_dn)*GridVol
-        VpotForce[atom,3] += 2*(sumz1_up + sumx1_dn)*GridVol
+        VpotForce[atom,2] += 2*(sumy1_up + sumy1_dn)*GridVol
+        VpotForce[atom,3] += 2*(sumz1_up + sumz1_dn)*GridVol
     end
 
     MPI.Allreduce!(VpotForce, MPI.SUM, comm)
