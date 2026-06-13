@@ -31,7 +31,7 @@ non-collinear DFT
     PAO_File_path and VPS_File_path must be specified as absolute paths within Read_PAO.jl and Read_VPS.jl, located under src/Atoms.
 3. Please install following packages
     ```
-    LinearAlgebra, Bessels, FFTW, JLD2, TimerOutputs, Printf, JSON, SMTPClient, Dates, MPI
+    LinearAlgebra, Bessels, FFTW, JLD2, TimerOutputs, Printf, Dates, MPI
     ```
 
     MPI.jl requires MPI to be installed. 
