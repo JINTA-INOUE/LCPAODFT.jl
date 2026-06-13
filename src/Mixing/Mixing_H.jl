@@ -140,7 +140,7 @@ function Pulay_Mixing_H!(SCF_iter, Hks, dft_options::DFT_Options, dft_mixing::Ha
     end
 
     if flag
-        coes = zeros(Float64, dim)
+        fill!(coes, 0.0)
         coes[1] = 0.05
         coes[2] = 0.95
     end
@@ -161,11 +161,11 @@ function Pulay_Mixing_H!(SCF_iter, Hks, dft_options::DFT_Options, dft_mixing::Ha
     # mixing Hamiltonian
     if Norm >= 1e-1
         alpha = 0.5
-    elseif 1e-2 < Norm < 1e-1
+    elseif 1e-2 <= Norm < 1e-1
         alpha = 0.6
-    elseif 1e-3 < Norm < 1e-2
+    elseif 1e-3 <= Norm < 1e-2
         alpha = 0.7
-    elseif 1e-4 < Norm < 1e-3
+    elseif 1e-4 <= Norm < 1e-3
         alpha = 0.8
     else
         alpha = 1.0
@@ -230,5 +230,21 @@ function Hmix!(Nspin, Total_Hsize, weight, Hks, HisH)
     weight2 = 1.0 - weight
     for spin = 1:Nspin, hst = 1:Total_Hsize
         Hks[spin][hst] = weight2*HisH[hst,spin] + weight*Hks[spin][hst]
+    end
+end
+
+
+function Pulay_H_inv!(dim, IA)
+    val, vec = eigen(Symmetric(IA))
+    for i = 1:dim
+        val[i] = 1/(val[i] + 1.0e-13)
+    end
+
+    for i = 1:dim, j = 1:dim
+        Sum = 0.0
+        for k = 1:dim
+            Sum += vec[i,k]*val[k]*vec[j,k]
+        end
+        IA[i,j] = Sum
     end
 end

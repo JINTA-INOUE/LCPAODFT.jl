@@ -7,8 +7,11 @@ mutable struct Crystal_Electron <: CrystalBloch
     system::String
     SpinPol::String
     Spindeg::Int32
-    kpoints::KPoints
-    Nspin::Int32
+    spinsize::Int32
+    fsize::Int32
+    Nfsize::Int32
+    Nkpt::Int32
+    MPI_Nkpt::Int32
     E_Temp::Float64
     Core_Charge::Vector{Float64}
     TotalZ::Float64
@@ -36,32 +39,29 @@ Mandatory arguments:
 - `fsize`: the number of total Orbitals in unit cell
 - `system`: system name (`Atom`, `Cluster`, `Crystal`)
 """
-function Electron(kpoints::Union{KPoints, Nothing}, SpinPol::String, E_Temp, Core_Charge, fsize::Integer, system::String)
+function Electron(kpoints::KPoints, SpinPol::String, E_Temp, Core_Charge, fsize::Integer, system::String)
 
-    if SpinPol ∈ ("off", "nc")
+    TotalZ = sum(Core_Charge)
+
+    if SpinPol == "off"
         spinsize = 1
+        Spindeg = 2
+        Nocc = TotalZ/2
+        Nfsize = fsize
     elseif SpinPol == "on"
         spinsize = 2
+        Spindeg = 1
+        Nocc = TotalZ/2
+        Nfsize = fsize
+    elseif SpinPol == "nc"
+        spinsize = 1
+        Spindeg = 1
+        Nocc = TotalZ
+        Nfsize = 2*fsize
     else
         println("Now SpinPol is $SpinPol")
         error("please check SpinPol")
     end
-
-    if SpinPol == "off"
-        Spindeg = 2
-    elseif SpinPol ∈ ("on", "nc")
-        Spindeg = 1
-    else
-        error("please check SpinPol")
-    end
-
-    TotalZ = sum(Core_Charge)
-    if SpinPol == "nc"
-        Nocc = TotalZ
-    else
-        Nocc = TotalZ/2
-    end
-
 
 
     if system ∈ ("Atom", "Cluster")
@@ -70,29 +70,20 @@ function Electron(kpoints::Union{KPoints, Nothing}, SpinPol::String, E_Temp, Cor
 
         Nkpt = kpoints.Nkpt
         MPI_Nkpt = kpoints.MPI_Nkpt
+
+        FF = zeros(Float64, Nfsize, Nkpt, spinsize)
+        Enk = zeros(Float64, Nfsize, Nkpt, spinsize)
         Cnk = Vector{Vector{Matrix{ComplexF64}}}(undef, spinsize)
-        
-        if SpinPol ∈ ("off", "on")
-            FF = zeros(Float64, spinsize, fsize, Nkpt)
-            Enk = zeros(Float64, spinsize, fsize, Nkpt)
-            for spin = 1:spinsize
-                Cnk[spin] = Vector{Matrix{ComplexF64}}(undef, MPI_Nkpt)
-                for ik = 1:MPI_Nkpt
-                    Cnk[spin][ik] = zeros(ComplexF64, fsize, fsize)
-                end
-            end
-        elseif SpinPol == "nc"
-            FF = zeros(Float64, 1, 2*fsize, Nkpt)
-            Enk = zeros(Float64, 1, 2*fsize, Nkpt)
-            Cnk[1] = Vector{Matrix{ComplexF64}}(undef, MPI_Nkpt)
+        for spin = 1:spinsize
+            Cnk[spin] = Vector{Matrix{ComplexF64}}(undef, MPI_Nkpt)
             for ik = 1:MPI_Nkpt
-                Cnk[1][ik] = zeros(ComplexF64, 2*fsize, 2*fsize)
+                Cnk[spin][ik] = zeros(ComplexF64, Nfsize, Nfsize)
             end
         end
+        
 
-
-        return Crystal_Electron(system, SpinPol, Spindeg, kpoints, 
-                                spinsize, 
+        return Crystal_Electron(system, SpinPol, Spindeg, 
+                                spinsize, fsize, Nfsize, Nkpt, MPI_Nkpt,
                                 E_Temp, Core_Charge, TotalZ, Nocc, 0.0, 0.0, 
                                 FF, Enk, Cnk)
     end

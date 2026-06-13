@@ -1,4 +1,4 @@
-function Load_JLD2(jld2_file::String)
+function Load_LCPAODFT_model(jld2_file::String)
 
     data = jldopen(jld2_file, "r")
     Natom = data["Natom"]
@@ -12,6 +12,7 @@ function Load_JLD2(jld2_file::String)
     Init_Atoms_Nspin = data["Init_Atoms_Nspin"]
     Init_Atoms_Angle = data["Init_Atoms_Angle"]
     Atoms_Angle = data["Atoms_Angle"]
+    Total_SpinS = data["Total_SpinS"]
     Latvecs = data["Latvecs"]
     Recvecs = data["Recvecs"]
     Gxyz = data["Gxyz"]
@@ -43,6 +44,7 @@ function Load_JLD2(jld2_file::String)
     Eele = data["Eele"]
     Etot = data["Etot"]
     ForceAll = data["ForceAll"]
+    scf_inputfile = data["scf_inputfile"]
 
     close(data)
 
@@ -50,10 +52,10 @@ function Load_JLD2(jld2_file::String)
     return LCPAO_model(
         Natom, Nspecies, Nspin, atom2spe, 
         Atoms_symbol, Atoms_Cut1, Atoms_pao, Atoms_Core_Charge, 
-        Init_Atoms_Nspin, Init_Atoms_Angle, Atoms_Angle,
+        Init_Atoms_Nspin, Init_Atoms_Angle, Atoms_Angle, Total_SpinS,
         Latvecs, Recvecs, Gxyz, TCpyCell, atv, atv_ijk, FNAN, natn, ncn, Total_NumOrbs, MP, 
         Grid_Origin, Ngrid, SO_switch, SpinPol, xc_type, time_rev, E_Temp, kmesh,
         SCF_criterion, pao_file, pspot_file, 
-        OLP, Hks, iHks, DM, iDM, ChemP, Eele, Etot, ForceAll
+        OLP, Hks, iHks, DM, iDM, ChemP, Eele, Etot, ForceAll, scf_inputfile
     )
 end

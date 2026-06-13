@@ -30,6 +30,7 @@ function Print_Pspot(pspot::Pspot)
     is_pcc = pspot.is_pcc
     psfile = pspot.psfile
 
+
     println("<Pspot>")
     println("\tAtom_symbol : $(Atom_symbol)")
     if Atom_extra ≠ ""

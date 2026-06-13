@@ -1,7 +1,6 @@
-#=
-function Write_cifFile(filename, Natom, Latvecs, Recvecs, Gxyz, Atoms_Symbol)
+function Write_CIFfile(filename::String, Natom, Latvecs, Gxyz_frac, Atoms_symbol)
 
-    if !(Natom == length(Gxyz) == length(Atoms_Symbol))
+    if !(Natom == length(Gxyz_frac) == length(Atoms_symbol))
         error("please check input")
     end
 
@@ -35,13 +34,13 @@ function Write_cifFile(filename, Natom, Latvecs, Recvecs, Gxyz, Atoms_Symbol)
     @printf(data, "_symmetry_equiv_pos_as_xyz\n")
     @printf(data, "  x,y,z\n")
 
-    @printf(data, "_cell_length_a%26.4f\n", length_a/Ang_to_bohr)
-    @printf(data, "_cell_length_b%26.4f\n", length_b/Ang_to_bohr)
-    @printf(data, "_cell_length_c%26.4f\n", length_c/Ang_to_bohr)
+    @printf(data, "_cell_length_a%26.8f\n", length_a/Ang_to_bohr)
+    @printf(data, "_cell_length_b%26.8f\n", length_b/Ang_to_bohr)
+    @printf(data, "_cell_length_c%26.8f\n", length_c/Ang_to_bohr)
 
-    @printf(data, "_cell_angle_alpha%24.4f\n", alpha)
-    @printf(data, "_cell_angle_beta %24.4f\n", beta)
-    @printf(data, "_cell_angle_gamma%24.4f\n", gamma)
+    @printf(data, "_cell_angle_alpha%24.8f\n", alpha)
+    @printf(data, "_cell_angle_beta %24.8f\n", beta)
+    @printf(data, "_cell_angle_gamma%24.8f\n", gamma)
 
     @printf(data, "loop_\n")
     @printf(data, "_atom_site_label\n")
@@ -54,34 +53,54 @@ function Write_cifFile(filename, Natom, Latvecs, Recvecs, Gxyz, Atoms_Symbol)
     @printf(data, "_atom_site_occupancy\n")
 
 
-    Cell_Gxyz = zeros(Float64, 3)
-
     for atom = 1:Natom
 
-        Cell_Gxyz[1] = dot(Gxyz[atom], Recvecs[1,:])*0.5/pi
-        Cell_Gxyz[2] = dot(Gxyz[atom], Recvecs[2,:])*0.5/pi
-        Cell_Gxyz[3] = dot(Gxyz[atom], Recvecs[3,:])*0.5/pi
-        
-        for i = 1:3
-            tmp = floor(Int64, Cell_Gxyz[i])
-            if Cell_Gxyz[i] > 1.0
-                Cell_Gxyz[i] = abs(Cell_Gxyz[i]-tmp)
-            elseif Cell_Gxyz[i] < -1e-13
-                Cell_Gxyz[i] = abs(Cell_Gxyz[i]+abs(tmp)+1)
-            end
-        end
-
-        @printf(data, "%s%-6d%-3s%10.5f%10.5f%10.5f%10.5f  Uiso   1.00\n",
-                Atoms_Symbol[atom],
+        @printf(data, "%s%-6d%-3s%10.8f%10.8f%10.8f%10.8f  Uiso   1.00\n",
+                Atoms_symbol[atom],
                 atom, 
-	            Atoms_Symbol[atom],
-	            Cell_Gxyz[1], Cell_Gxyz[2], Cell_Gxyz[3],
+	            Atoms_symbol[atom],
+	            Gxyz_frac[atom][1], Gxyz_frac[atom][2], Gxyz_frac[atom][3],
                 0.0)
     end
 
     close(data)
 end
-=#
+
+
+function Write_xyzfile(filename::String, Natom, Gxyz, Atoms_symbol)
+
+    if !(Natom == length(Gxyz) == length(Atoms_symbol))
+        error("please check input")
+    end
+
+    Bohr2Ang = 0.529177249
+
+    data = open("$filename.xyz", "w")
+    for atom = 1:Natom
+        @printf(data, "%4s  %18.14f %18.14f %18.14f\n", Atoms_symbol[atom], Gxyz[atom][1]*Bohr2Ang, Gxyz[atom][2]*Bohr2Ang, Gxyz[atom][3]*Bohr2Ang)
+    end
+    close(data)
+end
+
+
+function Write_xyzfile(filename::String, Natom, Gxyz, ForceAll, Atoms_symbol)
+
+    if !(Natom == length(Gxyz) == length(Atoms_symbol))
+        error("please check input")
+    end
+
+    Bohr2Ang = 0.529177249
+
+    data = open("$filename.xyz", "w")
+    for atom = 1:Natom
+        @printf(data, "%4s  %8.8f  %8.8f  %8.8f  %18.15f %18.15f %18.15f\n", 
+        Atoms_symbol[atom], 
+        Gxyz[atom][1]*Bohr2Ang, Gxyz[atom][2]*Bohr2Ang, Gxyz[atom][3]*Bohr2Ang,
+        ForceAll[atom,1], ForceAll[atom,2], ForceAll[atom,3])
+    end
+    close(data)
+end
+
 
 #=
 function Write_outFile()
@@ -94,7 +113,6 @@ function Write_outFile()
     _inputfile = @__FILE__
     data = open(_input_file, "r")
     inputfile = readlines(data)
-    Nfile = length(inputfile)
     close(data)
 
     File = open(filename*".out", "w")
@@ -107,7 +125,7 @@ function Write_outFile()
     println(File, "")
     println(File, "===========================================================")
     println(File, "")
-    for i = 1:Nfile
+    for i = 1:length(inputfile)
         println(File, inputfile[i])
     end
     println(File, "")
@@ -182,7 +200,7 @@ function Write_outFile()
     println(File, "<coordinates.forces")
     println(File, "  $Natom")
     for atom = 1:Natom
-        @printf(File, "    \n", atom, Atoms_Symbol[atom], Gxyz[atom][1], Gxyz[atom][2], Gxyz[atom][3], Force[atom,1], Force[atom,2], Force[atom,3])
+        @printf(File, "    \n", atom, Atoms_symbol[atom], Gxyz[atom][1], Gxyz[atom][2], Gxyz[atom][3], Force[atom,1], Force[atom,2], Force[atom,3])
     end
     println(File, "coordinates.forces>")
     println(File, "")
@@ -200,6 +218,64 @@ function Write_outFile()
     close(File)
 end
 =#
+
+
+function WriteFile!(
+    filename::String,
+    SpinPol::String, Ngrid, ADensity_Grid, Density_Grid)
+
+    # Density_Grid overwritten in utils/OutData.jl/WriteFile!
+    if SpinPol == "off"
+        @. Density_Grid[1] = Density_Grid[1] - ADensity_Grid
+    else
+        @. Density_Grid[1] = Density_Grid[1] - ADensity_Grid
+        @. Density_Grid[2] = Density_Grid[2] - ADensity_Grid
+    end
+    
+    println("Write $filename")
+    Generate_rhoFile(filename, Ngrid, Density_Grid)
+end
+
+
+function WriteFile(
+    filename::String,
+    system_grid::System_Grid, 
+    energy::Energy, force::Force,
+    DM, Hks, iHks)
+
+    Natom = system_grid.Natom
+    CpyCell = system_grid.CpyCell
+    TCpyCell = (2*CpyCell + 1)^3 - 1
+    FNAN = system_grid.FNAN
+    natn = system_grid.natn
+    ncn = system_grid.ncn
+    Total_NumOrbs = system_grid.Total_NumOrbs
+    atv_ijk = system_grid.atv_ijk
+    Total_Hsize = system_grid.Total_Hsize
+    ChemP = energy.ChemP
+    Eele = energy.Eele
+    Etot = energy.Etot
+    ForceAll = force.ForceAll
+    
+    println("Write $filename")
+    jldopen("$filename", "w") do file
+        file["Natom"] = Natom
+        file["TCpyCell"] = TCpyCell
+        file["FNAN"] = FNAN
+        file["natn"] = natn
+        file["ncn"] = ncn
+        file["Total_NumOrbs"] = Total_NumOrbs
+        file["atv_ijk"] = atv_ijk
+        file["Total_Hsize"] = Total_Hsize
+        file["Hks"] = Hks
+        file["iHks"] = iHks
+        file["ChemP"] = ChemP
+        file["Eele"] = Eele
+        file["Etot"] = Etot
+        file["ForceAll"] = ForceAll
+        file["Dates"] = now()
+    end
+end
 
 
 function WriteFile(
@@ -222,6 +298,7 @@ function WriteFile(
     Atoms_symbol = dft_setup.Atoms_symbol
     Atoms_pao = dft_setup.Atoms_pao
     Atoms_Angle = mulliken_charge.Angle_Spin
+    Total_SpinS = mulliken_charge.Total_SpinS
     CpyCell = system_grid.CpyCell
     TCpyCell = (2*CpyCell + 1)^3 - 1
     Gxyz = system_grid.Gxyz
@@ -254,14 +331,12 @@ function WriteFile(
     filename2 = split(filename, ".jl")[1]
 
     data = open(pwd()*"/"*PROGRAM_FILE, "r")
-    inputfile = readlines(data)
+    scf_inputfile = readlines(data)
     close(data)
 
     
     println("Write $filename2.jld2 LCPAO_model")
     jldopen("$filename2.jld2", "w") do file
-        file["Dates"] = now()
-        file["inputfile"] = inputfile
         file["Natom"] = Natom
         file["Nspecies"] = Nspecies
         file["Nspin"] = Nspin
@@ -273,6 +348,7 @@ function WriteFile(
         file["Init_Atoms_Nspin"] = Init_Atoms_Nspin
         file["Init_Atoms_Angle"] = Init_Atoms_Angle
         file["Atoms_Angle"] = Atoms_Angle
+        file["Total_SpinS"] = Total_SpinS
         file["Latvecs"] = Latvecs
         file["Recvecs"] = Recvecs
         file["Gxyz"] = Gxyz
@@ -304,5 +380,7 @@ function WriteFile(
         file["Eele"] = Eele
         file["Etot"] = Etot
         file["ForceAll"] = ForceAll
+        file["Dates"] = now()
+        file["scf_inputfile"] = scf_inputfile
     end
 end

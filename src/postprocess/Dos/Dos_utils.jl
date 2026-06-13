@@ -57,7 +57,7 @@ function Get_Angle_spin(material::LCPAO_model)
 end
 
 
-function Get_EVec_Collinear!(material::LCPAO_model, kpts, Cnk, EVec, iemin, iemax)
+function Get_EVec_Collinear!(material::LCPAO_model, Nkpt, kpts, Cnk, EVec, iemin, iemax)
 
     Natom = material.Natom
     SpinPol = material.SpinPol
@@ -72,15 +72,16 @@ function Get_EVec_Collinear!(material::LCPAO_model, kpts, Cnk, EVec, iemin, iema
     spinsize = ifelse(SpinPol == "off", 1, 2)
     OLP = material.OLP
     ChemP = material.ChemP
-    Nkpt = size(kpts, 1)
 
 
+    Cnk_tmp = zeros(ComplexF64, fsize, fsize)
     SD = zeros(Float32, fsize)
     S = zeros(ComplexF64, fsize, fsize)
 
-    for ik = 1:Nkpt
+    for spin = 1:spinsize, ik = 1:Nkpt
+        @. Cnk_tmp = Cnk[spin][ik]
         HS_matrix!(S, OLP, Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, kpts[ik,:])
-        for spin = 1:spinsize, l = iemin:iemax
+        for l = iemin:iemax
             
             fill!(SD, 0.0)
             for atom = 1:Natom, jatom = 1:Natom
@@ -90,7 +91,7 @@ function Get_EVec_Collinear!(material::LCPAO_model, kpts, Cnk, EVec, iemin, iema
                 Bnum = MP[jatom]
 
                 for ist = 1:NO0, jst = 1:NO1
-                    tmp = conj(Cnk[spin][ik][Anum+ist,l]) * Cnk[spin][ik][Bnum+jst,l]
+                    tmp = conj(Cnk_tmp[Anum+ist,l]) * Cnk_tmp[Bnum+jst,l]
                     SD[Anum+ist] += real(tmp * S[Anum+ist,Bnum+jst])
                 end
             end
@@ -104,7 +105,7 @@ function Get_EVec_Collinear!(material::LCPAO_model, kpts, Cnk, EVec, iemin, iema
 end
 
 
-function Get_EVec_NonCollinear!(material::LCPAO_model, kpts, Cnk, EVec, iemin, iemax)
+function Get_EVec_NonCollinear!(material::LCPAO_model, Nkpt, kpts, Cnk, EVec, iemin, iemax)
 
     Natom = material.Natom
     FNAN = material.FNAN
@@ -115,20 +116,17 @@ function Get_EVec_NonCollinear!(material::LCPAO_model, kpts, Cnk, EVec, iemin, i
     MP = material.MP
     ChemP = material.ChemP
     fsize = sum(Total_NumOrbs)
-
     OLP = material.OLP
     ChemP = material.ChemP
-
     Angle_spin = Get_Angle_spin(material)
-    Nkpt = size(kpts, 2)
 
 
+    Cnk_tmp = zeros(ComplexF64, 2*fsize, 2*fsize)
+    SD = zeros(Float32, 2*fsize)
     S = zeros(ComplexF64, fsize, fsize)
 
-
-    # SD = ∑_{iα,jβ}c^{k*}_{μ,iα}c^{k}_{μ,jβ}<iα,k|jβ,k>    
-    SD = zeros(Float32, 2*fsize)
     for ik = 1:Nkpt
+        @. Cnk_tmp = Cnk[1][ik]
         HS_matrix!(S, OLP, Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, kpts[ik,:])
         for l = iemin:iemax
             
@@ -140,16 +138,16 @@ function Get_EVec_NonCollinear!(material::LCPAO_model, kpts, Cnk, EVec, iemin, i
                 cot = cos(theta)
                 sip = sin(phi)
                 cop = cos(phi)
-                N0 = Total_NumOrbs[atom]
-                N1 = Total_NumOrbs[jatom]
+                NO0 = Total_NumOrbs[atom]
+                NO1 = Total_NumOrbs[jatom]
                 Anum = MP[atom]
                 Bnum = MP[jatom]
 
-                for ist = 1:N0, jst = 1:N1
-                    tmp_uu = real(conj(Cnk[1][ik][Anum+ist,l]) * Cnk[1][ik][Bnum+jst,l] * S[Anum+ist,Bnum+jst])
-                    tmp_dd = real(conj(Cnk[1][ik][Anum+ist+fsize,l]) * Cnk[1][ik][Bnum+jst+fsize,l] * S[Anum+ist,Bnum+jst])
-                    tmp_ud_real = real(conj(Cnk[1][ik][Anum+ist,l]) * Cnk[1][ik][Bnum+jst+fsize,l] * S[Anum+ist,Bnum+jst])
-                    tmp_ud_imag = imag(conj(Cnk[1][ik][Anum+ist,l]) * Cnk[1][ik][Bnum+jst+fsize,l] * S[Anum+ist,Bnum+jst])
+                for ist = 1:NO0, jst = 1:NO1
+                    tmp_uu = real(conj(Cnk_tmp[Anum+ist,l]) * Cnk_tmp[Bnum+jst,l] * S[Anum+ist,Bnum+jst])
+                    tmp_dd = real(conj(Cnk_tmp[Anum+ist+fsize,l]) * Cnk_tmp[Bnum+jst+fsize,l] * S[Anum+ist,Bnum+jst])
+                    tmp_ud_real = real(conj(Cnk_tmp[Anum+ist,l]) * Cnk_tmp[Bnum+jst+fsize,l] * S[Anum+ist,Bnum+jst])
+                    tmp_ud_imag = imag(conj(Cnk_tmp[Anum+ist,l]) * Cnk_tmp[Bnum+jst+fsize,l] * S[Anum+ist,Bnum+jst])
                     SD[Anum+ist] += 0.5*(tmp_uu + tmp_dd) + 0.5*cot*(tmp_uu - tmp_dd) + (tmp_ud_real*cop - tmp_ud_imag*sip)*sit
                     SD[Anum+ist+fsize] += 0.5*(tmp_uu + tmp_dd) - 0.5*cot*(tmp_uu - tmp_dd) - (tmp_ud_real*cop - tmp_ud_imag*sip)*sit
                 end

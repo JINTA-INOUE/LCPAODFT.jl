@@ -8,22 +8,21 @@ function dampingF(rcut::Float64, r::Float64)
     r04 = r03*r01
     r05 = r04*r01
 
-    A = zeros(Float64,3,3)
-    A[1,1] = r03
-    A[1,2] = r04
-    A[1,3] = r05
-    A[2,1] = 3*r02
-    A[2,2] = 4*r03
-    A[2,3] = 5*r04
-    A[3,1] = 6*r01
-    A[3,2] = 12*r02
-    A[3,3] = 20*r03
+    A11 = r03
+    A12 = r04
+    A13 = r05
+    A21 = 3*r02
+    A22 = 4*r03
+    A23 = 5*r04
+    A31 = 6*r01
+    A32 = 12*r02
+    A33 = 20*r03
 
-    Ainv = inv(A)
-
-    c3 = Ainv[1,1]
-    c4 = Ainv[2,1]
-    c5 = Ainv[3,1]
+    detA = A11*A22*A33 + A12*A23*A31 + A13*A21*A32 - A13*A22*A31 - A12*A21*A33 - A11*A23*A32
+  
+    c3 =  (A22*A33-A23*A32)/detA
+    c4 = -(A21*A33-A23*A31)/detA
+    c5 =  (A21*A32-A22*A31)/detA
 
     r0 = r - rcut
     r3 = r0^3
@@ -50,28 +49,26 @@ function deri_dampingF(rcut::Float64, r::Float64)
     r04 = r03*r01
     r05 = r04*r01
 
-    A = zeros(Float64,3,3)
-    A[1,1] = r03
-    A[1,2] = r04
-    A[1,3] = r05
-    A[2,1] = 3*r02
-    A[2,2] = 4*r03
-    A[2,3] = 5*r04
-    A[3,1] = 6*r01
-    A[3,2] = 12*r02
-    A[3,3] = 20*r03
+    A11 = r03
+    A12 = r04
+    A13 = r05
+    A21 = 3*r02
+    A22 = 4*r03
+    A23 = 5*r04
+    A31 = 6*r01
+    A32 = 12*r02
+    A33 = 20*r03
 
-    Ainv = inv(A)
-
-    c3 = Ainv[1,1]
-    c4 = Ainv[2,1]
-    c5 = Ainv[3,1]
+    detA = A11*A22*A33 + A12*A23*A31 + A13*A21*A32 - A13*A22*A31 - A12*A21*A33 - A11*A23*A32
+  
+    c3 =  (A22*A33-A23*A32)/detA
+    c4 = -(A21*A33-A23*A31)/detA
+    c5 =  (A21*A32-A22*A31)/detA
 
     r0 = r - rcut
     r2 = r0^2
     r3 = r0^3
     r4 = r0^4
-    r5 = r0^5
 
     if rcut < r
         return 0.0

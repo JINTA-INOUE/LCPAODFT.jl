@@ -34,10 +34,19 @@ struct DFT_Setup
     Start_Pulay_SCF::Int32
     E_Temp::Float64
     kmesh::Tuple{Int32,Int32,Int32}
+    Hub_U::Bool
+    Hub_U_atom::Vector{Vector{Float64}}
+    Hub_U_orbpol::Vector{Bool}
+    Hub_U_occ::String
+    Hub_Type::String
+    dc_Type::String
     time_rev::Bool
-    verbosity::Int64
     fileout::Bool
     filename::String
+    restart::Bool
+    filepath::String
+    send_email::Bool
+    verbosity::Int64
 end
 
 
@@ -47,7 +56,6 @@ function Print_DFT_Setup(dft_setup::DFT_Setup)
     Natom = dft_setup.Natom
     Nspecies = dft_setup.Nspecies
     Nspin = dft_setup.Nspin
-    atom2spe = dft_setup.atom2spe
     Latvecs = dft_setup.Latvecs
     Recvecs = dft_setup.Recvecs
     Gxyz = dft_setup.Gxyz
@@ -55,7 +63,6 @@ function Print_DFT_Setup(dft_setup::DFT_Setup)
     Init_Atoms_Nspin = dft_setup.Init_Atoms_Nspin
     Init_Atoms_Angle = dft_setup.Init_Atoms_Angle
     Atoms_pao = dft_setup.Atoms_pao
-    Atoms_cutoff = dft_setup.Atoms_cutoff
     Grid_Origin = dft_setup.Grid_Origin
     GridVol = dft_setup.GridVol
     Ngrid = dft_setup.Ngrid
@@ -85,7 +92,6 @@ function Print_DFT_Setup(dft_setup::DFT_Setup)
 	println("Grid_Origin:   $(Grid_Origin[1]) $(Grid_Origin[2]) $(Grid_Origin[3])")
 	println("GridVol    :   $(GridVol)")
     println("")
-
 
 
     println("Initial Number of up-spin/dn-spin per atoms")
@@ -144,17 +150,93 @@ function Print_DFT_Setup(dft_setup::DFT_Setup)
     println("\tStart_Pulay_SCF : $(Start_Pulay_SCF)")
     
 
+    Hub_U = dft_setup.Hub_U
+    Hub_U_atom = dft_setup.Hub_U_atom
+    Hub_U_orbpol = dft_setup.Hub_U_orbpol
+    Hub_U_occ = dft_setup.Hub_U_occ
+    Hub_Type = dft_setup.Hub_Type
+    dc_Type = dft_setup.dc_Type
+    if Hub_U
+        println("")
+        println("<Hubbard U>")
+        println("\tHub_U_occ : $(Hub_U_occ)")
+        println("\tHubbard_Type : $(Hub_Type)")
+        println("\tdc_Type : $(dc_Type)")
+        println("\tHubbard Orbital Polarization")
+        for atom = 1:Natom
+            if Hub_U_orbpol[atom]
+                println("\t\t$atom  $(Atoms_symbol[atom])\ton")
+            else
+                println("\t\t$atom  $(Atoms_symbol[atom])\toff")
+            end
+        end
+        println("\tHubbard U Energy(eV)")
+        for spe = 1:Nspecies
+            Spe_MaxL_Basis, Spe_Num_Basis = get_ialpha_index(Spe_orb[spe])
+            @printf("\t\t%d\t%s\t", spe, Spe_Symbol[spe])
+            counts = 0
+            for l = 0:Spe_MaxL_Basis, p = 1:Spe_Num_Basis[l+1]
+                counts += 1
+                if l == 0
+                    @printf("%ds:%5.2f  ", p, Hub_U_atom[spe][counts])
+                elseif l == 1
+                    @printf("%dp:%5.2f  ", p, Hub_U_atom[spe][counts])
+                elseif l == 2
+                    @printf("%dd:%5.2f  ", p, Hub_U_atom[spe][counts])
+                elseif l == 3
+                    @printf("%df:%5.2f  ", p, Hub_U_atom[spe][counts])
+                end
+            end
+            @printf("\n")
+        end
+    end
 
     
     fileout = dft_setup.fileout
     filename = dft_setup.filename
+    restart = dft_setup.restart
+    filepath = dft_setup.filepath
     verbosity = dft_setup.verbosity
+    send_email = dft_setup.send_email
     println("")
     println("<Outputs>")
     println("\tfileout : $(fileout)")
     println("\tfilename : $(filename)")
+    println("\trestart : $(restart)")
+    if restart
+        println("\tfilepath : $(filepath)")
+    end
     println("\tverbosity : $(verbosity)")
-    println("\n")
+    println("\tsend_email : $(send_email)")
+end
+
+
+function RestartFile_check(Natom, Nspin, Latvecs, Gxyz, Grid_Origin, SpinPol, SO_switch, xc_type, filepath)
+
+    material = Load_LCPAODFT_model(filepath)
+    Read_Natom = material.Natom
+    Read_Nspin = material.Nspin
+    Read_Latvecs = material.Latvecs
+    Read_Gxyz = material.Gxyz
+    Read_Grid_Origin = material.Grid_Origin
+    Read_SpinPol = material.SpinPol
+    Read_SO_switch = material.SO_switch
+    Read_xc_type = material.xc_type
+
+    function check_same(data1, data2, val_name::String)
+        if data1 ≠ data2
+            error("Failed Restart file ($val_name)")
+        end
+    end
+
+    check_same(Natom, Read_Natom, "Natom")
+    check_same(Nspin, Read_Nspin, "Nspin")
+    check_same(Latvecs, Read_Latvecs, "Latvecs")
+    check_same(Gxyz, Read_Gxyz, "Gxyz")
+    check_same(Grid_Origin, Read_Grid_Origin, "Grid_Origin")
+    check_same(SpinPol, Read_SpinPol, "SpinPol")
+    check_same(SO_switch, Read_SO_switch, "SO_switch")
+    check_same(xc_type, Read_xc_type, "xc_type")
 end
 
 
@@ -193,6 +275,7 @@ Thw following is the most commonly used optional arguments:
 - `verbosity` : terminal print
 - `fileout` : output bool
 - `filename` : output file name
+- `send_email` : send results email
 
 
 function DFT_Setup(
@@ -218,9 +301,16 @@ function DFT_Setup(
     Start_Pulay_SCF::Signed = 6,
     E_Temp::Union{AbstractFloat,Signed} = 300.0,
     kmesh::Tuple{Signed,Signed,Signed} = (1,1,1),
+    Hub_U::Bool = false,
+    Hub_U_atom::Union{Nothing,Vector{Vector{Float64}}} = nothing,
+    Hub_U_occ::AbstractString = "dual",
+    Hub_Type::AbstractString = "Dudarev",
+    dc_Type::AbstractString = "sFLL",
     verbosity::Int = 1,
     fileout::Bool = false,
-    filename::AbstractString = PROGRAM_FILE
+    filename::AbstractString = PROGRAM_FILE,
+    filepath::AbstractString = nothing,
+    send_email::Bool = false
 )
 """
 function DFT_Setup(
@@ -245,9 +335,17 @@ function DFT_Setup(
     Start_Pulay_SCF::Signed = 6,
     E_Temp::Union{AbstractFloat,Signed} = 300.0,
     kmesh::Tuple{Signed,Signed,Signed} = (1,1,1),
+    Hub_U::Bool = false,
+    Hub_U_atom::Union{Nothing,Vector{Vector{Float64}}} = nothing,
+    Hub_U_orbpol::Union{Nothing,Vector{Bool}} = nothing,
+    Hub_U_occ::AbstractString = "dual",
+    Hub_Type::AbstractString = "Dudarev",
+    dc_Type::AbstractString = "sFLL",
     verbosity::Int64 = 1,
-    fileout::Bool = false,
-    filename::AbstractString = PROGRAM_FILE)
+    fileout::Bool = true,
+    filename::AbstractString = PROGRAM_FILE,
+    filepath::Union{Nothing,AbstractString} = nothing,
+    send_email::Bool = false)
 
 
     MPI.Init()
@@ -270,12 +368,16 @@ function DFT_Setup(
     end
     MPI.Barrier(comm)
 
+    if Hub_U
+        error("not support yet.")
+    end
 
     Mixing_method = "RMM-DIISH"
 
 
     Latvecs = lattice.Latvecs
     Natom = Atoms_pos.Natom
+    Nspecies = length(unique(Atoms_symbol))
 
 
     if Natom ≠ length(Atoms_symbol)
@@ -389,6 +491,53 @@ function DFT_Setup(
         error("not support number of process > number of Total kmesh points")
     end
 
+    if Hub_U
+        if isnothing(Hub_U_atom)
+            error("please input Hubbard_U_atom")
+        end
+
+        if isnothing(Hub_U_orbpol)
+            error("please input Hubbard_U_atom")
+        end
+
+        if length(Hub_U_atom) ≠ length(Atoms_orb)
+            error("please check Hub_U_atom")
+        end
+
+        if length(Hub_U_orbpol) ≠ Natom
+            error("please check Hub_U_orbpol")
+        end
+
+        Hub_U_occ = lowercase(Hub_U_occ)
+        if Hub_U_occ ≠ "dual"
+            error("please check Hub_U_occ")
+        end
+
+        Hub_Type = lowercase(Hub_Type)
+        if Hub_Type ≠ "dudarev"
+            error("please check Hub_Type")
+        end
+
+        dc_Type = lowercase(dc_Type)
+        if dc_Type ≠ "sfll"
+            error("please check dc_Type")
+        end
+    else
+        Hub_U_atom = [[0.0]]
+        Hub_U_orbpol = [false]
+    end
+
+
+    restart = ifelse(isnothing(filepath), false, true)
+    if restart
+        restart_filename, ext = splitext(basename(filepath))
+        if ext ≠ ".jld2"
+            error("please check filepath.")
+        end
+        filepath2 = filepath
+    else
+        filepath2 = ""
+    end
     
     
 
@@ -421,30 +570,9 @@ function DFT_Setup(
             Gxyz_AU[atom][3] = z
         end
     else
-        
         Gxyz_AU = Atoms_pos.Gxyz
-        Gxyz_frac = Vector{Vector{Float64}}(undef, Natom)
-        for atom = 1:Natom
-            Gxyz_frac[atom] = zeros(Float64, 3)
-            Gxyz_frac[atom][1] = dot(Gxyz_AU[atom], Recvecs[1,:])*0.5/pi
-            Gxyz_frac[atom][2] = dot(Gxyz_AU[atom], Recvecs[2,:])*0.5/pi
-            Gxyz_frac[atom][3] = dot(Gxyz_AU[atom], Recvecs[3,:])*0.5/pi
-            
-            for i = 1:3
-                tmp = floor(Int64, Gxyz_frac[atom][i])
-                if Gxyz_frac[atom][i] > 1.0
-                    Gxyz_frac[atom][i] = abs(Gxyz_frac[atom][i]-tmp)
-                elseif Gxyz_frac[atom][i] < -1e-13
-                    Gxyz_frac[atom][i] = abs(Gxyz_frac[atom][i]+abs(tmp)+1)
-                end
-            end
-        end
+        Gxyz_frac = Calc_Gxyz_frac(Natom, Gxyz_AU, Recvecs)
     end
-
-
-    Nspecies = length(unique(Atoms_symbol))
-
-
     
 
 
@@ -466,6 +594,17 @@ function DFT_Setup(
 
     if length(unique(Spe_Symbol)) ≠ Nspecies
         error("not match Atom Symbol and PAO Orbitals, please check Atoms input, or not support empty atom method")
+    end
+
+
+    if Hub_U
+        for spe = 1:Nspecies
+            _, Spe_Num_Basis = get_ialpha_index(Spe_orb[spe])
+            Npao = sum(Spe_Num_Basis)
+            if length(Hub_U_atom[spe]) ≠ Npao
+                error("please check Hub_U_atom")
+            end
+        end
     end
 
 
@@ -560,14 +699,8 @@ function DFT_Setup(
     Grid_Origin = Calc_Grid_Origin(Natom, Gxyz_AU, gLatvecs, Ngrid, atompos_unit)
 
 
+    time_rev = ifelse(SpinPol=="nc", false, true)
 
-    
-
-    if SpinPol == "nc"
-        time_rev = false
-    else
-        time_rev = true
-    end
 
 
 
@@ -590,6 +723,18 @@ function DFT_Setup(
     end
 
 
+    filename2, _ = splitext(basename(filename))
+    if myrank == 0
+        Write_CIFfile(filename2, Natom, Latvecs, Gxyz_frac, Atoms_symbol)
+        Write_xyzfile(filename2, Natom, Gxyz_AU, Atoms_symbol)
+    end
+
+
+    if restart
+        myrank == 0 && RestartFile_check(Natom, Nspin, Latvecs, Gxyz_AU, Grid_Origin, SpinPol, SO_switch, xc_type, filepath)
+        myrank == 0 && println("RestartFile_check pass.\n")
+        filename2 = restart_filename*"_restart"
+    end
 
 
     dft_setup = DFT_Setup(
@@ -603,7 +748,8 @@ function DFT_Setup(
         Mixing_method, SCF_criterion, SCF_max, 
         Init_Mixing_weight, Min_Mixing_weight, Max_Mixing_weight, Num_Mixing_Pulay,
         Start_Pulay_SCF, E_Temp, kmesh,
-        time_rev, verbosity, fileout, filename
+        Hub_U, Hub_U_atom, Hub_U_orbpol, Hub_U_occ, Hub_Type, dc_Type,
+        time_rev, fileout, filename2, restart, filepath2, send_email, verbosity
     )
 
 
@@ -615,4 +761,3 @@ function DFT_Setup(
 
     return dft_setup
 end
-

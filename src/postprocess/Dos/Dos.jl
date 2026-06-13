@@ -1,4 +1,4 @@
-function Calc_PDosMain(filename::String, material::LCPAO_model, Enk, EVec, neg, kmesh, Dos_Erange; fileout::Bool=true)
+function Calc_PDosMain(filename::String, material::LCPAO_model, Enk, EVec, neg, kmesh, Dos_Erange)
 
     println("<PDosMain>  Generate Projecter Density of State using Tetrahedron method")
 
@@ -143,7 +143,7 @@ function Calc_PDosMain(filename::String, material::LCPAO_model, Enk, EVec, neg, 
                     if iemax >= Dos_N
                         iemax = Dos_N - 1
                     end
-                    if 0 < iemin < Dos_N && 0 <= iemax < Dos_N
+                    if 0 <= iemin < Dos_N && 0 <= iemax < Dos_N
                         for ie = iemin:iemax
                             result = ATM_Spectrum(tetra_e, tetra_a, DosE[ie+1])
                             Dos[spin][atom][ist][ie+1] += result
@@ -162,15 +162,13 @@ function Calc_PDosMain(filename::String, material::LCPAO_model, Enk, EVec, neg, 
     end
 
     
-    if fileout
-        Calc_PDos_Atom_proj(filename, material, Dos_Erange, DosE, Dos)
-        Calc_PDos_Orbital_proj(filename, material, Spe_Num_Relation, Spe_Num_Basis, Dos_Erange, DosE, Dos)
-        Write_PDos_gnuplot(filename, Natom, Dos_Erange)
-    end
+    Calc_PDos_Atom_proj(filename, material, Dos_Erange, DosE, Dos)
+    Calc_PDos_Orbital_proj(filename, material, Spe_Num_Relation, Spe_Num_Basis, Dos_Erange, DosE, Dos)
+    Write_PDos_gnuplot(filename, Natom, Dos_Erange)
 end
 
 
-function Calc_DosMain(filename::String, material::LCPAO_model, Enk, EVec, neg, kmesh, Dos_Erange; fileout::Bool=true)
+function Calc_DosMain(filename::String, material::LCPAO_model, Enk, EVec, neg, kmesh, Dos_Erange)
 
     println("<DosMain>  Generate Density of State using Tetrahedron method")
     
@@ -237,9 +235,9 @@ function Calc_DosMain(filename::String, material::LCPAO_model, Enk, EVec, neg, k
                 OrderE0!(tetra_e, 4)
                 
                 x = (tetra_e[1]-DosEmin)/(DosEmax-DosEmin)*(Dos_N-1)-1
-                iemin = floor(Int,x)
+                iemin = trunc(Int, x)
                 x = (tetra_e[4]-DosEmin)/(DosEmax-DosEmin)*(Dos_N-1)+1
-                iemax = floor(Int,x)
+                iemax = trunc(Int, x)
 
                 if iemin < 0
                     iemin = 0
@@ -247,7 +245,7 @@ function Calc_DosMain(filename::String, material::LCPAO_model, Enk, EVec, neg, k
                 if iemax >= Dos_N
                     iemax = Dos_N - 1
                 end
-                if 0 < iemin < Dos_N && 0 <= iemax < Dos_N
+                if 0 <= iemin < Dos_N && 0 <= iemax < Dos_N
                     for ie = iemin:iemax
                         result = ATM_Dos(tetra_e, DosE[ie])
                         Dos[ie,spin] += wval * result
@@ -258,7 +256,7 @@ function Calc_DosMain(filename::String, material::LCPAO_model, Enk, EVec, neg, k
     end
 
 
-    h = (DosE[end] - DosE[begin])/(Dos_N-1) * eV2Hartree
+    h = (DosEmax - DosEmin)/(Dos_N-1) * eV2Hartree
     ssum = zeros(Float64, Dos_N, spinsize)
 
     factor = 1/Nkpt/6/eV2Hartree
@@ -284,22 +282,21 @@ function Calc_DosMain(filename::String, material::LCPAO_model, Enk, EVec, neg, k
     end
 
 
-    if fileout
-        Write_Dos_Tetrahedron(filename, SpinPol, Dos_N, DosE, Dos, ssum)
-        Write_Dos_gnuplot(filename, Dos_Erange)
+    Write_Dos_Tetrahedron(filename, SpinPol, Dos_N, DosE, Dos, ssum)
+    Write_Dos_gnuplot(filename, SpinPol, Dos_Erange)
+end
+
+
+
+function DosMain(filepath::String, kmesh, Erange::Vector{Float64}; mode::String="Dos")
+
+    MPI.Init()
+    comm = MPI.COMM_WORLD
+    nprocs = MPI.Comm_size(comm)
+
+    if nprocs > 1
+        error("please run serial.")
     end
-end
-
-
-function DosMain(filepath::String, kmesh, Erange; fileout::Bool=true, mode=["Dos"])
-    material = Load_JLD2(filepath)
-    filename, _ = splitext(basename(filepath))
-    println("filename = $filename")
-    DosMain(filename, material, kmesh, Erange; fileout, mode)
-end
-
-
-function DosMain(filename::String, material::LCPAO_model, kmesh, Erange; fileout::Bool=true, mode=["Dos"])
 
     if length(kmesh) ≠ 3
         error("pleas check kmesh")
@@ -309,32 +306,25 @@ function DosMain(filename::String, material::LCPAO_model, kmesh, Erange; fileout
         error("pleas check Erange")
     end
 
-    mode_type = typeof(mode)
-    if mode_type == String
-        Dos_mode = [mode]
-    elseif mode_type == Vector{String}
-        Dos_mode = mode
-    else
+
+    mode = lowercase(mode)
+    if mode ∉ ("all", "dos", "pdos")
         error("please check mode.")
     end
 
 
-    Nmode = length(Dos_mode)
-    Dos_mode = lowercase.(Dos_mode)
+    filename, _ = splitext(basename(filepath))
+    println("filename = $filename")
     
-    for i = 1:Nmode
-        if Dos_mode[i] ∉ ("all", "dos", "pdos", "atom", "orbs")
-            error("please check mode.")
-        end
-    end
+    material = Load_LCPAODFT_model(filepath)
+    Print_LCPAO_model(filepath, material)
 
-    
     Natom = material.Natom
     FNAN = material.FNAN
     natn = material.natn
     ncn = material.ncn
     atv_ijk = material.atv_ijk
-    SpinPol = lowercase(material.SpinPol)
+    SpinPol = material.SpinPol
     Total_NumOrbs = material.Total_NumOrbs
     MP = material.MP
     ChemP = material.ChemP
@@ -429,7 +419,6 @@ function DosMain(filename::String, material::LCPAO_model, kmesh, Erange; fileout
     neg = iemax-iemin+1
 
 
-
     # Solve Eigen Problem
     Enk = Vector{Vector{Vector{Vector{Vector{Float64}}}}}(undef, spinsize)
     for spin = 1:spinsize
@@ -453,20 +442,22 @@ function DosMain(filename::String, material::LCPAO_model, kmesh, Erange; fileout
     end
 
 
-    kp = 0
     Enk_tmp = zeros(Float64, Nfsize)
     if SpinPol ∈ ("off", "on")
-        for spin = 1:spinsize, ik = 1:kmesh1, jk = 1:kmesh2, kk = 1:kmesh3
-            kp += 1
-            HS_matrix!(S, OLP, Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, kpts[kp,:])
-            HS_matrix!(H, Hks[spin], Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, kpts[kp,:])
+        for spin = 1:spinsize
+            kp = 0
+            for ik = 1:kmesh1, jk = 1:kmesh2, kk = 1:kmesh3
+                kp += 1
+                HS_matrix!(S, H, OLP, Hks[spin], Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, kpts[kp,:])
 
-            Enk_tmp, Cnk[spin][kp] = eigen(Hermitian(H), Hermitian(S))
-            for μ = 1:neg
-                Enk[spin][ik][jk][kk][μ] = Enk_tmp[μ+iemin-1] - ChemP
+                Enk_tmp, Cnk[spin][kp] = eigen(Hermitian(H), Hermitian(S))
+                for μ = 1:neg
+                    Enk[spin][ik][jk][kk][μ] = Enk_tmp[μ+iemin-1] - ChemP
+                end
             end
         end
     elseif SpinPol == "nc"
+        kp = 0
         for ik = 1:kmesh1, jk = 1:kmesh2, kk = 1:kmesh3
             kp += 1
             HS_matrix_NC!(tmpH, H, Hks, iHks, Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, kpts[kp,:])
@@ -500,17 +491,18 @@ function DosMain(filename::String, material::LCPAO_model, kmesh, Erange; fileout
 
     
     if SpinPol ∈ ("off", "on")
-        Get_EVec_Collinear!(material, kpts, Cnk, EVec, iemin, iemax)
+        Get_EVec_Collinear!(material, Nkpt, kpts, Cnk, EVec, iemin, iemax)
     elseif SpinPol == "nc"
-        Get_EVec_NonCollinear!(material, kpts, Cnk, EVec, iemin, iemax)
+        Get_EVec_NonCollinear!(material, Nkpt, kpts, Cnk, EVec, iemin, iemax)
     end
     
 
-    for i = 1:Nmode
-        if Dos_mode[i] ∈ ("all", "dos")
-            Calc_DosMain(filename, material, Enk, EVec, neg, kmesh, Dos_Erange; fileout)
-        elseif Dos_mode[i] ∈ ("pdos", "atom", "orbs")
-            Calc_PDosMain(filename, material, Enk, EVec, neg, kmesh, Dos_Erange; fileout)
-        end
+    if mode == "all"
+        Calc_DosMain(filename, material, Enk, EVec, neg, kmesh, Dos_Erange)
+        Calc_PDosMain(filename, material, Enk, EVec, neg, kmesh, Dos_Erange)
+    elseif mode == "dos"
+        Calc_DosMain(filename, material, Enk, EVec, neg, kmesh, Dos_Erange)
+    elseif mode == "pdos"
+        Calc_PDosMain(filename, material, Enk, EVec, neg, kmesh, Dos_Erange)
     end
 end

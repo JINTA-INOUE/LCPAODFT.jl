@@ -33,26 +33,26 @@ Create an instance of `Energy` (Hartree unit).
 - `Etot`:   Total energy (= Ekin + EH0 + EH1 + Ena + Enl + Exc0 + Exc1 + Ecore)
 - `ChemP`:  Chemical potential energy  
 """
-function Init_Energy()
-    return Energy(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)    
+function Init_Energy(; Eele=0.0, ChemP=0.0)
+    return Energy(Eele, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, ChemP)    
 end
 
 
 
 function Print_Energy(energy::Energy)
-    println("  Eele  =     $(energy.Eele)")
-    println("  Ekin  =     $(energy.Ekin)")
-    println("  EH0   =     $(energy.EH0)")
-    println("  EH1   =     $(energy.EH1)")
-    println("  Ena   =     $(energy.Ena)")
-    println("  Enl   =     $(energy.Enl)")
-    println("  Exc0  =     $(energy.Exc0)")
-    println("  Exc1  =     $(energy.Exc1)")
-    println("  Ecore =     $(energy.Ecore)")
-    println("  EHub  =     $(energy.EHub)")
-    println("  Eef   =     $(energy.Eef)")
-    println("  Etot  =     $(energy.Etot)")
-    println("  ChemP =     $(energy.ChemP)")
+    @printf("  Eele  =     %5.12f\n", energy.Eele)
+    @printf("  Ekin  =     %5.12f\n", energy.Ekin)
+    @printf("  EH0   =     %5.12f\n", energy.EH0)
+    @printf("  EH1   =     %5.12f\n", energy.EH1)
+    @printf("  Ena   =     %5.12f\n", energy.Ena)
+    @printf("  Enl   =     %5.12f\n", energy.Enl)
+    @printf("  Exc0  =     %5.12f\n", energy.Exc0)
+    @printf("  Exc1  =     %5.12f\n", energy.Exc1)
+    @printf("  Ecore =     %5.12f\n", energy.Ecore)
+    @printf("  EHub  =     %5.12f\n", energy.EHub)
+    @printf("  Eef   =     %5.12f\n", energy.Eef)
+    @printf("  Etot  =     %5.12f\n", energy.Etot)
+    @printf("  ChemP =     %5.12f\n", energy.ChemP)
 end
 
 
@@ -221,9 +221,16 @@ function Calc_EH0(pao::Vector{PAO}, pspot::Vector{Pspot}, system_grid::System_Gr
     GridX_EH0 = Vector{Vector{Float64}}(undef, Nspecies)
     GridY_EH0 = Vector{Vector{Float64}}(undef, Nspecies)
     GridZ_EH0 = Vector{Vector{Float64}}(undef, Nspecies)
-
     Arho_EH0 = Vector{Vector{Float64}}(undef, Nspecies)
     Wt_EH0 = Vector{Vector{Float64}}(undef, Nspecies)
+
+    for spe = 1:Nspecies
+        GridX_EH0[spe] = zeros(Float64, Max_TGN_EH0)
+        GridY_EH0[spe] = zeros(Float64, Max_TGN_EH0)
+        GridZ_EH0[spe] = zeros(Float64, Max_TGN_EH0)
+        Arho_EH0[spe] = zeros(Float64, Max_TGN_EH0)
+        Wt_EH0[spe] = zeros(Float64, Max_TGN_EH0)
+    end
     
 
     for spe = 1:Nspecies
@@ -238,13 +245,6 @@ function Calc_EH0(pao::Vector{PAO}, pspot::Vector{Pspot}, system_grid::System_Gr
         Nd = 2*Int64(div(bc,dx)) + 1
         dx = 2.0*bc/(Nd-1)
         dv_EH0[spe] = dx
-
-        GridX_EH0[spe] = zeros(Float64, Max_TGN_EH0)
-        GridY_EH0[spe] = zeros(Float64, Max_TGN_EH0)
-        GridZ_EH0[spe] = zeros(Float64, Max_TGN_EH0)
-    
-        Arho_EH0[spe] = zeros(Float64, Max_TGN_EH0)
-        Wt_EH0[spe] = zeros(Float64, Max_TGN_EH0)
 
         for n1 = 1:Nd
             g0[n1] = dx*(n1-1) - bc
@@ -804,7 +804,6 @@ function Calc_Atomic_Den2(pao::PAO, pspot::Pspot)
     Spe_VPS_XV = pspot.Spe_VPS_XV
     Spe_VPS_RV = pspot.Spe_VPS_RV
     Spe_Atomic_PCC = pspot.Spe_Atomic_PCC
-
 
 
     # calculate Spe_Atomic_Den2

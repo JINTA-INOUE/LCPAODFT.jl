@@ -17,15 +17,15 @@ struct KPoints
 end
 
 
-function KPoints(system::String, SpinPol::String, kmesh::Tuple{Signed,Signed,Signed}, time_rev::Bool; KP_flag="Gcenter")
+function KPoints(system::String, SpinPol::String, kmesh::Tuple{Signed,Signed,Signed}, time_rev::Bool, Shift_K_Point; KP_flag="Gcenter")
     
     if system == "Crystal"
         if SpinPol ≠ "nc"
             # only using time reversal symmetry
-            kpoints = KPoints(kmesh, time_rev; KP_flag)
+            kpoints = KPoints(kmesh, time_rev, Shift_K_Point; KP_flag)
         else
             # NonCollinear case is no time reversal symmetry
-            kpoints = KPoints(kmesh, false; KP_flag)
+            kpoints = KPoints(kmesh, false, Shift_K_Point; KP_flag)
         end
     elseif system ∈ ("Atom", "Cluster")
 		kpoints = nothing
@@ -52,14 +52,14 @@ Mandatory arguments:
 The following is the most commonly used optional arguments:
 - `time_rev` : is time reversing
 """
-function KPoints(kmesh::Tuple{Signed,Signed,Signed}, time_rev::Bool; KP_flag="Gcenter")
+function KPoints(kmesh::Tuple{Signed,Signed,Signed}, time_rev::Bool, Shift_K_Point; KP_flag="Gcenter")
 
     comm = MPI.COMM_WORLD
     nprocs = MPI.Comm_size(comm)
     myrank = MPI.Comm_rank(comm)
 
     AllNkpt = prod(kmesh)
-    Nkpt, kpts, kweight = Gen_KPoints(kmesh, time_rev; KP_flag)
+    Nkpt, kpts, kweight = Gen_KPoints(kmesh, time_rev, Shift_K_Point; KP_flag)
 
     MPI_krange = split_evenly(1:Nkpt, nprocs)
 
@@ -89,7 +89,7 @@ function KPoints(kmesh::Tuple{Signed,Signed,Signed}, time_rev::Bool; KP_flag="Gc
 end
 
 
-function Gen_KPoints(kmesh::Tuple{Signed,Signed,Signed}, time_rev::Bool; Shift_K_Point=1.0e-12, KP_flag="Gcenter")
+function Gen_KPoints(kmesh::Tuple{Signed,Signed,Signed}, time_rev::Bool, Shift_K_Point; KP_flag="Gcenter")
 
     if lowercase(KP_flag) == "gcenter"
         if time_rev

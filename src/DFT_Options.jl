@@ -9,11 +9,11 @@ mutable struct DFT_Options
     Num_Mixing_Pulay::Int64
     SCF_RENZOKU::Int64
     Start_Pulay_SCF::Int64
+    Extra_CHistory::Int64
+    His_Gxyz::Vector{Vector{Float64}}
     crystal_sym::Bool
     time_rev::Bool
 end
-
-
 
 
 """
@@ -42,8 +42,14 @@ function default_DFT_Options(;
     Max_Mixing_weight = 0.4,
     Num_Mixing_Pulay = 5,
     Start_Pulay_SCF = 6,
+    Extra_CHistory = 3,
     crystal_sym = false,
     time_rev = true)
+
+    His_Gxyz = Vector{Vector{Float64}}(undef, Extra_CHistory)
+    for i = 1:Extra_CHistory
+        His_Gxyz[i] = zeros(Float64, 3*1)
+    end
 
     return DFT_Options(
         Mixing_method,
@@ -53,6 +59,6 @@ function default_DFT_Options(;
         Num_Mixing_Pulay,
         -1,
         Start_Pulay_SCF,
-        crystal_sym, time_rev)
+        3, His_Gxyz, crystal_sym, time_rev)
 end
 

@@ -12,7 +12,6 @@ end
 
 function Calc_dipole_moment_nospin(system_grid::System_Grid, Core_Charge, system_charge, Density_Grid)
 
-
     Latvecs = system_grid.Latvecs
     Natom = system_grid.Natom
     Gxyz = system_grid.Gxyz
@@ -21,7 +20,6 @@ function Calc_dipole_moment_nospin(system_grid::System_Grid, Core_Charge, system
     Ngrid1, Ngrid2, Ngrid3 = Ngrid
     NN = prod(Ngrid)
     
-
     gLatvecs = zeros(Float64, 3, 3)
     gLatvecs[1,:] = Latvecs[1,:]/Ngrid1
 	gLatvecs[2,:] = Latvecs[2,:]/Ngrid2

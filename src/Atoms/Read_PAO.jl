@@ -40,6 +40,7 @@ function Print_PAO(pao::PAO)
     end
     println("\tSpe_Atom_Cut1 : $(Spe_Atom_Cut1)")
     println("\tSpe_Num_Mesh_PAO : $(Spe_Num_Mesh_PAO)")
+    println("")
 end
 
 
@@ -267,7 +268,7 @@ julia> Read_PAO(4.0, "C", 5.0, "s2p2d1", "")
     Spe_Num_Mesh_PAO, Spe_Atom_Cut1, Spe_PAO_XV, Spe_PAO_RV, Spe_Atomic_Den, Spe_PAO_Lmax, Spe_PAO_Mul, Spe_PAO_RWF = _Read_PAO(Atom_cutoff, PAO_File_path*filename)
 
 
-    Spe_MaxL_Basis, Spe_Num_Basis = get_ialpha_index( Atom_orb )
+    Spe_MaxL_Basis, Spe_Num_Basis = get_ialpha_index(Atom_orb)
     Spe_Total_NumOrbs = 0
     for l = 0:Spe_MaxL_Basis
         Spe_Total_NumOrbs += Spe_Num_Basis[l+1]*(2*l+1)

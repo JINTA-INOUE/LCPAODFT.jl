@@ -14,7 +14,7 @@ function Write_Dos_Tetrahedron(filename::String, SpinPol, Dos_N, DosE, Dos, ssum
 end
 
 
-function Write_Dos_gnuplot(filename::String, Dos_Erange)
+function Write_Dos_gnuplot(filename::String, SpinPol::String, Dos_Erange)
 
     gnu_file = open("$(filename).DOS.plt", "w")
     println(gnu_file, "# set terminal postscript eps enhanced color")
@@ -42,9 +42,12 @@ function Write_Dos_gnuplot(filename::String, Dos_Erange)
     println(gnu_file, "# set yra [0.0:ymax]")
     println(gnu_file, "set size 1")
     println(gnu_file, "plot \"$(filename).DOS.Tetrahedron\" using 1:2 with lines linewidth 3")
+    if SpinPol ∈ ("on", "nc")
+        println(gnu_file, "replot \"$(filename).DOS.Tetrahedron\" using 1:3 with lines linewidth 3")
+    end
     println(gnu_file, "")
     println(gnu_file, "set term pdf size 5in, 4in")
-    println(gnu_file, "set output \"$(filename)_DOS.pdf\"")
+    println(gnu_file, "set output \"$(filename).DOS.pdf\"")
     println(gnu_file, "replot")
     close(gnu_file)
 end
@@ -52,7 +55,6 @@ end
 
 
 function Write_PDos_gnuplot(filename::String, Natom, Dos_Erange)
-
 
     gnu_file = open("$(filename).PDOS.plt", "w")
     println(gnu_file, "# set terminal postscript eps enhanced color")
@@ -74,17 +76,19 @@ function Write_PDos_gnuplot(filename::String, Natom, Dos_Erange)
     println(gnu_file, "# unset key")
     println(gnu_file, "set grid")
     println(gnu_file, "")
+    println(gnu_file, "# ymin = 0.0")
     println(gnu_file, "# ymax = 5.0")
     println(gnu_file, "")
     println(gnu_file, "# set xra [$(Dos_Erange[1]*eV2Hartree):$(Dos_Erange[2]*eV2Hartree)]")
-    println(gnu_file, "# set yra [0.0:ymax]")
+    println(gnu_file, "# set yra [ymin:ymax]")
     println(gnu_file, "set size 1")
-    for atom = 1:Natom
-        println(gnu_file, "plot \"$(filename).PDOS.Tetrahedron.atom$(atom)\" using 1:2 with lines linewidth 3 title \"\"")
+    println(gnu_file, "plot \"$(filename).PDOS.Tetrahedron.atom1\" using 1:2 with lines linewidth 3 title \"\"")
+    for atom = 2:Natom
+        println(gnu_file, "# replot \"$(filename).PDOS.Tetrahedron.atom$(atom)\" using 1:2 with lines linewidth 3 title \"\"")
     end
     println(gnu_file, "")
     println(gnu_file, "set term pdf size 5in, 4in")
-    println(gnu_file, "set output \"$(filename)_PDOS_Tetrahedron_atom1.pdf\"")
+    println(gnu_file, "set output \"$(filename).PDOS_Tetrahedron_atom1.pdf\"")
     println(gnu_file, "replot")
     close(gnu_file)
 end

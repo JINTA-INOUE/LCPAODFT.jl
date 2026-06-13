@@ -43,7 +43,7 @@ end
 
 
 @timeit timer "Force" function Force!(
-    force::Force, electron::CrystalBloch,
+    force::Force, electron::CrystalBloch, kpoints::KPoints,
     DM, iDM, Orbs_Grid,
     ADensity_Grid, PCCDensity_Grid, 
     dVHart_Grid, Vxc_Grid, Vpot_Grid,
@@ -64,9 +64,7 @@ end
 
 
     HNL_Vec = Set_HNL2HNL_Vec(HNL, system_grid)
-    if !isnothing(iHNL)
-        iHNL_Vec = Set_HNL2HNL_Vec(iHNL, system_grid)
-    end
+    iHNL_Vec = Set_HNL2HNL_Vec(iHNL, system_grid)
     HVNA_Vec = Set_HVNA2HVNA_Vec(HVNA, system_grid)
 
 
@@ -74,12 +72,14 @@ end
     myrank == 0 && println("<PCC_Force>")
     PCCForce = PCC_Force(SpinPol, ADensity_Grid, PCCDensity_Grid, Vxc_Grid, dVHart_Grid, pao, pspot, ucell)
     myrank == 0 && Print_Force("PCC_Force", Natom, PCCForce)
+    MPI.Barrier(comm)
 
     
     myrank == 0 && println("<Kinetic_Force>")
     OLP_force, Hkin_force = Set_OLP_Kinforce(pao, system_grid)
     HkinForce = Kinetic_Force(SpinPol, Hkin_force, DM, system_grid)
     myrank == 0 && Print_Force("Kinetic_Force", Natom, HkinForce)
+    MPI.Barrier(comm)
 
 
     myrank == 0 && println("<Force3>")
@@ -91,7 +91,7 @@ end
         VpotForce = Force3_nc(pao, Orbs_Grid, dVHart_Grid, Vxc_Grid, DM, ucell)
     end
     myrank == 0 && Print_Force("Force3", Natom, VpotForce)
-
+    MPI.Barrier(comm)
 
 
     
@@ -100,11 +100,13 @@ end
     HVNA2force, HVNA3force = Set_HVNA2_3force(pao, pspot, system_grid)    
     HVNAForce = HVNA_Force(SpinPol, DS_VNAforce, HVNA2force, HVNA3force, HVNA_Vec, DM, system_grid)
     myrank == 0 && Print_Force("HVNA_Force", Natom, HVNAForce)
+    MPI.Barrier(comm)
 
 
     myrank == 0 && println("<OLP_Force>")
-    OLPForce = OLP_Force(OLP_force, electron, system_grid, false)
+    OLPForce = OLP_Force(OLP_force, electron, kpoints, system_grid, false)
     myrank == 0 && Print_Force("OLP_Force", Natom, OLPForce)
+    MPI.Barrier(comm)
 
     
     myrank == 0 && println("<HNL_Force>")
@@ -115,21 +117,24 @@ end
         HNLForce = HNL_Force_NC(pspot, NLPforce, HNL_Vec, iHNL_Vec, DM, iDM, system_grid)
     end
     myrank == 0 && Print_Force("HNL_Force", Natom, HNLForce)
+    MPI.Barrier(comm)
 
     
     myrank == 0 && println("<Core_Force>")
     CoreForce = Core_Force(Core_Charge, system_grid)
     myrank == 0 && Print_Force("CoreForce", Natom, CoreForce)
+    MPI.Barrier(comm)
 
 
     myrank == 0 && println("<EH0_Force>")
     if EH0_flag
-        EH0Force = EH0_Force( pao, pspot, system_grid )
+        EH0Force = EH0_Force(pao, pspot, system_grid)
     else
         EH0Force = force.EH0Force
     end
     myrank == 0 && Print_Force("EH0Force", Natom, EH0Force)
-    
+    MPI.Barrier(comm)
+
 
     myrank == 0 && println("<Exc_Force>")
     if Exc_flag
@@ -138,12 +143,14 @@ end
         ExcForce = force.ExcForce
     end
     myrank == 0 && Print_Force("ExcForce", Natom, ExcForce)
-    
+    MPI.Barrier(comm)
+
 
     myrank == 0 && println("<ForceAll>")
     ForceAll = PCCForce + HkinForce + VpotForce + HVNAForce + OLPForce + HNLForce + CoreForce + EH0Force + ExcForce
     myrank == 0 && Print_Force("ForceAll", Natom, ForceAll)
-
+    MPI.Barrier(comm)
+    
 
     force.PCCForce = PCCForce
     force.HkinForce = HkinForce
@@ -158,7 +165,7 @@ end
 end
 
 
-@timeit timer "PCC_Force" function PCC_Force(SpinPol, ADensity_Grid, PCCDensity_Grid, Vxc_Grid, dVHart_Grid, pao::Vector{PAO}, pspot::Vector{Pspot}, ucell::UCell)
+@timeit timer "PCC_Force" function PCC_Force(SpinPol::String, ADensity_Grid, PCCDensity_Grid, Vxc_Grid, dVHart_Grid, pao::Vector{PAO}, pspot::Vector{Pspot}, ucell::UCell)
 
     comm = MPI.COMM_WORLD
     nprocs = MPI.Comm_size(comm)
@@ -294,7 +301,7 @@ end
 end
 
 
-@timeit timer "Kinetic_Force" function Kinetic_Force(SpinPol, Hkin_force, DM, system_grid::System_Grid)
+@timeit timer "Kinetic_Force" function Kinetic_Force(SpinPol::String, Hkin_force, DM, system_grid::System_Grid)
 
     comm = MPI.COMM_WORLD
     
@@ -404,8 +411,6 @@ end
     MPI_atom = system_grid.MPI_atom
     MPI_FNAN = system_grid.MPI_FNAN
     MPI_natn = system_grid.MPI_natn
-    FNAN = system_grid.FNAN
-    natn = system_grid.natn
 
     GridVol = system_grid.GridVol
     GridListAtom = ucell.GridListAtom
@@ -549,7 +554,7 @@ end
 end
 
 
-@timeit timer "HVNA_Force" function HVNA_Force(SpinPol, DS_VNA, HVNA2, HVNA3, HVNA, DM, system_grid::System_Grid)
+@timeit timer "HVNA_Force" function HVNA_Force(SpinPol::String, DS_VNA, HVNA2, HVNA3, HVNA, DM, system_grid::System_Grid)
 
     comm = MPI.COMM_WORLD
 
@@ -559,7 +564,6 @@ end
     ncn = system_grid.ncn
     atv_ijk = system_grid.atv_ijk
     RMI = system_grid.RMI
-    Dis = system_grid.Dis
     MPI_atom = system_grid.MPI_atom
     MPI_FNAN = system_grid.MPI_FNAN
     MPI_natn = system_grid.MPI_natn
@@ -699,17 +703,17 @@ end
 end
 
 
-@timeit timer "OLP_Force" function OLP_Force(OLP_force, electron::CrystalBloch, system_grid::System_Grid, occ_flag::Bool)
+@timeit timer "OLP_Force" function OLP_Force(OLP_force, electron::CrystalBloch, kpoints::KPoints, system_grid::System_Grid, occ_flag::Bool)
 
     SpinPol = electron.SpinPol
-    EDM = Calc_EDM(electron, system_grid, occ_flag)
+    EDM = Calc_EDM(electron, kpoints, system_grid, occ_flag)
     OLPForce = OLP_Force(SpinPol, EDM, OLP_force, system_grid)
 
     return OLPForce
 end
 
 
-function OLP_Force(SpinPol, EDM, OLP_force, system_grid::System_Grid)
+function OLP_Force(SpinPol::String, EDM, OLP_force, system_grid::System_Grid)
 
     Natom = system_grid.Natom
     Total_NumOrbs = system_grid.Total_NumOrbs
@@ -768,7 +772,7 @@ function OLP_Force(SpinPol, EDM, OLP_force, system_grid::System_Grid)
 end
 
 
-@timeit timer "HNL_Force" function HNL_Force(SpinPol, pspot::Vector{Pspot}, NLP, HNL, DM, system_grid::System_Grid)
+@timeit timer "HNL_Force" function HNL_Force(SpinPol::String, pspot::Vector{Pspot}, NLPforce, HNL, DM, system_grid::System_Grid)
     
     comm = MPI.COMM_WORLD
 
@@ -816,12 +820,6 @@ end
         end
     end
 
-    tmpL = Vector{Vector{Float64}}(undef, Natom)
-    for atom = 1:Natom
-        tmpL[atom] = zeros(Float64, NLTotal_Num[atom])
-    end
-
-
     Hx = zeros(Float64, maxTotal_NumOrbs, maxTotal_NumOrbs)
     Hy = zeros(Float64, maxTotal_NumOrbs, maxTotal_NumOrbs)
     Hz = zeros(Float64, maxTotal_NumOrbs, maxTotal_NumOrbs)
@@ -849,9 +847,9 @@ end
         fill!(Hy, 0.0)
         fill!(Hz, 0.0)
 
-        dHNL!( 0, atom, Rn, Rm, tmpL, NLTotal_Num, VNLE,
+        dHNL!( 0, atom, Rn, Rm, NLTotal_Num, VNLE,
                Hx, Hy, Hz, 
-               NLP, HNL[1][atom],
+               NLPforce, HNL[1][atom],
                system_grid)
 
         if SpinPol == "off"
@@ -885,7 +883,7 @@ end
 
     loop = 1
     atom_old = MPI_atom[loop]
-    Set_NLP_Natom!(atom_old, OneDatom, OneDjatom, OneDFNAN, HNL_FNAN, MP_FNAN, FNAN, Total_NumOrbs, NLTotal_Num, 0, NLP)
+    Set_NLPforce_Natom!(atom_old, OneDatom, OneDjatom, OneDFNAN, HNL_FNAN, MP_FNAN, FNAN, Total_NumOrbs, NLTotal_Num, 0, NLPforce)
 
     for loop = 1:MPI_size
 
@@ -895,7 +893,7 @@ end
         NO0 = Total_NumOrbs[jatom]
 
         if atom ≠ atom_old
-            Set_NLP_Natom!(atom, OneDatom, OneDjatom, OneDFNAN, HNL_FNAN, MP_FNAN, FNAN, Total_NumOrbs, NLTotal_Num, 0, NLP)
+            Set_NLPforce_Natom!(atom, OneDatom, OneDjatom, OneDFNAN, HNL_FNAN, MP_FNAN, FNAN, Total_NumOrbs, NLTotal_Num, 0, NLPforce)
         end
 
         atom_old = atom
@@ -915,9 +913,9 @@ end
                 fill!(Hy, 0.0)
                 fill!(Hz, 0.0)
 
-                dHNL!( 1, atom, Rn, Rm, tmpL, NLTotal_Num, VNLE,
+                dHNL!( 1, atom, Rn, Rm, NLTotal_Num, VNLE,
                        Hx, Hy, Hz, 
-                       NLP, HNL[1][atom],
+                       NLPforce, HNL[1][atom],
                        system_grid)
 
                 if SpinPol == "off"
@@ -953,7 +951,7 @@ end
 
 
 # Calc HNL_Force for NonCollinear case
-@timeit timer "HNL_Force" function HNL_Force_NC(pspot::Vector{Pspot}, NLP, HNL, iHNL, DM, iDM, system_grid::System_Grid)
+@timeit timer "HNL_Force" function HNL_Force_NC(pspot::Vector{Pspot}, NLPforce, HNL, iHNL, DM, iDM, system_grid::System_Grid)
     
     comm = MPI.COMM_WORLD
     
@@ -1032,7 +1030,7 @@ end
         dHNL_NC!( 0, atom, Rn, Rm,
                    Atoms_Num_RVPS, Atoms_VNLE, Atoms_VPS_List, 
                    Hx, Hy, Hz, 
-                   NLP, HNL, iHNL,
+                   NLPforce, HNL, iHNL,
                    system_grid)
 
         if Rn == Rm
@@ -1089,7 +1087,7 @@ end
             dHNL_NC!( 0, atom, Rm, Rn,
                 Atoms_Num_RVPS, Atoms_VNLE, Atoms_VPS_List, 
                 Hx, Hy, Hz, 
-                NLP, HNL, iHNL,
+                NLPforce, HNL, iHNL,
                 system_grid)
     
             kl1 = RMI[atom][Rm][Rn]
@@ -1128,7 +1126,7 @@ end
 
     loop = 1
     atom_old = MPI_atom[loop]
-    Set_NLP_Natom!(atom_old, OneDatom, OneDjatom, OneDFNAN, HNL_FNAN, MP_FNAN, FNAN, Total_NumOrbs, NLTotal_Num, 1, NLP)
+    Set_NLPforce_Natom!(atom_old, OneDatom, OneDjatom, OneDFNAN, HNL_FNAN, MP_FNAN, FNAN, Total_NumOrbs, NLTotal_Num, 1, NLPforce)
 
     for loop = 1:MPI_size
 
@@ -1138,7 +1136,7 @@ end
         NO0 = Total_NumOrbs[jatom]
 
         if atom ≠ atom_old
-            Set_NLP_Natom!(atom, OneDatom, OneDjatom, OneDFNAN, HNL_FNAN, MP_FNAN, FNAN, Total_NumOrbs, NLTotal_Num, 1, NLP)
+            Set_NLPforce_Natom!(atom, OneDatom, OneDjatom, OneDFNAN, HNL_FNAN, MP_FNAN, FNAN, Total_NumOrbs, NLTotal_Num, 1, NLPforce)
         end
 
         atom_old = atom
@@ -1159,7 +1157,7 @@ end
                 dHNL_NC!( 1, atom, Rn, Rm,
                         Atoms_Num_RVPS, Atoms_VNLE, Atoms_VPS_List, 
                         Hx, Hy, Hz, 
-                        NLP, HNL, iHNL,
+                        NLPforce, HNL, iHNL,
                         system_grid)
 
                 for ist = 1:NO0, jst = 1:NO1
@@ -1304,9 +1302,16 @@ end
     GridX_EH0 = Vector{Vector{Float64}}(undef, Nspecies)
     GridY_EH0 = Vector{Vector{Float64}}(undef, Nspecies)
     GridZ_EH0 = Vector{Vector{Float64}}(undef, Nspecies)
-
     Arho_EH0 = Vector{Vector{Float64}}(undef, Nspecies)
     Wt_EH0 = Vector{Vector{Float64}}(undef, Nspecies)
+
+    for spe = 1:Nspecies
+        GridX_EH0[spe] = zeros(Float64, Max_TGN_EH0)
+        GridY_EH0[spe] = zeros(Float64, Max_TGN_EH0)
+        GridZ_EH0[spe] = zeros(Float64, Max_TGN_EH0)
+        Arho_EH0[spe] = zeros(Float64, Max_TGN_EH0)
+        Wt_EH0[spe] = zeros(Float64, Max_TGN_EH0)
+    end
     
 
     for spe = 1:Nspecies
@@ -1316,19 +1321,11 @@ end
         Spe_PAO_RV = pao[spe].Spe_PAO_RV
         Spe_Atomic_Den = pao[spe].Spe_Atomic_Den
 
-
         bc = Spe_Atom_Cut1[spe]
         dx = pi/sqrt(Scale_Grid_Ecut)
         Nd = 2*floor(Int64, bc/dx) + 1
         dx = 2.0*bc/(Nd-1)
         dv_EH0[spe] = dx
-
-        GridX_EH0[spe] = zeros(Float64, Max_TGN_EH0)
-        GridY_EH0[spe] = zeros(Float64, Max_TGN_EH0)
-        GridZ_EH0[spe] = zeros(Float64, Max_TGN_EH0)
-    
-        Arho_EH0[spe] = zeros(Float64, Max_TGN_EH0)
-        Wt_EH0[spe] = zeros(Float64, Max_TGN_EH0)
 
         for n1 = 1:Nd
             g0[n1] = dx*(n1-1) - bc
@@ -1700,131 +1697,6 @@ end
 end
 
 
-function Set_DM_Vec2DM(DM, system_grid::System_Grid)
-
-    Nspin = length(DM)
-    Natom = system_grid.Natom
-    FNAN = system_grid.FNAN
-    natn = system_grid.natn
-    Total_NumOrbs = system_grid.Total_NumOrbs
-    Total_Hsize = system_grid.Total_Hsize
-
-    DM_1D = Vector{Vector{Float64}}(undef, Nspin)
-    for spin = 1:Nspin
-		DM_1D[spin] = zeros(Float64, Total_Hsize)
-	end
-    
-    for spin = 1:Nspin
-        counts = 0
-        for atom = 1:Natom, Rn = 1:FNAN[atom]+1, ist = 1:Total_NumOrbs[atom], jst = 1:Total_NumOrbs[natn[atom][Rn]]
-            counts += 1
-            DM_1D[spin][counts] = DM[spin][atom][Rn][ist][jst]
-        end
-	end
-
-    return DM_1D
-end
-
-
-function Set_DM2DM_Vec(DM, system_grid::System_Grid)
-
-    Nspin = length(DM)
-    Natom = system_grid.Natom
-    FNAN = system_grid.FNAN
-    natn = system_grid.natn
-    Total_NumOrbs = system_grid.Total_NumOrbs
-
-    DM_Vec = Vector{Vector{Vector{Vector{Vector{Float64}}}}}(undef, Nspin)
-	for spin = 1:Nspin
-		DM_Vec[spin] = Vector{Vector{Vector{Vector{Float64}}}}(undef, Natom)
-		for atom = 1:Natom
-			DM_Vec[spin][atom] = Vector{Vector{Vector{Float64}}}(undef, FNAN[atom]+1)
-			for Rn = 1:FNAN[atom]+1
-				DM_Vec[spin][atom][Rn] = Vector{Vector{Float64}}(undef, Total_NumOrbs[atom])
-				for ist = 1:Total_NumOrbs[atom]
-					DM_Vec[spin][atom][Rn][ist] = zeros(Float64, Total_NumOrbs[natn[atom][Rn]])
-				end
-			end
-		end
-	end
-
-    for spin = 1:Nspin
-        hst = 0
-        for atom = 1:Natom, Rn = 1:FNAN[atom]+1, ist = 1:Total_NumOrbs[atom], jst = 1:Total_NumOrbs[natn[atom][Rn]]
-            hst += 1
-            DM_Vec[spin][atom][Rn][ist][jst] = DM[spin][hst]
-        end
-	end
-
-    return DM_Vec
-end
-
-
-function Set_HNL2HNL_Vec(HNL, system_grid::System_Grid)
-
-    Nspin = length(HNL)
-    Natom = system_grid.Natom
-    FNAN = system_grid.FNAN
-    natn = system_grid.natn
-    Total_NumOrbs = system_grid.Total_NumOrbs
-
-    HNL_Vec = Vector{Vector{Vector{Vector{Vector{Float64}}}}}(undef, Nspin)
-    for spin = 1:Nspin
-        HNL_Vec[spin] = Vector{Vector{Vector{Vector{Float64}}}}(undef, Natom)
-        for atom = 1:Natom
-            HNL_Vec[spin][atom] = Vector{Vector{Vector{Float64}}}(undef, FNAN[atom]+1)
-            for Rn = 1:FNAN[atom]+1
-                HNL_Vec[spin][atom][Rn] = Vector{Vector{Float64}}(undef, Total_NumOrbs[atom])
-                for ist = 1:Total_NumOrbs[atom]
-                    HNL_Vec[spin][atom][Rn][ist] = zeros(Float64, Total_NumOrbs[natn[atom][Rn]])
-                end
-            end
-        end
-    end
-
-    
-    for spin = 1:Nspin
-        counts = 0
-        for atom = 1:Natom, Rn = 1:FNAN[atom]+1, ist = 1:Total_NumOrbs[atom], jst = 1:Total_NumOrbs[natn[atom][Rn]]
-            counts += 1
-            HNL_Vec[spin][atom][Rn][ist][jst] = HNL[spin][counts]
-        end
-    end
-
-
-    return HNL_Vec
-end
-
-
-function Set_HVNA2HVNA_Vec(HVNA, system_grid::System_Grid)
-
-    Natom = system_grid.Natom
-    FNAN = system_grid.FNAN
-    natn = system_grid.natn
-    Total_NumOrbs = system_grid.Total_NumOrbs
-
-    HVNA_Vec = Vector{Vector{Vector{Vector{Float64}}}}(undef, Natom)
-    for atom = 1:Natom
-        HVNA_Vec[atom] = Vector{Vector{Vector{Float64}}}(undef, FNAN[atom]+1)
-        for Rn = 1:FNAN[atom]+1
-            HVNA_Vec[atom][Rn] = Vector{Vector{Float64}}(undef, Total_NumOrbs[atom])
-            for ist = 1:Total_NumOrbs[atom]
-                HVNA_Vec[atom][Rn][ist] = zeros(Float64, Total_NumOrbs[natn[atom][Rn]])
-            end
-        end
-    end
-
-    counts = 0
-    for atom = 1:Natom, Rn = 1:FNAN[atom]+1, ist = 1:Total_NumOrbs[atom], jst = 1:Total_NumOrbs[natn[atom][Rn]]
-        counts += 1
-        HVNA_Vec[atom][Rn][ist][jst] = HVNA[counts]
-    end
-
-
-    return HVNA_Vec
-end
-
-
 function Set_H_FNAN(Natom, FNAN, natn, ncn, atv_ijk)
 
     Total_FNAN = sum(FNAN.+1)
@@ -1905,7 +1777,7 @@ function Set_DS_VNA_Natom!(atom, OneDatom, OneDFNAN, HVNA_FNAN, MP_FNAN, FNAN, T
 end
 
 
-function Set_NLP_Natom!(atom, OneDatom, OneDjatom, OneDFNAN, HNL_FNAN, MP_FNAN, FNAN, Total_NumOrbs, NLTotal_Num, VPS_j_dependency, DS_NL)
+function Set_NLPforce_Natom!(atom, OneDatom, OneDjatom, OneDFNAN, HNL_FNAN, MP_FNAN, FNAN, Total_NumOrbs, NLTotal_Num, VPS_j_dependency, NLPforce)
     
     num = MP_FNAN[atom]
     for Rn = 1:FNAN[atom]+1
@@ -1916,10 +1788,10 @@ function Set_NLP_Natom!(atom, OneDatom, OneDjatom, OneDFNAN, HNL_FNAN, MP_FNAN, 
         NO0 = Total_NumOrbs[atom1]
         NO1 = NLTotal_Num[jatom]
         for ist = 1:NO0, so = 1:VPS_j_dependency+1, jst = 1:NO1
-            DS_NL[1][end][Rl][ist][so][jst] = DS_NL[1][atom1][Rm][ist][so][jst]
-            DS_NL[2][end][Rl][ist][so][jst] = DS_NL[2][atom1][Rm][ist][so][jst]
-            DS_NL[3][end][Rl][ist][so][jst] = DS_NL[3][atom1][Rm][ist][so][jst]
-            DS_NL[4][end][Rl][ist][so][jst] = DS_NL[4][atom1][Rm][ist][so][jst]
+            NLPforce[1][end][Rl][ist][so][jst] = NLPforce[1][atom1][Rm][ist][so][jst]
+            NLPforce[2][end][Rl][ist][so][jst] = NLPforce[2][atom1][Rm][ist][so][jst]
+            NLPforce[3][end][Rl][ist][so][jst] = NLPforce[3][atom1][Rm][ist][so][jst]
+            NLPforce[4][end][Rl][ist][so][jst] = NLPforce[4][atom1][Rm][ist][so][jst]
         end
     end
 end
@@ -2114,7 +1986,7 @@ end
 function dHNL!(
     where_flag,
     atom, Rn, Rm, 
-    tmpL, NLTotal_Num, VNLE, 
+    NLTotal_Num, VNLE, 
     Hx, Hy, Hz, 
     NLP, HNL,
     system_grid::System_Grid)
@@ -2156,13 +2028,6 @@ function dHNL!(
 
             if kl >= 0 && where_flag == 0
                 for ist = 1:NO0, jst = 1:NO1
-
-                    # @. tmpL[kg] = VNLE[kg]*NLP[1][jatom][kl+1][jst][1]
-                    # Sumx = dot(tmpL[kg], NLP[2][atom][Rl][ist][1])
-                    # Sumy = dot(tmpL[kg], NLP[3][atom][Rl][ist][1])
-                    # Sumz = dot(tmpL[kg], NLP[4][atom][Rl][ist][1])
-
-                    
                     Sumx = 0.0
                     Sumy = 0.0
                     Sumz = 0.0
@@ -2201,14 +2066,6 @@ function dHNL!(
             kl = RMI[atom][Rm][1]+1
 
             for ist = 1:NO0, jst = 1:NO1
-
-                #=
-                @. tmpL[kg] = VNLE[kg]*NLP[1][atom][1][ist][1]
-                Sumx = -dot(tmpL[kg], NLP[2][jatom][kl][jst][1])
-                Sumy = -dot(tmpL[kg], NLP[3][jatom][kl][jst][1])
-                Sumz = -dot(tmpL[kg], NLP[4][jatom][kl][jst][1])
-                =#
-                
                 Sumx = 0.0
                 Sumy = 0.0
                 Sumz = 0.0
@@ -2223,8 +2080,6 @@ function dHNL!(
                 Hz[ist,jst] += Sumz
             end
         end
-    elseif where_flag == 0
-
     else
         kg = natn[atom][1]
         kl1 = RMI[atom][1][Rn]+1

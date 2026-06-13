@@ -193,7 +193,6 @@ function Set_Vxc_GGA_PBE!(Ngrid, SpinPol, Den, pccDen, dDensity_Grid, Diff_Coef,
 end
 
 
-# For Energy
 function _Set_Vxc_GGA_PBE_woSpin!(Ngrid, Den, pccDen, dDensity_Grid, Vxc)
 
     NN = prod(Ngrid)

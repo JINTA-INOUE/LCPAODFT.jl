@@ -103,8 +103,17 @@ end
     nprocs = MPI.Comm_size(comm)
     myrank = MPI.Comm_rank(comm)
 
+    myrank == 0 && println("<UCell>  Setup Grid ...")
+
+
     CpyCell, FNAN, natn, ncn, Dis = Get_FNAN(Latvecs, Natom, Gxyz, Atom_Cut1)
 
+    if myrank == 0
+        for atom = 1:Natom
+            @printf("\tCpyCell = %d  atom = %3d  FNAN = %3d\n", CpyCell, atom, FNAN[atom])
+        end
+    end
+    MPI.Barrier(comm)
 
     atv = Vector{Vector{Float64}}(undef, (2*CpyCell+1)^3)
     atv_ijk = Vector{Vector{Int32}}(undef, (2*CpyCell+1)^3)
@@ -415,7 +424,7 @@ end
 
 
 # get the FNAN, natn, ncn, Dis
-function Get_FNAN(LatVecs, Natom, Gxyz, Atom_Cut1 )
+function Get_FNAN(Latvecs, Natom, Gxyz, Atom_Cut1)
     
     po = 0
     CpyCell = 0
@@ -428,7 +437,7 @@ function Get_FNAN(LatVecs, Natom, Gxyz, Atom_Cut1 )
     while po == 0 && count < countmax
 
         CpyCell = CpyCell + 1
-        atv, TCpyCell = Set_Periodic(LatVecs, CpyCell)
+        atv, TCpyCell = Set_Periodic(Latvecs, CpyCell)
 
         TFNAN_temp = TFNAN
 
@@ -447,7 +456,7 @@ function Get_FNAN(LatVecs, Natom, Gxyz, Atom_Cut1 )
         error("please check Get_FNAN")
     end
 
-    atv, TCpyCell = Set_Periodic(LatVecs, CpyCell)
+    atv, TCpyCell = Set_Periodic(Latvecs, CpyCell)
     FNAN, natn, ncn, Dis = Trn_System(Natom, Gxyz, Atom_Cut1, atv, TCpyCell)
     
     return CpyCell, FNAN, natn, ncn, Dis
@@ -456,7 +465,7 @@ end
 
 function Set_Periodic(Latvecs, CpyCell)
     
-    TN = (2*CpyCell + 1)^3 - 1
+    TCpyCell = (2*CpyCell + 1)^3 - 1
 
     atv = Vector{Vector{Float64}}(undef, (2*CpyCell+1)^3)
     for cell = 1:(2*CpyCell+1)^3
@@ -464,7 +473,7 @@ function Set_Periodic(Latvecs, CpyCell)
     end
     Generation_ATV!(CpyCell, Latvecs, atv)
 
-    return atv, TN
+    return atv, TCpyCell
 end
 
 
