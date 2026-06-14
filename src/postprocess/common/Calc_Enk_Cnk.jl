@@ -6,18 +6,8 @@ function Calc_Enk_Cnk(material::LCPAO_model, kpoints::KPoints, type::Integer)
     kmesh = kpoints.kmesh
     kmesh1, kmesh2, kmesh3 = kmesh
     MPI_Nkpt = kpoints.MPI_Nkpt
-
-    if SpinPol ∈ ("off", "nc")
-        spinsize = 1
-    else
-        spinsize = 2
-    end
-
-    if SpinPol ∈ ("off", "on")
-        Nfsize = fsize
-    else
-        Nfsize = 2*fsize
-    end
+    spinsize = ifelse(SpinPol=="on", 2, 1)
+    Nfsize = ifelse(SpinPol=="nc", 2*fsize, fsize)
 
     if type == 1
         Enk = zeros(Float64, spinsize, Nfsize, MPI_Nkpt)
@@ -72,17 +62,10 @@ function Calc_Enk_Cnk!(
     Hks = material.Hks
     iHks = material.iHks
     OLP = material.OLP
+    spinsize = ifelse(SpinPol=="on", 2, 1)
 
     MPI_Nkpt = kpoints.MPI_Nkpt
     MPI_kpts = kpoints.MPI_kpts
-    
-
-    if SpinPol ∈ ("off", "nc")
-        spinsize = 1
-    else SpinPol == "on"
-        spinsize = 2
-    end
-
 
     if SpinPol ∈ ("off", "on")
         S = zeros(ComplexF64, fsize, fsize)
@@ -128,14 +111,8 @@ function Calc_Enk_Cnk!(
     kmesh = kpoints.kmesh
     kmesh1, kmesh2, kmesh3 = kmesh
     MPI_kpts = kpoints.MPI_kpts
+    spinsize = ifelse(SpinPol=="on", 2, 1)
     
-
-    if SpinPol ∈ ("off", "nc")
-        spinsize = 1
-    else
-        spinsize = 2
-    end
-
 
     if SpinPol ∈ ("off", "on")
         S = zeros(ComplexF64, fsize, fsize)
@@ -172,13 +149,7 @@ function Calc_Enk_Cnk(material::CWF_model, kpoints::KPoints, type::Integer)
     kmesh = kpoints.kmesh
     kmesh1, kmesh2, kmesh3 = kmesh
     MPI_Nkpt = kpoints.MPI_Nkpt
-
-    if SpinPol ∈ ("off", "nc")
-        spinsize = 1
-    else SpinPol == "on"
-        spinsize = 2
-    end
-
+    spinsize = ifelse(SpinPol=="on", 2, 1)
 
     if type == 1
         Enk = zeros(Float64, spinsize, Nwann, MPI_Nkpt)
@@ -228,19 +199,16 @@ function Calc_Enk_Cnk!(
     HmnR = material.HmnR
     Nkpt = kpoints.MPI_Nkpt
     kpts = kpoints.MPI_kpts
+    spinsize = ifelse(SpinPol=="on", 2, 1)
 
-    if SpinPol ∈ ("off", "nc")
-        spinsize = 1
-    else
-        spinsize = 2
-    end
-    
 
     H = zeros(ComplexF64, Nwann, Nwann)
 
     for spin = 1:spinsize, ik = 1:Nkpt
+        k1, k2, k3 = kpts[ik]
+        fill!(H, 0.0)
         for cell = 1:NCell
-            kRn = kpts[ik][1]*cell_list_ijk[cell][1] + kpts[ik][2]*cell_list_ijk[cell][2] + kpts[ik][3]*cell_list_ijk[cell][3]
+            kRn = k1*cell_list_ijk[cell][1] + k2*cell_list_ijk[cell][2] + k3*cell_list_ijk[cell][3]
             ex = cispi(2*kRn)
 
             for ist = 1:Nwann, jst = 1:Nwann
@@ -248,7 +216,7 @@ function Calc_Enk_Cnk!(
             end
         end
 
-        Enk[1,:,ik], Cnk[spin][k] = eigen(Hermitian(H))
+        Enk[1,:,ik], Cnk[spin][ik] = eigen(Hermitian(H))
     end
 end
 
@@ -268,13 +236,7 @@ function Calc_Enk_Cnk!(
     kmesh1, kmesh2, kmesh3 = kmesh
     Nkpt = kpoints.MPI_Nkpt
     kpts = kpoints.MPI_kpts
-
-    if SpinPol ∈ ("off", "nc")
-        spinsize = 1
-    else
-        spinsize = 2
-    end
-    
+    spinsize = ifelse(SpinPol=="on", 2, 1)
 
     kindex = zeros(Int64, Nkpt, 3)
     kp = 0

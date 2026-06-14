@@ -313,12 +313,12 @@ function Steepest_Descent(GeoOpt_iter, geo_optim::Geo_Optim, Etot, ForceAll, SD_
         @printf("\n")
         @printf("<ForceAll>\n")
         for atom = 1:Natom
-            @printf("  Fxyz(a.u.)  atom = %d  %15.12f  %15.12f  %15.12f\n", atom, ForceAll[atom,1], ForceAll[atom,2], ForceAll[atom,3])
+            @printf("  Fxyz(a.u.)  atom = %3d  %15.12f  %15.12f  %15.12f\n", atom, ForceAll[atom,1], ForceAll[atom,2], ForceAll[atom,3])
         end
 
         @printf("<Atomic positions>  New atomic positions using Steepest_Descent\n")
         for atom = 1:Natom
-            @printf("  XYZ(ang)    atom = %d  %15.12f  %15.12f  %15.12f\n",  atom, Gxyz[atom][1]/Ang_to_bohr, Gxyz[atom][2]/Ang_to_bohr, Gxyz[atom][3]/Ang_to_bohr)
+            @printf("  XYZ(ang)    atom = %3d  %15.12f  %15.12f  %15.12f\n",  atom, Gxyz[atom][1]/Ang_to_bohr, Gxyz[atom][2]/Ang_to_bohr, Gxyz[atom][3]/Ang_to_bohr)
         end
     end
     MPI.Barrier(comm)
@@ -634,12 +634,12 @@ function GDIIS_EF(GeoOpt_iter, geo_optim::Geo_Optim, Etot, ForceAll)
         @printf("\n")
         @printf("<ForceAll>\n")
         for atom = 1:Natom
-            @printf("  Fxyz(a.u.)  atom = %d  %15.12f  %15.12f  %15.12f\n", atom, ForceAll[atom,1], ForceAll[atom,2], ForceAll[atom,3])
+            @printf("  Fxyz(a.u.)  atom = %3d  %15.12f  %15.12f  %15.12f\n", atom, ForceAll[atom,1], ForceAll[atom,2], ForceAll[atom,3])
         end
 
         @printf("<Atomic positions>  New atomic positions using DIIS_EF\n")
         for atom = 1:Natom
-            @printf("  XYZ(ang)    atom = %d  %15.12f  %15.12f  %15.12f\n",  atom, Gxyz[atom][1]/Ang_to_bohr, Gxyz[atom][2]/Ang_to_bohr, Gxyz[atom][3]/Ang_to_bohr)
+            @printf("  XYZ(ang)    atom = %3d  %15.12f  %15.12f  %15.12f\n",  atom, Gxyz[atom][1]/Ang_to_bohr, Gxyz[atom][2]/Ang_to_bohr, Gxyz[atom][3]/Ang_to_bohr)
         end
     end
     MPI.Barrier(comm)

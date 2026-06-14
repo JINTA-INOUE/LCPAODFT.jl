@@ -724,7 +724,7 @@ function DFT_Setup(
 
 
     filename2, _ = splitext(basename(filename))
-    if myrank == 0
+    if myrank == 0 || fileout
         Write_CIFfile(filename2, Natom, Latvecs, Gxyz_frac, Atoms_symbol)
         Write_xyzfile(filename2, Natom, Gxyz_AU, Atoms_symbol)
     end

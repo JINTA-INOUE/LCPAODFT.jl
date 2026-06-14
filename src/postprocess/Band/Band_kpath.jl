@@ -161,19 +161,11 @@ function Band_kpath(filepath::String, kpath::Vector{Vector{Float64}}, kname::Vec
         error("please run serial.")
     end
 
-    base_filepath = basename(filepath)
-    file = split(base_filepath, ".")
-    if file[end] ≠ "jld2"
-        error("please check filepath.")
-    end
-    if length(file) == 2
-        ext = "jld2"
-    else
-        ext = file[end-1]*"."*file[end]
-    end
-    if ext == "jld2"
+    model = select_model(filepath)
+
+    if model == 1
         Band_kpath_LCPAO(filepath, seedname, kpath, kname, Nk)
-    elseif ext == "CWF.jld2"
+    elseif model == 2
         Band_kpath_CWF(filepath, seedname, kpath, kname, Nk)
     else
         error("please check filepath.")

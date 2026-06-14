@@ -407,20 +407,6 @@ include("postprocess/Cube/Print_Cube.jl")
 export Print_Cube
 
 
-# For Band Dispersion
-include("postprocess/Band/Write_Band.jl")
-include("postprocess/Band/Band_kpath.jl")
-export Band_kpath
-
-
-# For Density of State
-include("postprocess/Dos/Tetrahedron_Blochl.jl")
-include("postprocess/Dos/Dos_utils.jl")
-include("postprocess/Dos/Dos.jl")
-include("postprocess/Dos/Write_Dos.jl")
-export DosMain
-
-
 # For Closest Wannier Functions
 include("postprocess/CWF/CWF_Setup.jl")
 include("postprocess/CWF/CWF_model.jl")
@@ -482,7 +468,26 @@ export Boltz_Setup
 export Calc_Boltz
 
 
+# For Band Dispersion
+include("postprocess/Band/Write_Band.jl")
+include("postprocess/Band/Band_kpath.jl")
+export Band_kpath
+
+
+# For Density of State
+include("postprocess/Dos/Tetrahedron_Blochl.jl")
+include("postprocess/Dos/Dos_utils.jl")
+include("postprocess/Dos/Calc_Enk_Cnk_Dos.jl")
+include("postprocess/Dos/Calc_EVec.jl")
+include("postprocess/Dos/Calc_DosMain.jl")
+include("postprocess/Dos/Calc_PDosMain.jl")
+include("postprocess/Dos/Dos.jl")
+include("postprocess/Dos/Write_Dos.jl")
+export DosMain
+
+
 # For postprocess
+include("postprocess/common/select_model.jl")
 include("postprocess/common/Calc_Enk_Cnk.jl")
 export Calc_Enk_Cnk
 export Calc_Enk_Cnk!

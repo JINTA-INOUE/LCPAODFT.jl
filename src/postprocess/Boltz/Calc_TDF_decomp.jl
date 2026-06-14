@@ -151,19 +151,19 @@ function Calc_TDF_decomp_3element(boltz_setup::Boltz_Setup, Enk, EVec, Vnk)
                 OrderE!(tetra_eyy, tetra_ayy, 4)
                 
                 xx = (tetra_exx[1]-TDF_Emin)/(TDF_Emax-TDF_Emin)*(TDF_EneNum-1)-1
-                iemin_xx = floor(Int,xx)
+                iemin_xx = trunc(Int,xx)
                 xx = (tetra_exx[4]-TDF_Emin)/(TDF_Emax-TDF_Emin)*(TDF_EneNum-1)+1
-                iemax_xx = floor(Int,xx)
+                iemax_xx = trunc(Int,xx)
 
                 xy = (tetra_exy[1]-TDF_Emin)/(TDF_Emax-TDF_Emin)*(TDF_EneNum-1)-1
-                iemin_xy = floor(Int,xy)
+                iemin_xy = trunc(Int,xy)
                 xy = (tetra_exy[4]-TDF_Emin)/(TDF_Emax-TDF_Emin)*(TDF_EneNum-1)+1
-                iemax_xy = floor(Int,xy)
+                iemax_xy = trunc(Int,xy)
 
                 yy = (tetra_eyy[1]-TDF_Emin)/(TDF_Emax-TDF_Emin)*(TDF_EneNum-1)-1
-                iemin_yy = floor(Int,yy)
+                iemin_yy = trunc(Int,yy)
                 yy = (tetra_eyy[4]-TDF_Emin)/(TDF_Emax-TDF_Emin)*(TDF_EneNum-1)+1
-                iemax_yy = floor(Int,yy)
+                iemax_yy = trunc(Int,yy)
 
                 # xx elements
                 if iemin_xx < 0
@@ -172,10 +172,10 @@ function Calc_TDF_decomp_3element(boltz_setup::Boltz_Setup, Enk, EVec, Vnk)
                 if iemax_xx >= TDF_EneNum
                     iemax_xx = TDF_EneNum - 1
                 end
-                if 0 < iemin_xx < TDF_EneNum && 0 <= iemax_xx < TDF_EneNum
+                if 0 <= iemin_xx < TDF_EneNum && 0 <= iemax_xx < TDF_EneNum
                     for ie = iemin_xx:iemax_xx
                         resultxx = ATM_Spectrum(tetra_exx, tetra_axx, TDF_Energy[ie+1])
-                        TDF[ist][ie,spin,1] += resultxx
+                        TDF[ist][ie+1,spin,1] += resultxx
                     end
                 end
 
@@ -186,10 +186,10 @@ function Calc_TDF_decomp_3element(boltz_setup::Boltz_Setup, Enk, EVec, Vnk)
                 if iemax_xy >= TDF_EneNum
                     iemax_xy = TDF_EneNum - 1
                 end
-                if 0 < iemin_xy < TDF_EneNum && 0 <= iemax_xy < TDF_EneNum
+                if 0 <= iemin_xy < TDF_EneNum && 0 <= iemax_xy < TDF_EneNum
                     for ie = iemin_xy:iemax_xy
                         resultxy = ATM_Spectrum(tetra_exy, tetra_axy, TDF_Energy[ie+1])
-                        TDF[ist][ie,spin,2] += resultxy
+                        TDF[ist][ie+1,spin,2] += resultxy
                     end
                 end
 
@@ -200,10 +200,10 @@ function Calc_TDF_decomp_3element(boltz_setup::Boltz_Setup, Enk, EVec, Vnk)
                 if iemax_yy >= TDF_EneNum
                     iemax_yy = TDF_EneNum - 1
                 end
-                if 0 < iemin_yy < TDF_EneNum && 0 <= iemax_yy < TDF_EneNum
+                if 0 <= iemin_yy < TDF_EneNum && 0 <= iemax_yy < TDF_EneNum
                     for ie = iemin_yy:iemax_yy
                         resultyy = ATM_Spectrum(tetra_eyy, tetra_ayy, TDF_Energy[ie+1])
-                        TDF[ist][ie,spin,3] += resultyy
+                        TDF[ist][ie+1,spin,3] += resultyy
                     end
                 end
             end
@@ -346,34 +346,34 @@ function Calc_TDF_decomp_6element(boltz_setup::Boltz_Setup, Enk, EVec, Vnk)
                 OrderE!(tetra_ezz, tetra_azz, 4)
                 
                 xx = (tetra_exx[1]-TDF_Emin)/(TDF_Emax-TDF_Emin)*(TDF_EneNum-1)-1
-                iemin_xx = floor(Int,xx)
+                iemin_xx = trunc(Int,xx)
                 xx = (tetra_exx[4]-TDF_Emin)/(TDF_Emax-TDF_Emin)*(TDF_EneNum-1)+1
-                iemax_xx = floor(Int,xx)
+                iemax_xx = trunc(Int,xx)
 
                 xy = (tetra_exy[1]-TDF_Emin)/(TDF_Emax-TDF_Emin)*(TDF_EneNum-1)-1
-                iemin_xy = floor(Int,xy)
+                iemin_xy = trunc(Int,xy)
                 xy = (tetra_exy[4]-TDF_Emin)/(TDF_Emax-TDF_Emin)*(TDF_EneNum-1)+1
-                iemax_xy = floor(Int,xy)
+                iemax_xy = trunc(Int,xy)
 
                 xz = (tetra_exz[1]-TDF_Emin)/(TDF_Emax-TDF_Emin)*(TDF_EneNum-1)-1
-                iemin_xz = floor(Int,xz)
+                iemin_xz = trunc(Int,xz)
                 xz = (tetra_exz[4]-TDF_Emin)/(TDF_Emax-TDF_Emin)*(TDF_EneNum-1)+1
-                iemax_xz = floor(Int,xz)
+                iemax_xz = trunc(Int,xz)
 
                 yy = (tetra_eyy[1]-TDF_Emin)/(TDF_Emax-TDF_Emin)*(TDF_EneNum-1)-1
-                iemin_yy = floor(Int,yy)
+                iemin_yy = trunc(Int,yy)
                 yy = (tetra_eyy[4]-TDF_Emin)/(TDF_Emax-TDF_Emin)*(TDF_EneNum-1)+1
-                iemax_yy = floor(Int,yy)
+                iemax_yy = trunc(Int,yy)
 
                 yz = (tetra_eyz[1]-TDF_Emin)/(TDF_Emax-TDF_Emin)*(TDF_EneNum-1)-1
-                iemin_yz = floor(Int,yz)
+                iemin_yz = trunc(Int,yz)
                 yz = (tetra_eyz[4]-TDF_Emin)/(TDF_Emax-TDF_Emin)*(TDF_EneNum-1)+1
-                iemax_yz = floor(Int,yz)
+                iemax_yz = trunc(Int,yz)
 
                 zz = (tetra_ezz[1]-TDF_Emin)/(TDF_Emax-TDF_Emin)*(TDF_EneNum-1)-1
-                iemin_zz = floor(Int,zz)
+                iemin_zz = trunc(Int,zz)
                 zz = (tetra_ezz[4]-TDF_Emin)/(TDF_Emax-TDF_Emin)*(TDF_EneNum-1)+1
-                iemax_zz = floor(Int,zz)
+                iemax_zz = trunc(Int,zz)
 
                 # xx elements
                 if iemin_xx < 0
@@ -382,10 +382,10 @@ function Calc_TDF_decomp_6element(boltz_setup::Boltz_Setup, Enk, EVec, Vnk)
                 if iemax_xx >= TDF_EneNum
                     iemax_xx = TDF_EneNum - 1
                 end
-                if 0 < iemin_xx < TDF_EneNum && 0 <= iemax_xx < TDF_EneNum
+                if 0 <= iemin_xx < TDF_EneNum && 0 <= iemax_xx < TDF_EneNum
                     for ie = iemin_xx:iemax_xx
                         resultxx = ATM_Spectrum(tetra_exx, tetra_axx, TDF_Energy[ie+1])
-                        TDF[ist][ie,spin,1] += resultxx
+                        TDF[ist][ie+1,spin,1] += resultxx
                     end
                 end
 
@@ -396,10 +396,10 @@ function Calc_TDF_decomp_6element(boltz_setup::Boltz_Setup, Enk, EVec, Vnk)
                 if iemax_xy >= TDF_EneNum
                     iemax_xy = TDF_EneNum - 1
                 end
-                if 0 < iemin_xy < TDF_EneNum && 0 <= iemax_xy < TDF_EneNum
+                if 0 <= iemin_xy < TDF_EneNum && 0 <= iemax_xy < TDF_EneNum
                     for ie = iemin_xy:iemax_xy
                         resultxy = ATM_Spectrum(tetra_exy, tetra_axy, TDF_Energy[ie+1])
-                        TDF[ist][ie,spin,2] += resultxy
+                        TDF[ist][ie+1,spin,2] += resultxy
                     end
                 end
 
@@ -410,10 +410,10 @@ function Calc_TDF_decomp_6element(boltz_setup::Boltz_Setup, Enk, EVec, Vnk)
                 if iemax_xz >= TDF_EneNum
                     iemax_xz = TDF_EneNum - 1
                 end
-                if 0 < iemin_xz < TDF_EneNum && 0 <= iemax_xz < TDF_EneNum
+                if 0 <= iemin_xz < TDF_EneNum && 0 <= iemax_xz < TDF_EneNum
                     for ie = iemin_xz:iemax_xz
                         resultxz = ATM_Spectrum(tetra_exz, tetra_axz, TDF_Energy[ie+1])
-                        TDF[ist][ie,spin,4] += resultxz
+                        TDF[ist][ie+1,spin,4] += resultxz
                     end
                 end
 
@@ -424,10 +424,10 @@ function Calc_TDF_decomp_6element(boltz_setup::Boltz_Setup, Enk, EVec, Vnk)
                 if iemax_yy >= TDF_EneNum
                     iemax_yy = TDF_EneNum - 1
                 end
-                if 0 < iemin_yy < TDF_EneNum && 0 <= iemax_yy < TDF_EneNum
+                if 0 <= iemin_yy < TDF_EneNum && 0 <= iemax_yy < TDF_EneNum
                     for ie = iemin_yy:iemax_yy
                         resultyy = ATM_Spectrum(tetra_eyy, tetra_ayy, TDF_Energy[ie+1])
-                        TDF[ist][ie,spin,3] += resultyy
+                        TDF[ist][ie+1,spin,3] += resultyy
                     end
                 end
 
@@ -438,10 +438,10 @@ function Calc_TDF_decomp_6element(boltz_setup::Boltz_Setup, Enk, EVec, Vnk)
                 if iemax_yz >= TDF_EneNum
                     iemax_yz = TDF_EneNum - 1
                 end
-                if 0 < iemin_yz < TDF_EneNum && 0 <= iemax_yz < TDF_EneNum
+                if 0 <= iemin_yz < TDF_EneNum && 0 <= iemax_yz < TDF_EneNum
                     for ie = iemin_yz:iemax_yz
                         resultyz = ATM_Spectrum(tetra_eyz, tetra_ayz, TDF_Energy[ie+1])
-                        TDF[ist][ie,spin,5] += resultyz
+                        TDF[ist][ie+1,spin,5] += resultyz
                     end
                 end
 
@@ -452,10 +452,10 @@ function Calc_TDF_decomp_6element(boltz_setup::Boltz_Setup, Enk, EVec, Vnk)
                 if iemax_zz >= TDF_EneNum
                     iemax_zz = TDF_EneNum - 1
                 end
-                if 0 < iemin_zz < TDF_EneNum && 0 <= iemax_zz < TDF_EneNum
+                if 0 <= iemin_zz < TDF_EneNum && 0 <= iemax_zz < TDF_EneNum
                     for ie = iemin_zz:iemax_zz
                         resultzz = ATM_Spectrum(tetra_ezz, tetra_azz, TDF_Energy[ie+1])
-                        TDF[ist][ie,spin,6] += resultzz
+                        TDF[ist][ie+1,spin,6] += resultzz
                     end
                 end
             end
