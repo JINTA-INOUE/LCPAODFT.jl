@@ -1,22 +1,22 @@
 function Band_kpath_LCPAO(filepath::String, filename::String, kpath::Vector{Vector{Float64}}, kname::Vector{String}, Nk)
 
-    model = Load_LCPAODFT_model(filepath)
-
-    Natom = model.Natom
-    SpinPol = model.SpinPol
-    Recvecs = model.Recvecs
-    Total_NumOrbs = model.Total_NumOrbs
-    MP = model.MP
-    FNAN = model.FNAN
-    natn = model.natn
-    ncn = model.ncn
-    atv_ijk = model.atv_ijk
+    material = Load_LCPAODFT_model(filepath)
+    Print_LCPAO_model(filepath, material)
+    Natom = material.Natom
+    SpinPol = material.SpinPol
+    Recvecs = material.Recvecs
+    Total_NumOrbs = material.Total_NumOrbs
+    MP = material.MP
+    FNAN = material.FNAN
+    natn = material.natn
+    ncn = material.ncn
+    atv_ijk = material.atv_ijk
     fsize = sum(Total_NumOrbs)
 
-    Hks = model.Hks
-    OLP = model.OLP
-    iHks = model.iHks
-    ChemP = model.ChemP
+    Hks = material.Hks
+    OLP = material.OLP
+    iHks = material.iHks
+    ChemP = material.ChemP
     
     spinsize = ifelse(SpinPol ∈ ("off","nc"), 1, 2)
     if SpinPol ∈ ("off", "on")
@@ -93,14 +93,16 @@ end
 
 function Band_kpath_CWF(filepath::String, filename::String, kpath::Vector{Vector{Float64}}, kname::Vector{String}, Nk)
     
-    cwf_model = Load_CWF_model(filepath)
-    spinsize = cwf_model.spinsize
-    Recvecs = cwf_model.Recvecs
-    NCell = cwf_model.NCell
-    cell_list_ijk = cwf_model.cell_list_ijk
-    Nwann = cwf_model.Ngsize
-    HmnR = cwf_model.HmnR
-    ChemP = cwf_model.ChemP
+    material = Load_CWF_model(filepath)
+    Print_CWF_model(filepath, material)
+
+    spinsize = material.spinsize
+    Recvecs = material.Recvecs
+    NCell = material.NCell
+    cell_list_ijk = material.cell_list_ijk
+    Nwann = material.Ngsize
+    HmnR = material.HmnR
+    ChemP = material.ChemP
 
     Nkpath = length(kpath)-1
     kpath_Nk = ones(Int64, Nkpath)*Nk

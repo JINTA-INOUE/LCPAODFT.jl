@@ -45,8 +45,8 @@ function Set_CWF_ExpnCoef(cwf_setup::CWF_Setup, kpoints::KPoints, Cnk, Umnk)
 
     if SpinPol ∈ ("off", "on")
         Set_CWF_ExpnCoef_Col!(gsize, CWF_Plot_SuperCells, material, kpoints, Cnk, Umnk, CWF_ExpnCoef)
-    else SpinPol == "nc"
-        Set_CWF_ExpnCoef_Col!(2*gsize, CWF_Plot_SuperCells, material, kpoints, Cnk, Umnk, CWF_ExpnCoef)
+    else
+        Set_CWF_ExpnCoef_NonCol!(2*gsize, CWF_Plot_SuperCells, material, kpoints, Cnk, Umnk, CWF_ExpnCoef)
     end
 
 
@@ -178,7 +178,7 @@ end
 
 function Set_CWF_ExpnCoef_NonCol!(Ngsize, CWF_Plot_SuperCells, material::LCPAO_model, kpoints::KPoints, Cnk, Umnk, CWF_ExpnCoef)
 
-    Nfsize = sum(material.Total_NumOrbs)
+    Nfsize = 2*sum(material.Total_NumOrbs)
     Nkpt = kpoints.Nkpt
     kpts = kpoints.MPI_kpts
 

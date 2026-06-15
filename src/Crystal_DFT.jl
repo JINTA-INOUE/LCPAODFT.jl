@@ -440,7 +440,7 @@ end
     electron::CrystalBloch, 
     kpoints::KPoints, 
     system_grid::System_Grid, 
-    DM)
+    DM::Vector{Vector{Float64}})
     
     comm = MPI.COMM_WORLD
     myrank = MPI.Comm_rank(comm)
@@ -503,7 +503,7 @@ end
     electron::CrystalBloch, 
     kpoints::KPoints,
     system_grid::System_Grid, 
-    DM)
+    DM::Vector{Vector{Float64}})
     
     comm = MPI.COMM_WORLD
     myrank = MPI.Comm_rank(comm)
@@ -569,7 +569,7 @@ end
     electron::CrystalBloch, 
     kpoints::KPoints,
     system_grid::System_Grid,
-    DM)
+    DM::Vector{Vector{Float64}})
     
     comm = MPI.COMM_WORLD
     myrank = MPI.Comm_rank(comm)

@@ -49,6 +49,7 @@ function Generate_CWF(cwf_setup::CWF_Setup)
 
         myrank == 0 && println("<Write_CWF_HmnR>")
         myrank == 0 && Write_CWF_HmnR(cwf_setup, DMfunc, NCell, cell_list, cell_list_ijk, HmnR)
+        MPI.Barrier(comm)
     end
 
 
@@ -165,6 +166,7 @@ function Generate_CWF(cwf_setup::CWF_Setup_MO)
 
         myrank == 0 && println("<Write_CWF_HmnR>")
         myrank == 0 && Write_CWF_HmnR(cwf_setup, DMfunc, NCell, cell_list, cell_list_ijk, HmnR)
+        MPI.Barrier(comm)
     end
     
 

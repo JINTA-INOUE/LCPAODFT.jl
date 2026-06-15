@@ -58,7 +58,7 @@ function Write_GNUBAND(filename::String, spinsize, Nkpath, kpath, kname, Recvecs
     println(gnu_file, "set title font \"Arial, 20\"")
     println(gnu_file, "unset key")
     println(gnu_file, "")
-    for ik = 1:Nkpath+1
+    for ik = 1:Nkpath
         println(gnu_file, "x$(ik) = $(x[ik])")
     end
     println(gnu_file, "")

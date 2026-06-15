@@ -159,7 +159,6 @@ function Calc_Band_size(material::CWF_model, Dos_Erange)
     iemin = 1
     iemax = 1
     n1min = 1
-    kpts_zeros = zeros(Float64, 3)
     EΓ = zeros(Float64, Nwann)
     H = zeros(ComplexF64, Nwann, Nwann)
 
@@ -167,6 +166,8 @@ function Calc_Band_size(material::CWF_model, Dos_Erange)
         for cell = 1:NCell, ist = 1:Nwann, jst = 1:Nwann
             H[ist,jst] += HmnR[jst,ist,cell,spin]
         end
+
+        EΓ = eigvals(Hermitian(H))
 
         iemin0 = 1
         n1min = ifelse(n1min<Nwann, Nwann, n1min)

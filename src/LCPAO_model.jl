@@ -100,7 +100,7 @@ function Print_LCPAO_model(filepath::String, material::LCPAO_model)
     println("Atom Catesian positions (AU)")
     println("\tatom\tAtom Name\t   x\t     y\t       z")
     for atom = 1:Natom
-        @printf("\t%d\t%s\t\t%5.6f  %5.6f  %5.6f\n", atom, Atoms_symbol[atom], Gxyz[atom][1], Gxyz[atom][2], Gxyz[atom][3])
+        @printf("\t%d\t%s\t\t%10.6f  %10.6f  %10.6f\n", atom, Atoms_symbol[atom], Gxyz[atom][1], Gxyz[atom][2], Gxyz[atom][3])
     end
     println("")
     println("Real space Grid number a, b, c : $(Ngrid[1]) $(Ngrid[2]) $(Ngrid[3])")

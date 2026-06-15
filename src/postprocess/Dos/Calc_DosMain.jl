@@ -69,8 +69,8 @@ function Calc_DosMain(filename::String, material::Union{LCPAO_model,CWF_model}, 
                 end
                 if 0 <= iemin < Dos_N && 0 <= iemax < Dos_N
                     for ie = iemin:iemax
-                        result = ATM_Dos(tetra_e, DosE[ie])
-                        Dos[ie,spin] += result
+                        result = ATM_Dos(tetra_e, DosE[ie+1])
+                        Dos[ie+1,spin] += result
                     end
                 end
             end
