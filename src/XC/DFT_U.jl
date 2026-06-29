@@ -14,10 +14,10 @@ mutable struct Hubbard_U
     Hub_U_orbpol::Vector{Bool}
     trans_index::Vector{Vector{Vector{Vector{Int32}}}}
     DM_onsite::Vector{Vector{Vector{Vector{Float64}}}}
-    NC_OcpN::Union{Vector{Vector{Vector{Vector{Vector{Float64}}}}}, Nothing}
-    v_eff::Union{Vector{Vector{Vector{Vector{Float64}}}}, Nothing}
-    NC_v_eff::Union{Vector{Vector{Vector{Vector{Vector{ComplexF64}}}}}, Nothing}
-    H_Hub::Vector{Vector{Vector{Vector{Vector{Float64}}}}}
+    NC_OcpN::Vector{Vector{Vector{Vector{Vector{Float64}}}}}
+    v_eff::Vector{Vector{Vector{Vector{Float64}}}}
+    NC_v_eff::Vector{Vector{Vector{Vector{Vector{ComplexF64}}}}}
+    H_Hub::Vector{Vector{Float64}}
 end
 
 
@@ -89,13 +89,6 @@ function DFT_Hubbard_U(
     end
 
 
-    loop2atom = zeros(Int32, Total_Hsize)
-    loop2Rn = zeros(Int32, Total_Hsize)
-    loop2 = zeros(Int32, Total_Hsize)
-    loop2atom = zeros(Int32, Total_Hsize)
-    
-
-    
     Atom_MaxL_Basis = zeros(Int32, Natom)
     for atom = 1:Natom
         spe = atom2spe[atom]
@@ -152,33 +145,10 @@ function DFT_Hubbard_U(
 
 
 
-    if SpinPol ≠ "nc"
-        NC_OcpN = nothing
-    else
-        NC_OcpN = Vector{Vector{Vector{Vector{Vector{Float64}}}}}(undef, 2)
-        for s1 = 1:2
-            NC_OcpN[s1] = Vector{Vector{Vector{Vector{Float64}}}}(undef, 2)
-            for s2 = 1:2
-                NC_OcpN[s1][s2] = Vector{Vector{Vector{Float64}}}(undef, Natom+1)
-                for atom = 1:Natom+1
-                    if atom == 1
-                        NO0 = 1
-                    else
-                        NO0 = Total_NumOrbs[atom]
-                    end
-
-                    NC_OcpN[s1][s2][atom] = Vector{Vector{Float64}}(undef, NO0)
-                    for ist = 1:NO0
-                        NC_OcpN[s1][s2][atom][ist] = zeros(Float64, NO0)
-                    end
-                end
-            end
-        end
-    end
-
+    NC_OcpN = [[[[[0.0]]]]]
+    NC_v_eff = [[[[[0.0+im*0.0]]]]]
 
     if SpinPol ∈ ("off", "on")
-        NC_v_eff = nothing
         v_eff = Vector{Vector{Vector{Vector{Float64}}}}(undef, Nspin)
         for spin = 1:Nspin
             v_eff[spin] = Vector{Vector{Vector{Float64}}}(undef, Natom)
@@ -190,50 +160,43 @@ function DFT_Hubbard_U(
             end
         end
     elseif SpinPol == "nc"
-        v_eff = nothing
-        NC_v_eff = Vector{Vector{Vector{Vector{Vector{ComplexF64}}}}}(undef, 2)
-        for spin = 1:2
-            NC_v_eff[spin] = Vector{Vector{Vector{Vector{ComplexF64}}}}(undef, 2)
-            for jspin = 1:2
-                NC_v_eff[spin][jspin] = Vector{Vector{Vector{ComplexF64}}}(undef, Natom)
-                for atom = 1:Natom
-                    NC_v_eff[spin][jspin][atom] = Vector{Vector{ComplexF64}}(undef, Total_NumOrbs[atom])
-                    for ist = 1:Total_NumOrbs[atom]
-                        NC_v_eff[spin][jspin][atom][ist] = zeros(ComplexF64, Total_NumOrbs[atom])
-                    end
-                end
-            end
-        end
+        error("SpinPol == \"nc\"")
     end
 
 
-    H_Hub = Vector{Vector{Vector{Vector{Vector{Float64}}}}}(undef, Nspin)
+    H_Hub = Vector{Vector{Float64}}(undef, Nspin)
     for spin = 1:Nspin
-        H_Hub[spin] = Vector{Vector{Vector{Vector{Float64}}}}(undef, Natom)
-        for atom = 1:Natom
-            H_Hub[spin][atom] = Vector{Vector{Vector{Float64}}}(undef, FNAN[atom]+1)
-            for Rn = 1:FNAN[atom]+1
-                H_Hub[spin][atom][Rn] = Vector{Vector{Float64}}(undef, Total_NumOrbs[atom])
-                for ist = 1:Total_NumOrbs[atom]
-                    H_Hub[spin][atom][Rn][ist] = zeros(Float64, Total_NumOrbs[natn[atom][Rn]])
-                end
-            end
-        end
+        H_Hub[spin] = zeros(Float64, Total_Hsize)
     end
 
 
-    return Hubbard_U( SpinPol, Nspin, Natom, FNAN, natn, RMI1, Total_NumOrbs,
-                      Hub_U_occ, Hub_Type, 
-                      Atom_MaxL_Basis, Atom_Num_Basis, 
-                      Hub_U_Basis, Hub_U_orbpol, 
-                      trans_index, 
-                      DM_onsite, NC_OcpN, 
-                      v_eff, NC_v_eff, H_Hub )
+    return Hubbard_U(SpinPol, Nspin, Natom, FNAN, natn, RMI1, Total_NumOrbs,
+                    Hub_U_occ, Hub_Type, 
+                    Atom_MaxL_Basis, Atom_Num_Basis, 
+                    Hub_U_Basis, Hub_U_orbpol, 
+                    trans_index, 
+                    DM_onsite, NC_OcpN, 
+                    v_eff, NC_v_eff, H_Hub)
 end
 
 
+function Add_H_Hub!(hubbard_u::Hubbard_U, Hks)
 
-function Set_Eff_Hub_Pot!(hubbard_u::Union{Hubbard_U}, OLP)
+    SpinPol = hubbard_u.SpinPol
+    H_Hub = hubbard_u.H_Hub
+
+    if SpinPol == "off"
+		@. Hks[1] = Hks[1] + H_Hub[1]
+	elseif SpinPol == "on"
+		@. Hks[1] = Hks[1] + H_Hub[1]
+		@. Hks[2] = Hks[2] + H_Hub[2]
+	elseif SpinPol == "nc"
+		
+	end
+end
+
+
+function Set_Eff_Hub_Pot!(hubbard_u::Hubbard_U, OLP)
 
     Hub_U_occ = hubbard_u.Hub_U_occ
 
@@ -257,6 +220,7 @@ function Occupation_Number_DFT_U!(SCF_iter, hubbard_u::Hubbard_U, DM, OLP)
     SpinPol = hubbard_u.SpinPol
     Natom = hubbard_u.Natom
     Hub_U_orbpol = hubbard_u.Hub_U_orbpol
+    SCF_Enhance = 9
     
     if Hub_U_occ == "onsite"
         error("Hub_U_occ == on site is not support")
@@ -281,7 +245,7 @@ function Occupation_Number_DFT_U!(SCF_iter, hubbard_u::Hubbard_U, DM, OLP)
                 elseif SpinPol == "on"
                     Induce_Orbital_Polarization_Together!(hubbard_u, atom, DM)
                 elseif SpinPol == "nc"
-                    Induce_NC_Orbital_Polarization!()
+                    # Induce_NC_Orbital_Polarization!()
                 end
             end
         end
@@ -674,7 +638,7 @@ function Induce_Orbital_Polarization_Together!(hubbard_u::Hubbard_U, atom, DM)
     hubbard_u.DM_onsite = DM_onsite
 end
 
-
+#=
 # NonCollinear spin polarization case
 function Induce_NC_Orbital_Polarization!()
 
@@ -760,33 +724,40 @@ function H_U_full!(hubbard_u::Hubbard_U, OLP)
 
     hubbard_u.H_Hub = H_Hub
 end
+=#
 
 
-function H_U_dual!(hubbard_u::Hubbard_U, OLP)
+function H_U_dual!(Hub_U::Hubbard_U, OLP)
 
-    SpinPol = hubbard_u.SpinPol
-    Natom = hubbard_u.Natom
-    Nspin = hubbard_u.Nspin
-    FNAN = hubbard_u.FNAN
-    natn = hubbard_u.natn
-    Total_NumOrbs = hubbard_u.Total_NumOrbs
-    H_Hub = hubbard_u.H_Hub
+    SpinPol = Hub_U.SpinPol
+    Natom = Hub_U.Natom
+    Nspin = Hub_U.Nspin
+    FNAN = Hub_U.FNAN
+    natn = Hub_U.natn
+    Total_NumOrbs = Hub_U.Total_NumOrbs
+    H_Hub = Hub_U.H_Hub
 
     if SpinPol ∈ ("off", "on")
 
         v_eff = hubbard_u.v_eff
-        for spin = 1:Nspin, atom = 1:Natom, Rn = 1:FNAN[atom]+1
-            jatom = natn[atom][Rn]
-            for ist = 1:Total_NumOrbs[atom], jst = 1:Total_NumOrbs[jatom]
-                tmp = 0.0
-                for kst = 1:Total_NumOrbs[atom]
-                    tmp += v_eff[spin][atom][ist][kst]*OLP[atom][Rn][kst][jst]
-                end
+        for spin = 1:Nspin
+            hks = 0
+            for atom = 1:Natom, Rn = 1:FNAN[atom]+1
+                jatom = natn[atom][Rn]
+                NO0 = Total_NumOrbs[atom]
+                NO1 = Total_NumOrbs[jatom]
+                for ist = 1:NO0, jst = 1:NO1
+                    tmp = 0.0
+                    for kst = 1:NO0
+                        tmp += v_eff[spin][atom][ist][kst]*OLP[atom][Rn][kst][jst]
+                    end
 
-                for kst = 1:Total_NumOrbs[jatom]
-                    tmp += v_eff[spin][jatom][kst][jst]*OLP[atom][Rn][ist][kst]
+                    for kst = 1:NO1
+                        tmp += v_eff[spin][jatom][kst][jst]*OLP[atom][Rn][ist][kst]
+                    end
+                    hks += 1
+                    H_Hub[spin][hks] = 0.5*tmp
                 end
-                H_Hub[spin][atom][Rn][ist][jst] = 0.5*tmp
             end
         end
 
@@ -825,7 +796,7 @@ function H_U_dual!(hubbard_u::Hubbard_U, OLP)
         end
     end
 
-    hubbard_u.H_Hub = H_Hub
+    Hub_U.H_Hub = H_Hub
 end
 
 

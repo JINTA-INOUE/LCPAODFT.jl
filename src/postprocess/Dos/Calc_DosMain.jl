@@ -1,4 +1,4 @@
-function Calc_DosMain(filename::String, material::Union{LCPAO_model,CWF_model}, Enk, neg, kmesh, Dos_Erange)
+function Calc_DosMain(filename::String, material::Union{LCPAO_model,CWF_model}, Enk, neg, kmesh, Dos_Erange; de_Dos=0.01)
 
     println("<DosMain>  Generate Density of State using Tetrahedron method")
     
@@ -19,7 +19,7 @@ function Calc_DosMain(filename::String, material::Union{LCPAO_model,CWF_model}, 
 
 
     DosEmin, DosEmax = Dos_Erange
-    de = 0.01/eV2Hartree
+    de = de_Dos/eV2Hartree
     Dos_N = floor(Int64, (DosEmax-DosEmin)/de)  # length of Dos
 
     DosE = zeros(Float64, Dos_N)
@@ -69,8 +69,8 @@ function Calc_DosMain(filename::String, material::Union{LCPAO_model,CWF_model}, 
                 end
                 if 0 <= iemin < Dos_N && 0 <= iemax < Dos_N
                     for ie = iemin:iemax
-                        result = ATM_Dos(tetra_e, DosE[ie+1])
-                        Dos[ie+1,spin] += result
+                        result = ATM_Dos(tetra_e, DosE[ie])
+                        Dos[ie,spin] += result
                     end
                 end
             end

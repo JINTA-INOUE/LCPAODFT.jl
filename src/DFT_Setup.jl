@@ -500,7 +500,7 @@ function DFT_Setup(
             error("please input Hubbard_U_atom")
         end
 
-        if length(Hub_U_atom) ≠ length(Atoms_orb)
+        if length(Hub_U_atom) ≠ length(Atoms_symbol)
             error("please check Hub_U_atom")
         end
 
@@ -597,21 +597,24 @@ function DFT_Setup(
     end
 
 
-    if Hub_U
-        for spe = 1:Nspecies
-            _, Spe_Num_Basis = get_ialpha_index(Spe_orb[spe])
-            Npao = sum(Spe_Num_Basis)
-            if length(Hub_U_atom[spe]) ≠ Npao
-                error("please check Hub_U_atom")
-            end
-        end
-    end
-
 
     atom2spe = zeros(Int32, Natom)
     for atom = 1:Natom, spe = 1:Nspecies
         if Atoms_symbol[atom] == Spe_Symbol[spe]
             atom2spe[atom] = spe
+        end
+    end
+
+
+    if Hub_U
+        for atom = 1:Natom
+            spe = atom2spe[atom]
+            _, Spe_Num_Basis = get_ialpha_index(Spe_orb[spe])
+            Npao = sum(Spe_Num_Basis)
+            if length(Hub_U_atom[atom]) ≠ Npao
+                @show spe, Spe_orb, Spe_Num_Basis, length(Hub_U_atom[atom]), Npao
+                error("please check Hub_U_atom")
+            end
         end
     end
 
@@ -675,7 +678,7 @@ function DFT_Setup(
 
 
     if isnothing(Ngrid)
-        Ngrid = Calc_Ngrid( Ecut, Latvecs )
+        Ngrid = Calc_Ngrid(Ecut, Latvecs)
     else
         println("Ecut is ignored. Ngrid fixed $(Ngrid)")
     end

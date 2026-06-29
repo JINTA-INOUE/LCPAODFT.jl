@@ -14,21 +14,13 @@ function Calc_Seebeck_decomp_2D(boltz_setup::Boltz_Setup, TDF_Energy, TDF_decomp
     material = boltz_setup.material
     Nwann = material.Ngsize
     SpinPol = material.SpinPol
+    spinsize = ifelse(SpinPol=="on", 2, 1)
     filename = boltz_setup.filename
+    mat_type = boltz_setup.mat_type
     TDF_Erange = boltz_setup.TDF_Erange
     muE = boltz_setup.muE
     Temp = boltz_setup.Temp
     NTemp = length(Temp)
-    cal_type = "CWF"
-
-    if SpinPol ∈ ("off", "nc")
-        spinsize = 1
-    elseif SpinPol == "on"
-        SpinPol = 2
-    else
-        error("please check SpinPol")
-    end
-
 
     TDF_EneNum = length(TDF_Energy)
     dTDF = (TDF_Erange[2]-TDF_Erange[1])/(TDF_EneNum-1)
@@ -121,7 +113,7 @@ function Calc_Seebeck_decomp_2D(boltz_setup::Boltz_Setup, TDF_Energy, TDF_decomp
             Seebeck[ist,spin,4] = -Seebeck22[2,2]    # yy
         end
 
-        Write_Seebeck_decomp_2D(filename, cal_type, SpinPol, Nwann, mu, Temp[iTemp], Seebeck)
+        Write_Seebeck_decomp_2D(filename, mat_type, SpinPol, Nwann, mu, Temp[iTemp], Seebeck)
     end
 end
 
@@ -131,21 +123,13 @@ function Calc_Seebeck_decomp_3D(boltz_setup::Boltz_Setup, TDF_Energy, TDF_decomp
     material = boltz_setup.material
     Nwann = material.Ngsize
     SpinPol = material.SpinPol
+    spinsize = ifelse(SpinPol=="on", 2, 1)
     filename = boltz_setup.filename
+    mat_type = boltz_setup.mat_type
     TDF_Erange = boltz_setup.TDF_Erange
     muE = boltz_setup.muE
     Temp = boltz_setup.Temp
     NTemp = length(Temp)
-    cal_type = "CWF"
-
-    if SpinPol ∈ ("off", "nc")
-        spinsize = 1
-    elseif SpinPol == "on"
-        spinsize = 2
-    else
-        error("please check SpinPol")
-    end
-
 
     TDF_EneNum = length(TDF_Energy)
     dTDF = (TDF_Erange[2]-TDF_Erange[1])/(TDF_EneNum-1)
@@ -271,7 +255,7 @@ function Calc_Seebeck_decomp_3D(boltz_setup::Boltz_Setup, TDF_Energy, TDF_decomp
             Seebeck[ist,spin,9] = -Seebeck33[3,3]    # zz
         end
 
-        Write_Seebeck_decomp_3D(filename, cal_type, SpinPol, Nwann, mu, Temp[iTemp], Seebeck)
+        Write_Seebeck_decomp_3D(filename, mat_type, SpinPol, Nwann, mu, Temp[iTemp], Seebeck)
     end
 end
 

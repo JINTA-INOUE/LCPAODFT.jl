@@ -1,10 +1,10 @@
-function Write_Seebeck_2D(filename::String, cal_type::String, SpinPol::String, muE::Vector{Float64}, Temp, seebeck_mu)
+function Write_Seebeck_2D(filename::String, mat_type::String, SpinPol::String, muE::Vector{Float64}, Temp, seebeck_mu)
 
     Nmu = length(muE)
-    data = open(filename*"."*cal_type*"_seebeck"*string(Temp)*".dat", "w")
+    data = open(filename*"_"*mat_type*"_seebeck"*string(Temp)*".dat", "w")
 
-    @printf(data, "# %s", now())
-    @printf(data, "# cal_type = %s\n", cal_type)
+    @printf(data, "# %s\n", now())
+    @printf(data, "# mat_type = %s\n", mat_type)
     @printf(data, "# SpinPol = %s\n", SpinPol)
     @printf(data, "# Temp = %5.15f\n", Temp)
     @printf(data, "# Nmu = %d\n", Nmu)
@@ -36,13 +36,13 @@ function Write_Seebeck_2D(filename::String, cal_type::String, SpinPol::String, m
 end
 
 
-function Write_Seebeck_3D(filename::String, cal_type::String, SpinPol::String, muE::Vector{Float64}, Temp, seebeck_mu)
+function Write_Seebeck_3D(filename::String, mat_type::String, SpinPol::String, muE::Vector{Float64}, Temp, seebeck_mu)
 
     Nmu = length(muE)
-    data = open(filename*"."*cal_type*"_seebeck"*string(Temp)*".dat", "w")
+    data = open(filename*"_"*mat_type*"_seebeck"*string(Temp)*".dat", "w")
 
-    @printf(data, "# %s", now())
-    @printf(data, "# cal_type = %s\n", cal_type)
+    @printf(data, "# %s\n", now())
+    @printf(data, "# mat_type = %s\n", mat_type)
     @printf(data, "# SpinPol = %s\n", SpinPol)
     @printf(data, "# Temp = %5.15f\n", Temp)
     @printf(data, "# Nmu = %d\n", Nmu)
@@ -82,12 +82,12 @@ function Write_Seebeck_3D(filename::String, cal_type::String, SpinPol::String, m
 end
 
 
-function Write_Seebeck_decomp_2D(filename::String, cal_type::String, SpinPol::String, Nwann, mu, Temp, seebeck_mu)
+function Write_Seebeck_decomp_2D(filename::String, mat_type::String, SpinPol::String, Nwann, mu, Temp, seebeck_mu)
 
-    data = open(filename*"."*cal_type*"_seebeck_decomp_"*string(mu)*"_"*string(Temp)*".dat", "w")
+    data = open(filename*"_"*mat_type*"_seebeck_decomp_"*string(mu)*"_"*string(Temp)*".dat", "w")
 
-    @printf(data, "# %s", now())
-    @printf(data, "# cal_type = %s\n", cal_type)
+    @printf(data, "# %s\n", now())
+    @printf(data, "# mat_type = %s\n", mat_type)
     @printf(data, "# SpinPol = %s\n", SpinPol)
     @printf(data, "# Nwann = %d\n", Nwann)
     @printf(data, "# mu = %5.15f\n", mu)
@@ -120,12 +120,12 @@ function Write_Seebeck_decomp_2D(filename::String, cal_type::String, SpinPol::St
 end
 
 
-function Write_Seebeck_decomp_3D(filename::String, cal_type::String, SpinPol::String, Nwann, mu, Temp, seebeck_mu)
+function Write_Seebeck_decomp_3D(filename::String, mat_type::String, SpinPol::String, Nwann, mu, Temp, seebeck_mu)
 
-    data = open(filename*"."*cal_type*"_seebeck_decomp_"*string(mu)*"_"*string(Temp)*".dat", "w")
+    data = open(filename*"_"*mat_type*"_seebeck_decomp_"*string(mu)*"_"*string(Temp)*".dat", "w")
 
-    @printf(data, "# %s", now())
-    @printf(data, "# cal_type = %s\n", cal_type)
+    @printf(data, "# %s\n", now())
+    @printf(data, "# mat_type = %s\n", mat_type)
     @printf(data, "# SpinPol = %s\n", SpinPol)
     @printf(data, "# Nwann = %d\n", Nwann)
     @printf(data, "# mu = %5.15f\n", mu)

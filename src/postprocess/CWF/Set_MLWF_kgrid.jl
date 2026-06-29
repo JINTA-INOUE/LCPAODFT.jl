@@ -1,9 +1,84 @@
-function Set_MLWF_kgrid(Latvecs::Matrix{Float64}, kmesh, MAXSHELL)
+struct MLWF_KPoints
+    AllNkpt::Int32
+    kmesh::Tuple{Int32,Int32,Int32}
+    MPI_Nkpt::Int32
+    MPI_kpts::Vector{Vector{Float64}}
+    MPI_krange::Vector{UnitRange{Int32}}
+    MPkpts::Vector{Int32}
+    NCell::Int32
+    shell_num::Int32
+    tot_bvector::Int32
+    bvector::Vector{Vector{Float64}}
+    frac_bv_int::Vector{Vector{Int32}}
+    frac_bv::Vector{Vector{Float64}}
+    kplusb::Vector{Vector{Int32}}
+    wb::Vector{Float64}
+end
+
+
+function Set_MLWF_kgrid()
+    AllNkpt = 1
+    kmesh = (1,1,1)
+    MPI_Nkpt = 1
+    MPI_kpts = [[1.0]]
+    MPI_krange = [1:1]
+    MPkpts = [1]
+    NCell = 1
+    shell_num = 1
+    tot_bvector = 1
+    bvector = [[1.0]]
+    frac_bv_int = [[1]]
+    frac_bv = [[1.0]]
+    kplusb = [[1]]
+    wb = [1.0]
+
+    return MLWF_KPoints(
+        AllNkpt, kmesh, 
+        MPI_Nkpt, MPI_kpts, MPI_krange, MPkpts, 
+        NCell, shell_num,
+        tot_bvector, bvector, frac_bv_int, frac_bv, 
+        kplusb, wb)
+end
+
+
+function Print_MLWF_kpoints(mlwf_kpoints::MLWF_KPoints)
+
+    comm = MPI.COMM_WORLD
+    nprocs = MPI.Comm_size(comm)
+    myrank = MPI.Comm_rank(comm)
+
+    kmesh = mlwf_kpoints.kmesh
+    # MPI_Nkpt = mlwf_kpoints.MPI_Nkpt
+    # MPI_kpts = mlwf_kpoints.MPI_kpts
+    # MPI_krange = mlwf_kpoints.MPI_krange
+    # MPkpts = mlwf_kpoints.MPkpts
+    shell_num = mlwf_kpoints.shell_num
+    tot_bvector = mlwf_kpoints.tot_bvector
+    bvector = mlwf_kpoints.bvector
+    frac_bv = mlwf_kpoints.frac_bv
+    wb = mlwf_kpoints.wb
+    println("\tkmesh: $(kmesh)")
+    println("\tThere are $shell_num shells and total number of b vectors is $tot_bvector")
+    println("\t\tNo.|        Fractional Coordinate      ||  Cartesian Coordinate (Angs^-1)  ||Weight_b(Angs^2)||")
+    for ib = 1:tot_bvector
+        dkx, dky, dkz = bvector[ib]
+        @printf("  \t\t%3d|  (%9.6f,%9.6f,%9.6f)  ||  (%9.6f,%9.6f,%9.6f) || %13.6f  ||\n",
+                    ib, frac_bv[ib][1], frac_bv[ib][2], frac_bv[ib][3],
+                    dkx*Ang_to_bohr, dky*Ang_to_bohr, dkz*Ang_to_bohr,
+                    wb[ib]/Ang_to_bohr/Ang_to_bohr)
+    end
+end
+
+
+@timeit timer "Set_MLWF_kgrid" function Set_MLWF_kgrid(Latvecs::Matrix{Float64}, kmesh, MAXSHELL)
+
+    comm = MPI.COMM_WORLD
+    nprocs = MPI.Comm_size(comm)
+    myrank = MPI.Comm_rank(comm)
 
     kmesh1, kmesh2, kmesh3 = kmesh
-    Nkpt = prod(kmesh)
+    AllNkpt = prod(kmesh)
     Recvecs = 2*pi*inv(Latvecs')
-    Recvecs_len = zeros(Float16, 3)
     Recvecs_len1 = sqrt(Recvecs[1,1]^2 + Recvecs[1,2]^2 + Recvecs[1,3]^2)
     Recvecs_len2 = sqrt(Recvecs[2,1]^2 + Recvecs[2,2]^2 + Recvecs[2,3]^2)
     Recvecs_len3 = sqrt(Recvecs[3,1]^2 + Recvecs[3,2]^2 + Recvecs[3,3]^2)
@@ -36,7 +111,8 @@ function Set_MLWF_kgrid(Latvecs::Matrix{Float64}, kmesh, MAXSHELL)
     NCell = Wigner_Seitz_Vectors!(metric, kmesh, 0, rvect, ndegen)
 
 
-    kg = Vector{Vector{Float64}}(undef, Nkpt)
+    
+    kg = Vector{Vector{Float64}}(undef, AllNkpt)
     ik = 1
     for i = kmesh1:-1:1, j = kmesh2:-1:1, k = kmesh3:-1:1
         kg[ik] = zeros(Float64, 3)
@@ -47,15 +123,11 @@ function Set_MLWF_kgrid(Latvecs::Matrix{Float64}, kmesh, MAXSHELL)
     end
 
 
-    klatt = Vector{Vector{Float64}}(undef, 3)
+    klatt = zeros(Float64, 3, 3)
     for i = 1:3
-        klatt[i] = zeros(Float64, 3)
-    end
-
-    for i = 1:3
-        klatt[1][i] = Recvecs[1,i]/kmesh1
-        klatt[2][i] = Recvecs[2,i]/kmesh2
-        klatt[3][i] = Recvecs[3,i]/kmesh3
+        klatt[1,i] = Recvecs[1,i]/kmesh1
+        klatt[2,i] = Recvecs[2,i]/kmesh2
+        klatt[3,i] = Recvecs[3,i]/kmesh3
     end
 
     
@@ -67,7 +139,7 @@ function Set_MLWF_kgrid(Latvecs::Matrix{Float64}, kmesh, MAXSHELL)
     end
 
     shell_num = Shell_Structure!(klatt, tmp_M_s, tmp_bvector, MAXSHELL)
-    if shell_num == 0
+    if shell_num == 0 && myrank == 0
         printf("******************************Error********************************")
         println("*    Can not find proper b vectors, please increase parameter     *")
         println("*    MAXSHELL OR change Wannier.Kgrids.                           *")
@@ -80,11 +152,11 @@ function Set_MLWF_kgrid(Latvecs::Matrix{Float64}, kmesh, MAXSHELL)
     end
 
 
-
+    
     Reject_Shell = zeros(Int32, shell_num)
     tmp_wb = zeros(Float64, shell_num)
     find_w, shell_num, searched_shell = Cal_Weight_of_Shell!(klatt, tmp_M_s, tmp_bvector, shell_num, tmp_wb, Reject_Shell)
-    if find_w == 0
+    if find_w == 0 && myrank == 0
         println("*************************** Error ****************************")
         println("*    Weights for b vectors (totally $shell_num) are not found.      *")
         println("*    Please increase MAXSHELL (presently it is $MAXSHELL) OR       *")
@@ -101,25 +173,56 @@ function Set_MLWF_kgrid(Latvecs::Matrix{Float64}, kmesh, MAXSHELL)
     end
 
     tot_bvector -= 1
-    kplusb = Set_kplusb(Nkpt, tot_bvector, kg, frac_bv)
+    kplusb = Set_kplusb(AllNkpt, tot_bvector, kg, frac_bv)
 
 
-    return kg, tot_bvector, bvector, frac_bv_int, frac_bv, kplusb, wb
+
+    MPI_krange = split_evenly(1:AllNkpt, nprocs)
+
+    MPI_Nkpt = length(MPI_krange[myrank+1])
+    MPI_kpts = kg[MPI_krange[myrank+1]]
+
+    MPI_Nkptsize = zeros(Int32, nprocs)
+    MPkpts = zeros(Int32, nprocs)
+    MPI_Nkptsize[myrank+1] = MPI_Nkpt
+    
+    MPI.Allreduce!(MPI_Nkptsize, MPI.SUM, comm)
+
+    MPkpts = zeros(Int32, nprocs)
+    Sum = 0
+    for id = 1:nprocs
+        MPkpts[id] = Sum
+        Sum += MPI_Nkptsize[id]
+    end
+
+
+
+    return MLWF_KPoints(
+        AllNkpt, kmesh, 
+        MPI_Nkpt, MPI_kpts, MPI_krange, MPkpts, 
+        NCell, shell_num,
+        tot_bvector, bvector, frac_bv_int, frac_bv, 
+        kplusb, wb)
 end
 
 
 function Wigner_Seitz_Vectors!(metric, kmesh, r_num, rvect, ndegen)
 
+    comm = MPI.COMM_WORLD
+    nprocs = MPI.Comm_size(comm)
+    myrank = MPI.Comm_rank(comm)
+
+    kmesh1, kmesh2, kmesh3 = kmesh
     nd = zeros(Int32, 125, 3)
     dist = zeros(Float64, 125)
 
     rnum = 0
-    for n1 = -kmesh[1]:kmesh[1], n2 = -kmesh[2]:kmesh[2], n3 = -kmesh[3]:kmesh[3]
+    for n1 = -kmesh1:kmesh1, n2 = -kmesh2:kmesh2, n3 = -kmesh3:kmesh3
         icnt = 1
         for i1 = -2:2, i2 = -2:2, i3 = -2:2
-            nd[icnt,1] = n1 - i1*kmesh[1]
-            nd[icnt,2] = n2 - i2*kmesh[2]
-            nd[icnt,3] = n3 - i3*kmesh[3]
+            nd[icnt,1] = n1 - i1*kmesh1
+            nd[icnt,2] = n2 - i2*kmesh2
+            nd[icnt,3] = n3 - i3*kmesh3
             dist[icnt] = 0.0
             for i = 1:3, j = 1:3
                 dist[icnt] += nd[icnt,i]*metric[i,j]*nd[icnt,j]
@@ -152,14 +255,12 @@ function Wigner_Seitz_Vectors!(metric, kmesh, r_num, rvect, ndegen)
     end
 
 
-    println("There are $rnum lattice points found in Wigner-Seitz supercell.")
-
     dist_min = 0.0
     for i = 1:rnum
         dist_min += 1/ndegen[i]
     end
 
-    if abs(dist_min-prod(kmesh))>1e-6
+    if myrank == 0 && abs(dist_min-prod(kmesh))>1e-6
         println("**************************** Error **********************");
         println("*   In Wigner_Seitz_Vectors subroutine, error happens.  *");
         println("*   Please change setting of Wannier.Kgrid.             *");
@@ -176,17 +277,17 @@ function Wigner_Seitz_Vectors!(metric, kmesh, r_num, rvect, ndegen)
 end
 
 
-function Ascend_Ordering!(xyz_value, ordering, tot_kpt)
+function Ascend_Ordering_sortperm!(xyz_value, ordering, tot_kpt)
 
-    for i = 1:tot_kpt-1, j = i:-1:1
-        if xyz_value[j+1] < xyz_value[j]
-            tmp_xyz = xyz_value[j+1]
-            xyz_value[j+1] = xyz_value[j]
-            xyz_value[j] = tmp_xyz
-            tmp_order = ordering[j+1]
-            ordering[j+1] = ordering[j]
-            ordering[j] = tmp_order
-        end
+    r = 1:tot_kpt
+    p = sortperm(@view xyz_value[r])
+    x_old = copy(@view xyz_value[r])
+    o_old = copy(@view ordering[r])
+
+    @inbounds for i = 1:tot_kpt
+        old = p[i]
+        xyz_value[i] = x_old[old]
+        ordering[i] = o_old[old]
     end
 end
 
@@ -201,9 +302,9 @@ function Shell_Structure!(klatt, M_s, bvector, MAXSHELL)
 
     for i1 = -MAXSHELL+1:MAXSHELL-1, i2 = -MAXSHELL+1:MAXSHELL-1, i3= -MAXSHELL+1:MAXSHELL-1
         
-        dx = i1*klatt[1][1] + i2*klatt[2][1] + i3*klatt[3][1]
-        dy = i1*klatt[1][2] + i2*klatt[2][2] + i3*klatt[3][2]
-        dz = i1*klatt[1][3] + i2*klatt[2][3] + i3*klatt[3][3]
+        dx = i1*klatt[1,1] + i2*klatt[2,1] + i3*klatt[3,1]
+        dy = i1*klatt[1,2] + i2*klatt[2,2] + i3*klatt[3,2]
+        dz = i1*klatt[1,3] + i2*klatt[2,3] + i3*klatt[3,3]
 
         distance[kindx+1] = sqrt(abs(dx*dx + dy*dy + dz*dz))
         combination[kindx+1,1] = i1
@@ -214,9 +315,11 @@ function Shell_Structure!(klatt, M_s, bvector, MAXSHELL)
         kindx += 1
     end
 
+    
     tot_kpt = kindx
-    Ascend_Ordering!(distance, ordering, tot_kpt)
+    Ascend_Ordering_sortperm!(distance, ordering, tot_kpt)
 
+    
     for kindx = 1:tot_kpt
         ordered_com[kindx,1] = combination[ordering[kindx]+1,1]
         ordered_com[kindx,2] = combination[ordering[kindx]+1,2]
@@ -256,6 +359,10 @@ end
 
 function Cal_Weight_of_Shell!(klatt, M_s, bvector, num_shell, wb, Reject_Shell)
 
+    comm = MPI.COMM_WORLD
+    nprocs = MPI.Comm_size(comm)
+    myrank = MPI.Comm_rank(comm)
+
     shell_num = num_shell
 
     qvector = zeros(Float64, 6)
@@ -294,7 +401,7 @@ function Cal_Weight_of_Shell!(klatt, M_s, bvector, num_shell, wb, Reject_Shell)
         realshellindx = -1
         for shellindx = 0:current_shell-1
             if Reject_Shell[shellindx+1] == 1
-                println("Shell $(shellindx+1) is rejected.")
+                myrank == 0 && println("Shell $(shellindx+1) is rejected.")
                 continue
             end
 
@@ -313,9 +420,9 @@ function Cal_Weight_of_Shell!(klatt, M_s, bvector, num_shell, wb, Reject_Shell)
             end
 
             for bvindx = startbv:M_s[shellindx+1]+startbv-1
-                bx = bvector[bvindx+1][1]*klatt[1][1] + bvector[bvindx+1][2]*klatt[2][1] + bvector[bvindx+1][3]*klatt[3][1]
-                by = bvector[bvindx+1][1]*klatt[1][2] + bvector[bvindx+1][2]*klatt[2][2] + bvector[bvindx+1][3]*klatt[3][2]
-                bz = bvector[bvindx+1][1]*klatt[1][3] + bvector[bvindx+1][2]*klatt[2][3] + bvector[bvindx+1][3]*klatt[3][3]
+                bx = bvector[bvindx+1][1]*klatt[1,1] + bvector[bvindx+1][2]*klatt[2,1] + bvector[bvindx+1][3]*klatt[3,1]
+                by = bvector[bvindx+1][1]*klatt[1,2] + bvector[bvindx+1][2]*klatt[2,2] + bvector[bvindx+1][3]*klatt[3,2]
+                bz = bvector[bvindx+1][1]*klatt[1,3] + bvector[bvindx+1][2]*klatt[2,3] + bvector[bvindx+1][3]*klatt[3,3]
 
                 Amatrix[1,realshellindx+1] += bx*bx
                 Amatrix[2,realshellindx+1] += by*bx
@@ -461,7 +568,7 @@ function Set_bvectors(Recvecs, kmesh, shell_num, searched_shell, Reject_Shell, t
         k += 1
     end
 
-    frac_bv_int = Vector{Vector{Int64}}(undef, tot_bvector)
+    frac_bv_int = Vector{Vector{Int32}}(undef, tot_bvector)
     bvector = Vector{Vector{Float64}}(undef, tot_bvector)
     for ib = 1:tot_bvector
         frac_bv_int[ib] = zeros(Int64, 3)
@@ -493,7 +600,7 @@ function Set_bvectors(Recvecs, kmesh, shell_num, searched_shell, Reject_Shell, t
     end
 
     
-    println("There are $shell_num shells and total number of b vectors is $tot_bvector")
+    # println("There are $shell_num shells and total number of b vectors is $tot_bvector")
 
     frac_bv = Vector{Vector{Float64}}(undef, tot_bvector)
     for ib = 1:tot_bvector
@@ -503,8 +610,8 @@ function Set_bvectors(Recvecs, kmesh, shell_num, searched_shell, Reject_Shell, t
     tot_bvector = 1
     wbtot = 0.0
     for i = 1:shell_num
-        println("Shell $i has $(M_s[i]) b vectors:")
-        println("No.|      Fractional Coordinate     || Cartesian Coordinate (Angs^-1)||Weight_b(Angs^2)||")
+        # println("Shell $i has $(M_s[i]) b vectors:")
+        # println("No.|      Fractional Coordinate     || Cartesian Coordinate (Angs^-1)||Weight_b(Angs^2)||")
 
         for j = 1:M_s[i]
             frac_bv[tot_bvector][1] = bvector[tot_bvector][1]
@@ -514,10 +621,11 @@ function Set_bvectors(Recvecs, kmesh, shell_num, searched_shell, Reject_Shell, t
             dky = bvector[tot_bvector][1]*Recvecs[1,2] + bvector[tot_bvector][2]*Recvecs[2,2] + bvector[tot_bvector][3]*Recvecs[3,2]
             dkz = bvector[tot_bvector][1]*Recvecs[1,3] + bvector[tot_bvector][2]*Recvecs[2,3] + bvector[tot_bvector][3]*Recvecs[3,3]
 
+            #=
             @printf(" %2d|  (%8.5f,%8.5f,%8.5f)  ||  (%8.5f,%8.5f,%8.5f) || %13.5f  ||\n",
                     j, bvector[tot_bvector][1],bvector[tot_bvector][2],bvector[tot_bvector][3],
                     dkx*Ang_to_bohr,dky*Ang_to_bohr,dkz*Ang_to_bohr,
-                    wb[tot_bvector]/Ang_to_bohr/Ang_to_bohr)
+                    wb[tot_bvector]/Ang_to_bohr/Ang_to_bohr)=#
 
             bvector[tot_bvector][1] = dkx
             bvector[tot_bvector][2] = dky

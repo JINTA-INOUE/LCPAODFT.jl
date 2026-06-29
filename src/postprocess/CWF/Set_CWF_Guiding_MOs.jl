@@ -16,7 +16,6 @@ function Calc_partialDM_Crystal_Collinear!(parDM, material::LCPAO_model, kpoints
     ChemP = material.ChemP
     fsize = sum(Total_NumOrbs)
     spinsize = ifelse(SpinPol=="off", 1, 2)
-    
 
     AllNkpt = kpoints.AllNkpt
     MPI_Nkpt = kpoints.MPI_Nkpt
@@ -58,9 +57,9 @@ function Calc_partialDM_Crystal_Collinear!(parDM, material::LCPAO_model, kpoints
     tmpCnk = zeros(ComplexF64, fsize)
     @inbounds for spin = 1:spinsize, ik = 1:MPI_Nkpt, μ = 1:fsize
         if weight_type == "fermi"
-            FF = CWF_weight(Enk[spin,μ,ik], ChemP, Dis_Enegry)
+            FF = CWF_weight(Enk[spin][ik][μ], ChemP, Dis_Enegry)
         elseif weight_type == "poly"
-            FF = CWF_weight2(Enk[spin,μ,ik], ChemP, Dis_Enegry)
+            FF = CWF_weight2(Enk[spin][ik][μ], ChemP, Dis_Enegry)
         else
             error("please check weight_type")
         end
@@ -72,6 +71,7 @@ function Calc_partialDM_Crystal_Collinear!(parDM, material::LCPAO_model, kpoints
     
     ctemp = zeros(ComplexF64, fsize, fsize)
     for spin = 1:spinsize, ik = 1:MPI_Nkpt
+        ka, kb, kc = MPI_kpts[ik]
         @. ctemp = Cnk[spin][ik]
         DMst = 0
         for atom = 1:Natom, Rn = 1:FNAN[atom]+1
@@ -82,7 +82,7 @@ function Calc_partialDM_Crystal_Collinear!(parDM, material::LCPAO_model, kpoints
             jatom = natn[atom][Rn]
             Bnum = MP[jatom]
             NO1 = Total_NumOrbs[jatom]
-            kRn = MPI_kpts[ik][1]*atv_ijk[cell][1] + MPI_kpts[ik][2]*atv_ijk[cell][2] + MPI_kpts[ik][3]*atv_ijk[cell][3]
+            kRn = ka*atv_ijk[cell][1] + kb*atv_ijk[cell][2] + kc*atv_ijk[cell][3]
             coskRn = cos(2*pi*kRn)/AllNkpt
             sinkRn = sin(2*pi*kRn)/AllNkpt
 
@@ -117,7 +117,7 @@ function Calc_partialDM_Crystal_Collinear!(parDM, material::LCPAO_model, kpoints
 end
 
 
-function Set_CWF_Guiding_MOs(cwf_setup::CWF_Setup_MO, kpoints, Enk, Cnk)
+function Set_CWF_Guiding_MOs(cwf_setup::CWF_Setup_MO, kpoints::KPoints, Enk, Cnk)
 
     material = cwf_setup.material
     spinsize = cwf_setup.spinsize

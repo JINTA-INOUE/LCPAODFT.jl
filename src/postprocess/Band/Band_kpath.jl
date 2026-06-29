@@ -2,8 +2,10 @@ function Band_kpath_LCPAO(filepath::String, filename::String, kpath::Vector{Vect
 
     material = Load_LCPAODFT_model(filepath)
     Print_LCPAO_model(filepath, material)
+
     Natom = material.Natom
     SpinPol = material.SpinPol
+    spinsize = ifelse(SpinPol=="on", 2, 1)
     Recvecs = material.Recvecs
     Total_NumOrbs = material.Total_NumOrbs
     MP = material.MP
@@ -12,19 +14,11 @@ function Band_kpath_LCPAO(filepath::String, filename::String, kpath::Vector{Vect
     ncn = material.ncn
     atv_ijk = material.atv_ijk
     fsize = sum(Total_NumOrbs)
-
+    Nfsize = ifelse(SpinPol=="nc", 2*fsize, fsize)
     Hks = material.Hks
     OLP = material.OLP
     iHks = material.iHks
     ChemP = material.ChemP
-    
-    spinsize = ifelse(SpinPol ∈ ("off","nc"), 1, 2)
-    if SpinPol ∈ ("off", "on")
-        Nfsize = fsize
-    elseif SpinPol == "nc"
-        Nfsize = 2*fsize
-    end
-    
     
 
     Nkpath = length(kpath)-1
@@ -66,7 +60,7 @@ function Band_kpath_LCPAO(filepath::String, filename::String, kpath::Vector{Vect
 
             Write_BANDDAT(filename, spin, kpath_start, kpath_end, kpath_Nk, Nkpath, Nfsize, Enk, ChemP, Recvecs)
         end
-    else SpinPol == "nc"
+    else
         tmpH = zeros(ComplexF64, fsize, fsize)
         S = zeros(ComplexF64, 2*fsize, 2*fsize)
         H = zeros(ComplexF64, 2*fsize, 2*fsize)
@@ -76,7 +70,7 @@ function Band_kpath_LCPAO(filepath::String, filename::String, kpath::Vector{Vect
             kpts[2] = kpath_start[ik][2] + (kpath_end[ik][2]-kpath_start[ik][2])*(ipath-1)/(kpath_Nk[ik]-1)
             kpts[3] = kpath_start[ik][3] + (kpath_end[ik][3]-kpath_start[ik][3])*(ipath-1)/(kpath_Nk[ik]-1)
 
-            HS_matrix_NC!(tmpH, H, Hks, iHks, Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, kpts)
+            HS_matrix_NC!(H, Hks, iHks, Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, kpts)
             HS_matrix!(tmpH, OLP, Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, kpts)
             @. S[1:fsize, 1:fsize] = tmpH
             @. S[fsize+1:end, fsize+1:end] = tmpH

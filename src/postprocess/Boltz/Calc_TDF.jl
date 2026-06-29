@@ -2,23 +2,18 @@ function Calc_TDF(boltz_setup::Boltz_Setup, Enk, Vnk)
     
     material = boltz_setup.material
     SpinPol = material.SpinPol
-    Nwann = material.Ngsize
+    # spinsize = ifelse(SpinPol=="on", 2, 1)
+    # Nwann = material.Ngsize
     filename = boltz_setup.filename
-    filepath = boltz_setup.filepath
-    kmesh = boltz_setup.kmesh
-    decomp = boltz_setup.decomp
+    # filepath = boltz_setup.filepath
+    # kmesh = boltz_setup.kmesh
+    # decomp = boltz_setup.decomp
     plane_type = boltz_setup.plane_type
+    mat_type = boltz_setup.mat_type
     Write_TDF = boltz_setup.Write_TDF
     tau = boltz_setup.tau
-    TDF_Erange = boltz_setup.TDF_Erange
-    TDF_dE = boltz_setup.TDF_dE
-    cal_type = "CWF"
-
-    if SpinPol ∈ ("off", "nc")
-        spinsize = 1
-    else
-        spinsize = 2
-    end
+    # TDF_Erange = boltz_setup.TDF_Erange
+    # TDF_dE = boltz_setup.TDF_dE
 
     if plane_type
         TDF_Energy, TDF = Calc_TDF_3element(boltz_setup, Enk, Vnk)
@@ -26,10 +21,18 @@ function Calc_TDF(boltz_setup::Boltz_Setup, Enk, Vnk)
         TDF_Energy, TDF = Calc_TDF_6element(boltz_setup, Enk, Vnk)
     end
 
-
     if Write_TDF
-        println("Write $(filename).$(cal_type)_TDF.jld2")
-        jldopen("$(filename).$(cal_type)_TDF.jld2", "w") do file
+        if plane_type
+            Write_TDF_3elements(filename, mat_type, SpinPol, TDF_Energy, tau, TDF)
+        else
+            Write_TDF_6elements(filename, mat_type, SpinPol, TDF_Energy, tau, TDF)
+        end
+    end
+
+    #=
+    if Write_TDF
+        println("Write $(filename).TDF.jld2")
+        jldopen("$(filename).TDF.jld2", "w") do file
             file["Dates"] = now()
             file["filepath"] = filepath
             file["SpinPol"] = SpinPol
@@ -44,10 +47,24 @@ function Calc_TDF(boltz_setup::Boltz_Setup, Enk, Vnk)
             file["TDF_Energy"] = TDF_Energy
             file["TDF"] = TDF
         end
-    end
+    end=#
 
 
     return TDF_Energy, TDF
+end
+
+
+function Set_Nstate(material::LCPAO_model)
+    SpinPol = material.SpinPol
+    fsize = sum(material.Total_NumOrbs)
+    Nfsize = ifelse(SpinPol=="nc", 2*fsize, fsize)
+    return Nfsize
+end
+
+
+function Set_Nstate(material::CWF_model)
+    Ngsize = material.Ngsize
+    return Ngsize
 end
 
 
@@ -56,7 +73,8 @@ function Calc_TDF_3element(boltz_setup::Boltz_Setup, Enk, Vnk)
     material = boltz_setup.material
     Latvecs = material.Latvecs
     SpinPol = material.SpinPol
-    Nwann = material.Ngsize
+    spinsize = ifelse(SpinPol=="on", 2, 1)
+    Nstate = Set_Nstate(material)
     kmesh = boltz_setup.kmesh
     knum_i, knum_j, knum_k = kmesh
     Nkpt = prod(kmesh)
@@ -71,11 +89,6 @@ function Calc_TDF_3element(boltz_setup::Boltz_Setup, Enk, Vnk)
         error("please check plane_type")
     end
 
-    if SpinPol ∈ ("off", "nc")
-        spinsize = 1
-    else SpinPol == "on"
-        spinsize = 2
-    end
 
 
     TDF_Emin, TDF_Emax = TDF_Erange
@@ -113,7 +126,7 @@ function Calc_TDF_3element(boltz_setup::Boltz_Setup, Enk, Vnk)
 
 
     # tetrahedron
-    for spin = 1:spinsize, ieg = 1:Nwann
+    for spin = 1:spinsize, ieg = 1:Nstate
         for ik = 1:Nkpt
             i = kindex[ik,1]-1
             j = kindex[ik,2]-1
@@ -169,7 +182,7 @@ function Calc_TDF_3element(boltz_setup::Boltz_Setup, Enk, Vnk)
                 if iemax_xx >= TDF_EneNum
                     iemax_xx = TDF_EneNum - 1
                 end
-                if 0 <= iemin_xx < TDF_EneNum && 0 <= iemax_xx < TDF_EneNum
+                if (0 <= iemin_xx < TDF_EneNum) && (0 <= iemax_xx < TDF_EneNum)
                     for ie = iemin_xx:iemax_xx
                         resultxx = ATM_Spectrum(tetra_exx, tetra_axx, TDF_Energy[ie+1])
                         TDF[ie+1,spin,1] += resultxx
@@ -183,7 +196,7 @@ function Calc_TDF_3element(boltz_setup::Boltz_Setup, Enk, Vnk)
                 if iemax_xy >= TDF_EneNum
                     iemax_xy = TDF_EneNum - 1
                 end
-                if 0 <= iemin_xy < TDF_EneNum && 0 <= iemax_xy < TDF_EneNum
+                if (0 <= iemin_xy < TDF_EneNum) && (0 <= iemax_xy < TDF_EneNum)
                     for ie = iemin_xy:iemax_xy
                         resultxy = ATM_Spectrum(tetra_exy, tetra_axy, TDF_Energy[ie+1])
                         TDF[ie+1,spin,2] += resultxy
@@ -197,7 +210,7 @@ function Calc_TDF_3element(boltz_setup::Boltz_Setup, Enk, Vnk)
                 if iemax_yy >= TDF_EneNum
                     iemax_yy = TDF_EneNum - 1
                 end
-                if 0 <= iemin_yy < TDF_EneNum && 0 <= iemax_yy < TDF_EneNum
+                if (0 <= iemin_yy < TDF_EneNum) && (0 <= iemax_yy < TDF_EneNum)
                     for ie = iemin_yy:iemax_yy
                         resultyy = ATM_Spectrum(tetra_eyy, tetra_ayy, TDF_Energy[ie+1])
                         TDF[ie+1,spin,3] += resultyy
@@ -226,7 +239,8 @@ function Calc_TDF_6element(boltz_setup::Boltz_Setup, Enk, Vnk)
     material = boltz_setup.material
     Latvecs = material.Latvecs
     SpinPol = material.SpinPol
-    Nwann = material.Ngsize
+    spinsize = ifelse(SpinPol=="on", 2, 1)
+    Nstate = Set_Nstate(material)
     kmesh = boltz_setup.kmesh
     knum_i, knum_j, knum_k = kmesh
     Nkpt = prod(kmesh)
@@ -235,12 +249,6 @@ function Calc_TDF_6element(boltz_setup::Boltz_Setup, Enk, Vnk)
     TDF_dE = boltz_setup.TDF_dE
     cell_volume_AU = abs(det(Latvecs))
     cell_volume_Ang = cell_volume_AU/Ang_to_bohr^3
-
-    if SpinPol ∈ ("off", "nc")
-        spinsize = 1
-    else SpinPol == "on"
-        spinsize = 2
-    end
 
 
     TDF_Emin, TDF_Emax = TDF_Erange
@@ -287,7 +295,7 @@ function Calc_TDF_6element(boltz_setup::Boltz_Setup, Enk, Vnk)
 
 
     # tetrahedron
-    for spin = 1:spinsize, ieg = 1:Nwann
+    for spin = 1:spinsize, ieg = 1:Nstate
         for ik = 1:Nkpt
             i = kindex[ik,1]-1
             j = kindex[ik,2]-1
@@ -371,7 +379,7 @@ function Calc_TDF_6element(boltz_setup::Boltz_Setup, Enk, Vnk)
                 if iemax_xx >= TDF_EneNum
                     iemax_xx = TDF_EneNum - 1
                 end
-                if 0 <= iemin_xx < TDF_EneNum && 0 <= iemax_xx < TDF_EneNum
+                if (0 <= iemin_xx < TDF_EneNum) && (0 <= iemax_xx < TDF_EneNum)
                     for ie = iemin_xx:iemax_xx
                         resultxx = ATM_Spectrum(tetra_exx, tetra_axx, TDF_Energy[ie+1])
                         TDF[ie+1,spin,1] += resultxx
@@ -385,7 +393,7 @@ function Calc_TDF_6element(boltz_setup::Boltz_Setup, Enk, Vnk)
                 if iemax_xy >= TDF_EneNum
                     iemax_xy = TDF_EneNum - 1
                 end
-                if 0 <= iemin_xy < TDF_EneNum && 0 <= iemax_xy < TDF_EneNum
+                if (0 <= iemin_xy < TDF_EneNum) && (0 <= iemax_xy < TDF_EneNum)
                     for ie = iemin_xy:iemax_xy
                         resultxy = ATM_Spectrum(tetra_exy, tetra_axy, TDF_Energy[ie+1])
                         TDF[ie+1,spin,2] += resultxy
@@ -399,7 +407,7 @@ function Calc_TDF_6element(boltz_setup::Boltz_Setup, Enk, Vnk)
                 if iemax_xz >= TDF_EneNum
                     iemax_xz = TDF_EneNum - 1
                 end
-                if 0 <= iemin_xz < TDF_EneNum && 0 <= iemax_xz < TDF_EneNum
+                if (0 <= iemin_xz < TDF_EneNum) && (0 <= iemax_xz < TDF_EneNum)
                     for ie = iemin_xz:iemax_xz
                         resultxz = ATM_Spectrum(tetra_exz, tetra_axz, TDF_Energy[ie+1])
                         TDF[ie+1,spin,4] += resultxz
@@ -413,7 +421,7 @@ function Calc_TDF_6element(boltz_setup::Boltz_Setup, Enk, Vnk)
                 if iemax_yy >= TDF_EneNum
                     iemax_yy = TDF_EneNum - 1
                 end
-                if 0 <= iemin_yy < TDF_EneNum && 0 <= iemax_yy < TDF_EneNum
+                if (0 <= iemin_yy < TDF_EneNum) && (0 <= iemax_yy < TDF_EneNum)
                     for ie = iemin_yy:iemax_yy
                         resultyy = ATM_Spectrum(tetra_eyy, tetra_ayy, TDF_Energy[ie+1])
                         TDF[ie+1,spin,3] += resultyy
@@ -427,7 +435,7 @@ function Calc_TDF_6element(boltz_setup::Boltz_Setup, Enk, Vnk)
                 if iemax_yz >= TDF_EneNum
                     iemax_yz = TDF_EneNum - 1
                 end
-                if 0 <= iemin_yz < TDF_EneNum && 0 <= iemax_yz < TDF_EneNum
+                if (0 <= iemin_yz < TDF_EneNum) && (0 <= iemax_yz < TDF_EneNum)
                     for ie = iemin_yz:iemax_yz
                         resultyz = ATM_Spectrum(tetra_eyz, tetra_ayz, TDF_Energy[ie+1])
                         TDF[ie+1,spin,5] += resultyz
@@ -441,7 +449,7 @@ function Calc_TDF_6element(boltz_setup::Boltz_Setup, Enk, Vnk)
                 if iemax_zz >= TDF_EneNum
                     iemax_zz = TDF_EneNum - 1
                 end
-                if 0 <= iemin_zz < TDF_EneNum && 0 <= iemax_zz < TDF_EneNum
+                if (0 <= iemin_zz < TDF_EneNum) && (0 <= iemax_zz < TDF_EneNum)
                     for ie = iemin_zz:iemax_zz
                         resultzz = ATM_Spectrum(tetra_ezz, tetra_azz, TDF_Energy[ie+1])
                         TDF[ie+1,spin,6] += resultzz

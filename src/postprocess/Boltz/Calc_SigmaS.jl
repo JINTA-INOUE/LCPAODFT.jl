@@ -12,20 +12,14 @@ end
 function Calc_SigmaS_2D(boltz_setup::Boltz_Setup, TDF_Energy, TDF)
 
     material = boltz_setup.material
+    mat_type = boltz_setup.mat_type
     filename = boltz_setup.filename
     SpinPol = material.SpinPol
+    spinsize = ifelse(SpinPol=="on", 2, 1)
     TDF_dE = boltz_setup.TDF_dE
     TDF_Erange = boltz_setup.TDF_Erange
     Temp = boltz_setup.Temp
     NTemp = length(Temp)
-    cal_type = "CWF"
-
-    if SpinPol ∈ ("off", "nc")
-        spinsize = 1
-    elseif SpinPol == "on"
-        spinsize = 2
-    end
-
 
     TDF_Emin, TDF_Emax = TDF_Erange
     TDF_EneNum = floor(Int, (TDF_Emax-TDF_Emin)/TDF_dE)  # length of TDF
@@ -67,7 +61,7 @@ function Calc_SigmaS_2D(boltz_setup::Boltz_Setup, TDF_Energy, TDF)
             SigmaS[imu,spin,3] = sigmaS_Sumyy*dTDF/Temp[iTemp]
         end
 
-        Write_SigmaS_2D(filename, cal_type, SpinPol, muE, Temp[iTemp], SigmaS)
+        Write_SigmaS_2D(filename, mat_type, SpinPol, muE, Temp[iTemp], SigmaS)
     end
 end
 
@@ -75,20 +69,14 @@ end
 function Calc_SigmaS_3D(boltz_setup::Boltz_Setup, TDF_Energy, TDF)
 
     material = boltz_setup.material
+    mat_type = boltz_setup.mat_type
     filename = boltz_setup.filename
     SpinPol = material.SpinPol
+    spinsize = ifelse(SpinPol=="on", 2, 1)
     TDF_dE = boltz_setup.TDF_dE
     TDF_Erange = boltz_setup.TDF_Erange
     Temp = boltz_setup.Temp
     NTemp = length(Temp)
-    cal_type = "CWF"
-
-    if SpinPol ∈ ("off", "nc")
-        spinsize = 1
-    elseif SpinPol == "on"
-        spinsize = 2
-    end
-
 
     TDF_Emin, TDF_Emax = TDF_Erange
     TDF_EneNum = floor(Int, (TDF_Emax-TDF_Emin)/TDF_dE)  # length of TDF
@@ -139,6 +127,6 @@ function Calc_SigmaS_3D(boltz_setup::Boltz_Setup, TDF_Energy, TDF)
             SigmaS[imu,spin,6] = sigmaS_Sumzz*dTDF/Temp[iTemp]
         end
 
-        Write_SigmaS_3D(filename, cal_type, SpinPol, muE, Temp[iTemp], SigmaS)
+        Write_SigmaS_3D(filename, mat_type, SpinPol, muE, Temp[iTemp], SigmaS)
     end
 end

@@ -54,15 +54,13 @@ function Write_CIFfile(filename::String, Natom, Latvecs, Gxyz_frac, Atoms_symbol
 
 
     for atom = 1:Natom
-
-        @printf(data, "%s%-6d%-3s%10.8f%10.8f%10.8f%10.8f  Uiso   1.00\n",
+        @printf(data, "%s%-6d%-3s%10.8f %10.8f %10.8f %10.8f  Uiso   1.00\n",
                 Atoms_symbol[atom],
                 atom, 
 	            Atoms_symbol[atom],
 	            Gxyz_frac[atom][1], Gxyz_frac[atom][2], Gxyz_frac[atom][3],
                 0.0)
     end
-
     close(data)
 end
 
@@ -73,11 +71,9 @@ function Write_xyzfile(filename::String, Natom, Gxyz, Atoms_symbol)
         error("please check input")
     end
 
-    Bohr2Ang = 0.529177249
-
     data = open("$filename.xyz", "w")
     for atom = 1:Natom
-        @printf(data, "%4s  %18.14f %18.14f %18.14f\n", Atoms_symbol[atom], Gxyz[atom][1]*Bohr2Ang, Gxyz[atom][2]*Bohr2Ang, Gxyz[atom][3]*Bohr2Ang)
+        @printf(data, "%4s  %18.14f %18.14f %18.14f\n", Atoms_symbol[atom], Gxyz[atom][1]/Ang_to_bohr, Gxyz[atom][2]/Ang_to_bohr, Gxyz[atom][3]/Ang_to_bohr)
     end
     close(data)
 end
@@ -89,13 +85,11 @@ function Write_xyzfile(filename::String, Natom, Gxyz, ForceAll, Atoms_symbol)
         error("please check input")
     end
 
-    Bohr2Ang = 0.529177249
-
     data = open("$filename.xyz", "w")
     for atom = 1:Natom
         @printf(data, "%4s  %8.8f  %8.8f  %8.8f  %18.15f %18.15f %18.15f\n", 
         Atoms_symbol[atom], 
-        Gxyz[atom][1]*Bohr2Ang, Gxyz[atom][2]*Bohr2Ang, Gxyz[atom][3]*Bohr2Ang,
+        Gxyz[atom][1]/Ang_to_bohr, Gxyz[atom][2]/Ang_to_bohr, Gxyz[atom][3]/Ang_to_bohr,
         ForceAll[atom,1], ForceAll[atom,2], ForceAll[atom,3])
     end
     close(data)
@@ -279,10 +273,10 @@ end
 
 
 function WriteFile(
-    Atoms_Core_Charge, 
     mulliken_charge::Mulliken_Charge, 
     dft_setup::DFT_Setup, 
     system_grid::System_Grid, 
+    dipole_moment,
     energy::Energy, force::Force,
     DM, iDM, OLP, Hks, iHks)
 
@@ -297,6 +291,7 @@ function WriteFile(
     Init_Atoms_Angle = dft_setup.Init_Atoms_Angle
     Atoms_symbol = dft_setup.Atoms_symbol
     Atoms_pao = dft_setup.Atoms_pao
+    Atoms_Core_Charge = mulliken_charge.Atoms_Core_Charge
     Atoms_Angle = mulliken_charge.Angle_Spin
     Total_SpinS = mulliken_charge.Total_SpinS
     CpyCell = system_grid.CpyCell
@@ -326,17 +321,14 @@ function WriteFile(
     Eele = energy.Eele
     Etot = energy.Etot
     ForceAll = force.ForceAll
-
-
-    filename2 = split(filename, ".jl")[1]
+    filename = dft_setup.filename
 
     data = open(pwd()*"/"*PROGRAM_FILE, "r")
     scf_inputfile = readlines(data)
     close(data)
-
     
-    println("Write $filename2.jld2 LCPAO_model")
-    jldopen("$filename2.jld2", "w") do file
+    println("Write $filename.jld2 LCPAO_model")
+    jldopen("$filename.jld2", "w") do file
         file["Natom"] = Natom
         file["Nspecies"] = Nspecies
         file["Nspin"] = Nspin
@@ -347,6 +339,7 @@ function WriteFile(
         file["Atoms_Core_Charge"] = Atoms_Core_Charge
         file["Init_Atoms_Nspin"] = Init_Atoms_Nspin
         file["Init_Atoms_Angle"] = Init_Atoms_Angle
+        file["dipole_moment"] = dipole_moment
         file["Atoms_Angle"] = Atoms_Angle
         file["Total_SpinS"] = Total_SpinS
         file["Latvecs"] = Latvecs

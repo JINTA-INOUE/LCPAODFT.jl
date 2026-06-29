@@ -13,6 +13,9 @@ function Generate_CWF(cwf_setup::CWF_Setup)
     spinsize = cwf_setup.spinsize
     kmesh = cwf_setup.kmesh
     Ngsize = cwf_setup.Ngsize
+    weight_type = cwf_setup.weight_type
+    MLWF_kpts = cwf_setup.MLWF_kpts
+    Dis_Energy = cwf_setup.Dis_Energy
     CWF_HmnR = cwf_setup.CWF_HmnR
     CWF_Wannier = cwf_setup.CWF_Wannier
     CWF_SOC = cwf_setup.CWF_SOC
@@ -28,13 +31,23 @@ function Generate_CWF(cwf_setup::CWF_Setup)
     
 
     myrank == 0 && println("<Calc_Enk_Cnk>")
-    Enk, Cnk = Calc_Enk_Cnk(material, kpoints, 1)
+    Enk, Cnk = Calc_Enk_Cnk(material, kpoints, 2)
+    
 
+    
+    MinN, MaxN, BANDNUM = Calc_BANDNUM_KS_state(weight_type, MLWF_kpts, Dis_Energy, material)
+    myrank == 0 && Check_CWF_Band(weight_type, MinN, MaxN, BANDNUM, Ngsize)
+    MPI.Barrier(comm)
+
+
+    
     myrank == 0 && println("<Calc_Amnk>")
-    Amnk = Calc_Amnk(Enk, Cnk, cwf_setup, kpoints)
+    Amnk = Calc_Amnk(MinN, BANDNUM, Enk, Cnk, cwf_setup, kpoints)
+
 
     myrank == 0 && println("<Calc_Smk_Umnk>")
-    Σmk, Umnk = Calc_Smk_Umnk(Amnk, Ngsize, material, kpoints)
+    Σmk, Umnk = Calc_Smk_Umnk(BANDNUM, Amnk, Ngsize, material, kpoints)
+
 
     myrank == 0 && println("<Calc_DMfunc>")
     DMfunc = Calc_DMfunc(spinsize, Ngsize, Σmk, kpoints)
@@ -45,7 +58,7 @@ function Generate_CWF(cwf_setup::CWF_Setup)
         myrank == 0 && println("<Calc_HmnR>")
         NCell, cell_list, cell_list_ijk = Get_cell_list(kmesh)
         HmnR = zeros(ComplexF64, Ngsize, Ngsize, NCell, spinsize)
-        Calc_HmnR!(HmnR, spinsize, Nfsize, NCell, Ngsize, cell_list_ijk, Umnk, Enk, kpoints)
+        Calc_HmnR!(HmnR, spinsize, MinN, MaxN, NCell, Ngsize, cell_list_ijk, Umnk, Enk, kpoints)
 
         myrank == 0 && println("<Write_CWF_HmnR>")
         myrank == 0 && Write_CWF_HmnR(cwf_setup, DMfunc, NCell, cell_list, cell_list_ijk, HmnR)
@@ -79,7 +92,7 @@ function Generate_CWF(cwf_setup::CWF_Setup)
         ucell = UCell(Latvecs, Natom, atom2spe, Gxyz, Atoms_Cut1, Ngrid, Grid_Origin; Total_NumOrbs)
         Orbs_Grid = Set_Orbitals_Grid(pao, ucell)
 
-        CWF_ExpnCoef = Set_CWF_ExpnCoef(cwf_setup, kpoints, Cnk, Umnk)
+        CWF_ExpnCoef = Set_CWF_ExpnCoef(cwf_setup, kpoints, MinN, MaxN, Cnk, Umnk)
             
         if CWF_Wannier
             Set_CWF_Grid(CWF_ExpnCoef, Orbs_Grid, ucell, cwf_setup)
@@ -87,10 +100,43 @@ function Generate_CWF(cwf_setup::CWF_Setup)
     end
 
 
+    
     if CWF2MLWF
         myrank == 0 && println("<CWF2Wannier90>")
-        CWF2Wannier90(cwf_setup, kpoints, Enk, Cnk, Amnk)
+        work_dirname = pwd()*"/"*filename*"_work_cwf"
+        myrank == 0 && mkpath(work_dirname)
+        MPI.Barrier(comm)
+
+        Write_Cnk_work(filename, SpinPol, Cnk, kpoints)
+        Write_Variable_work_file(filename, myrank, Enk, "Enk")
+        Write_Variable_work_file(filename, myrank, Amnk, "Amnk")
+        CWF2Wannier90(MinN, MaxN, cwf_setup)
+        # rm(work_dirname, force=true)
     end
+
+
+    if CWF_SOC
+        myrank == 0 && println("<Calc_HmnR>")
+        NCell, cell_list, cell_list_ijk = Get_cell_list(kmesh)
+        HmnR = zeros(ComplexF64, Ngsize, Ngsize, NCell, spinsize)
+        Calc_HmnR!(HmnR, spinsize, MinN, MaxN, NCell, Ngsize, cell_list_ijk, Umnk, Enk, kpoints)
+
+        myrank == 0 && println("<Calc_CWF_SOC_Strength>")
+        Wannier_SOC = Calc_CWF_SOC_Strength(cwf_setup, kpoints, MinN, MaxN, Umnk, Cnk)
+
+        myrank == 0 && println("<Write_CWF_HmnR>")
+        myrank == 0 && Write_CWF_HmnR(cwf_setup, DMfunc, NCell, cell_list, cell_list_ijk, HmnR, Wannier_SOC)
+        MPI.Barrier(comm)
+    end
+    
+
+
+
+    if verbose>=1 && myrank==0
+        println("")
+        @show LCPAODFT.timer
+    end
+    MPI.Barrier(comm)
 end
 
 
@@ -110,6 +156,7 @@ function Generate_CWF(cwf_setup::CWF_Setup_MO)
     spinsize = cwf_setup.spinsize
     Dis_Energy = cwf_setup.Dis_Energy
     weight_type = cwf_setup.weight_type
+    MLWF_kpts = cwf_setup.MLWF_kpts
     kmesh = cwf_setup.kmesh
     Ngsize = cwf_setup.Ngsize
     CWF_HmnR = cwf_setup.CWF_HmnR
@@ -130,8 +177,14 @@ function Generate_CWF(cwf_setup::CWF_Setup_MO)
     
     
     myrank == 0 && println("<Calc_Enk_Cnk> for <Set_CWF_Guiding_MOs>")
-    Enk, Cnk = Calc_Enk_Cnk(material, kpoints, 1)
+    Enk, Cnk = Calc_Enk_Cnk(material, kpoints, 2)
     
+
+    MinN, MaxN, BANDNUM = Calc_BANDNUM_KS_state(weight_type, MLWF_kpts, Dis_Energy, material)
+    myrank == 0 && Check_CWF_Band(weight_type, MinN, MaxN, BANDNUM, Ngsize)
+    MPI.Barrier(comm)
+
+
     myrank == 0 && println("<Set_CWF_Guiding_MOs>")
     CWF_Guiding_MOs = Set_CWF_Guiding_MOs(cwf_setup, kpoints, Enk, Cnk)
 
@@ -147,10 +200,10 @@ function Generate_CWF(cwf_setup::CWF_Setup_MO)
     
     
     myrank == 0 && println("<Calc_Amnk>")
-    Amnk = Calc_Amnk(Enk, Cnk, cwf_setup, kpoints, CWF_Guiding_MOs)
+    Amnk = Calc_Amnk(MinN, BANDNUM, Enk, Cnk, cwf_setup, kpoints, CWF_Guiding_MOs)
 
     myrank == 0 && println("<Calc_Smk_Umnk>")
-    Σmk, Umnk = Calc_Smk_Umnk(Amnk, Ngsize, material, kpoints)
+    Σmk, Umnk = Calc_Smk_Umnk(BANDNUM, Amnk, Ngsize, material, kpoints)
 
     myrank == 0 && println("<Calc_DMfunc>")
     DMfunc = Calc_DMfunc(spinsize, Ngsize, Σmk, kpoints)
@@ -162,7 +215,7 @@ function Generate_CWF(cwf_setup::CWF_Setup_MO)
         myrank == 0 && println("<Calc_HmnR>")
         NCell, cell_list, cell_list_ijk = Get_cell_list(kmesh)
         HmnR = zeros(ComplexF64, Ngsize, Ngsize, NCell, spinsize)
-        Calc_HmnR!(HmnR, spinsize, Nfsize, NCell, Ngsize, cell_list_ijk, Umnk, Enk, kpoints)
+        Calc_HmnR!(HmnR, spinsize, MinN, MaxN, NCell, Ngsize, cell_list_ijk, Umnk, Enk, kpoints)
 
         myrank == 0 && println("<Write_CWF_HmnR>")
         myrank == 0 && Write_CWF_HmnR(cwf_setup, DMfunc, NCell, cell_list, cell_list_ijk, HmnR)
@@ -226,7 +279,7 @@ function Generate_CWF(cwf_setup::CWF_Setup_MO)
         ucell = UCell(Latvecs, Natom, atom2spe, Gxyz, Atoms_Cut1, Ngrid, Grid_Origin; Total_NumOrbs)
         Orbs_Grid = Set_Orbitals_Grid(pao, ucell)
 
-        CWF_ExpnCoef = Set_CWF_ExpnCoef(cwf_setup, kpoints, Cnk, Umnk)
+        CWF_ExpnCoef = Set_CWF_ExpnCoef(cwf_setup, kpoints, MinN, MaxN, Cnk, Umnk)
          
         if CWF_Wannier
             Set_CWF_Grid(CWF_ExpnCoef, Orbs_Grid, ucell, cwf_setup)
@@ -237,6 +290,22 @@ function Generate_CWF(cwf_setup::CWF_Setup_MO)
 
     if CWF2MLWF
         myrank == 0 && println("<CWF2Wannier90>")
-        CWF2Wannier90(cwf_setup, kpoints, Enk, Cnk, Amnk)
+        work_dirname = pwd()*"/"*filename*"_work_cwf"
+        myrank == 0 && mkpath(work_dirname)
+        MPI.Barrier(comm)
+
+        Write_Cnk_work(filename, SpinPol, Cnk, kpoints)
+        Write_Variable_work_file(filename, myrank, Enk, "Enk")
+        Write_Variable_work_file(filename, myrank, Amnk, "Amnk")
+        CWF2Wannier90(MinN, MaxN, cwf_setup)
+        # rm(work_dirname, force=true)
     end
+
+
+
+    if verbose>=1 && myrank==0
+        println("")
+        @show LCPAODFT.timer
+    end
+    MPI.Barrier(comm)
 end

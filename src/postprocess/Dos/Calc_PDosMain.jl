@@ -1,4 +1,4 @@
-function Calc_PDosMain(filename::String, material::LCPAO_model, Enk, EVec, neg, kmesh, Dos_Erange)
+function Calc_PDosMain(filename::String, material::LCPAO_model, Enk, EVec, neg, kmesh, Dos_Erange; de_Dos=0.01)
 
     println("<PDosMain>  Generate Projecter Density of State using Tetrahedron method")
 
@@ -26,7 +26,7 @@ function Calc_PDosMain(filename::String, material::LCPAO_model, Enk, EVec, neg, 
 
 
     DosEmin, DosEmax = Dos_Erange
-    de = 0.01/eV2Hartree
+    de = de_Dos/eV2Hartree
     Dos_N = floor(Int64, (DosEmax-DosEmin)/de)  # length of Dos
 
     DosE = zeros(Float64, Dos_N)
@@ -167,7 +167,7 @@ function Calc_PDosMain(filename::String, material::LCPAO_model, Enk, EVec, neg, 
 end
 
 
-function Calc_PDosMain(filename::String, material::CWF_model, Enk, EVec, neg, kmesh, Dos_Erange)
+function Calc_PDosMain(filename::String, material::CWF_model, Enk, EVec, neg, kmesh, Dos_Erange; de_Dos=0.01)
 
     println("<PDosMain>  Generate Projecter Density of State using Tetrahedron method")
 
@@ -192,7 +192,7 @@ function Calc_PDosMain(filename::String, material::CWF_model, Enk, EVec, neg, km
 
 
     DosEmin, DosEmax = Dos_Erange
-    de = 0.01/eV2Hartree
+    de = de_Dos/eV2Hartree
     Dos_N = floor(Int64, (DosEmax-DosEmin)/de)  # length of Dos
 
     DosE = zeros(Float64, Dos_N)
@@ -279,5 +279,5 @@ function Calc_PDosMain(filename::String, material::CWF_model, Enk, EVec, neg, km
 
     
     Calc_PDos_Orbital_proj(filename, material, Dos_Erange, DosE, Dos)
-    # Write_PDos_gnuplot(filename, Dos_Erange)
+    Write_PDos_gnuplot(filename, Dos_Erange)
 end

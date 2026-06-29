@@ -26,238 +26,6 @@
 end
 
 
-function HS_matrix!(
-    S, H, 
-    OLP::Vector{Vector{Vector{Vector{Float64}}}}, 
-    Hks::Vector{Vector{Vector{Vector{Float64}}}}, 
-    Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, 
-    kpts::Vector{Float64})
-    
-    fill!(S, 0.0)
-    fill!(H, 0.0)
-    
-    for atom = 1:Natom, Rn = 1:FNAN[atom]+1
-        NO0 = Total_NumOrbs[atom]
-        Anum = MP[atom]
-        jatom = natn[atom][Rn]
-        cell = ncn[atom][Rn]+1
-        NO1 = Total_NumOrbs[jatom]
-        kRn = dot(kpts, atv_ijk[cell])
-        Bnum = MP[jatom]
-        ex = cispi(2*kRn)
-        @inbounds for ist = 1:NO0, jst = 1:NO1
-            S[Anum+ist,Bnum+jst] += OLP[atom][Rn][ist][jst]*ex
-            H[Anum+ist,Bnum+jst] += Hks[atom][Rn][ist][jst]*ex
-        end
-    end
-end
-
-
-function HS_matrix!(
-    HS, 
-    A::Vector{Vector{Vector{Vector{Float64}}}}, 
-    Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, 
-    kpts::Vector{Float64})
-    
-    fill!(HS, 0.0)
-    
-    for atom = 1:Natom, Rn = 1:FNAN[atom]+1
-        NO0 = Total_NumOrbs[atom]
-        Anum = MP[atom]
-        jatom = natn[atom][Rn]
-        cell = ncn[atom][Rn]+1
-        NO1 = Total_NumOrbs[jatom]
-        kRn = dot(kpts, atv_ijk[cell])
-        Bnum = MP[jatom]
-        ex = cispi(2*kRn)
-        @inbounds for ist = 1:NO0, jst = 1:NO1
-            HS[Anum+ist,Bnum+jst] += A[atom][Rn][ist][jst]*ex
-        end
-    end
-end
-
-
-function HS_matrix!(
-    HS, 
-    A::Vector{Vector{Vector{Vector{Float64}}}}, 
-    B::Vector{Vector{Vector{Vector{Float64}}}}, 
-    Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, 
-    kpts::Vector{Float64})
-    
-    fill!(HS, 0.0)
-    
-    for atom = 1:Natom, Rn = 1:FNAN[atom]+1
-        NO0 = Total_NumOrbs[atom]
-        Anum = MP[atom]
-        jatom = natn[atom][Rn]
-        cell = ncn[atom][Rn]+1
-        NO1 = Total_NumOrbs[jatom]
-        kRn = dot(kpts, atv_ijk[cell])
-        Bnum = MP[jatom]
-        ex = cispi(2*kRn)
-        @inbounds for ist = 1:NO0, jst = 1:NO1
-            HS[Anum+ist,Bnum+jst] += (A[atom][Rn][ist][jst]+im*B[atom][Rn][ist][jst])*ex
-        end
-    end
-end
-
-
-function HS_matrix!(
-    HS, 
-    A::Vector{Vector{Vector{Vector{Float64}}}}, 
-    B::Vector{Vector{Vector{Vector{Float64}}}}, 
-    C::Vector{Vector{Vector{Vector{Float64}}}}, 
-    Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, 
-    kpts::Vector{Float64})
-    
-    fill!(HS, 0.0)
-    
-    for atom = 1:Natom, Rn = 1:FNAN[atom]+1
-        NO0 = Total_NumOrbs[atom]
-        Anum = MP[atom]
-        jatom = natn[atom][Rn]
-        cell = ncn[atom][Rn]+1
-        NO1 = Total_NumOrbs[jatom]
-        kRn = dot(kpts, atv_ijk[cell])
-        Bnum = MP[jatom]
-        ex = cispi(2*kRn)
-        @inbounds for ist = 1:NO0, jst = 1:NO1
-            HS[Anum+ist,Bnum+jst] += (A[atom][Rn][ist][jst]+im*(B[atom][Rn][ist][jst]+C[atom][Rn][ist][jst]))*ex
-        end
-    end
-end
-
-
-function HS_matrix!(
-    S, H, 
-    OLP::Vector{Float64}, 
-    Hks::Vector{Float64}, 
-    Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, 
-    kpts::Vector{Float64})
-    
-    fill!(S, 0.0)
-    fill!(H, 0.0)
-    
-    hst = 0
-    for atom = 1:Natom, Rn = 1:FNAN[atom]+1
-        NO0 = Total_NumOrbs[atom]
-        Anum = MP[atom]
-        jatom = natn[atom][Rn]
-        cell = ncn[atom][Rn]+1
-        NO1 = Total_NumOrbs[jatom]
-        kRn = dot(kpts, atv_ijk[cell])
-        Bnum = MP[jatom]
-        ex = cispi(2*kRn)
-        @inbounds for ist = 1:NO0, jst = 1:NO1
-            hst += 1
-            S[Anum+ist,Bnum+jst] += OLP[hst]*ex
-            H[Anum+ist,Bnum+jst] += Hks[hst]*ex
-        end
-    end
-end
-
-
-function HS_matrix!(
-    HS, 
-    A::Vector{Float64}, 
-    Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, 
-    kpts::Vector{Float64})
-    
-    fill!(HS, 0.0)
-    
-    hst = 0
-    for atom = 1:Natom, Rn = 1:FNAN[atom]+1
-        NO0 = Total_NumOrbs[atom]
-        Anum = MP[atom]
-        jatom = natn[atom][Rn]
-        cell = ncn[atom][Rn]+1
-        NO1 = Total_NumOrbs[jatom]
-        kRn = dot(kpts, atv_ijk[cell])
-        Bnum = MP[jatom]
-        ex = cispi(2*kRn)
-        @inbounds for ist = 1:NO0, jst = 1:NO1
-            hst += 1
-            HS[Anum+ist,Bnum+jst] += A[hst]*ex
-        end
-    end
-end
-
-
-function HS_matrix!(
-    HS, 
-    A::Vector{Float64}, 
-    B::Vector{Float64}, 
-    Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, 
-    kpts::Vector{Float64})
-    
-    fill!(HS, 0.0)
-
-    hst = 0
-    for atom = 1:Natom, Rn = 1:FNAN[atom]+1
-        NO0 = Total_NumOrbs[atom]
-        Anum = MP[atom]
-        jatom = natn[atom][Rn]
-        cell = ncn[atom][Rn]+1
-        NO1 = Total_NumOrbs[jatom]
-        kRn = dot(kpts, atv_ijk[cell])
-        Bnum = MP[jatom]
-        ex = cispi(2*kRn)
-        @inbounds for ist = 1:NO0, jst = 1:NO1
-            hst += 1
-            HS[Anum+ist,Bnum+jst] += (A[hst]+im*B[hst])*ex
-        end
-    end
-end
-
-
-function HS_matrix!(
-    HS, 
-    A::Vector{Float64}, 
-    B::Vector{Float64}, 
-    C::Vector{Float64}, 
-    Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, 
-    kpts::Vector{Float64})
-
-    fill!(HS, 0.0)
-
-    hst = 0
-    for atom = 1:Natom, Rn = 1:FNAN[atom]+1
-        NO0 = Total_NumOrbs[atom]
-        Anum = MP[atom]
-        jatom = natn[atom][Rn]
-        cell = ncn[atom][Rn]+1
-        NO1 = Total_NumOrbs[jatom]
-        kRn = dot(kpts, atv_ijk[cell])
-        Bnum = MP[jatom]
-        ex = cispi(2*kRn)
-        @inbounds for ist = 1:NO0, jst = 1:NO1
-            hst += 1
-            HS[Anum+ist,Bnum+jst] += (A[hst]+im*(B[hst]+C[hst]))*ex
-        end
-    end
-end
-
-
-function HS_matrix_NC!(
-    tmpH, H, 
-    Hks::Union{Vector{Vector{Float64}},Vector{Vector{Vector{Vector{Vector{Float64}}}}}}, 
-    iHks::Union{Vector{Vector{Float64}},Vector{Vector{Vector{Vector{Vector{Float64}}}}}}, 
-    Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, 
-    kpts::Vector{Float64})
-    
-    fsize = sum(Total_NumOrbs)
-    
-    HS_matrix!(tmpH, Hks[1], iHks[1], Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, kpts)
-    @. H[1:fsize,1:fsize] = tmpH
-
-    HS_matrix!(tmpH, Hks[2], iHks[2], Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, kpts)
-    @. H[fsize+1:end,fsize+1:end] = tmpH
-
-    HS_matrix!(tmpH, Hks[3], Hks[4], iHks[3], Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, kpts)
-    @. H[1:fsize,fsize+1:end] = tmpH
-end
-
-
 @timeit timer "Crystal_DFT_Collinear" function Crystal_DFT_Collinear_nonpol!( 
     OLP, Hks, 
     electron::CrystalBloch, 
@@ -268,12 +36,13 @@ end
     myrank = MPI.Comm_rank(comm)
 
     Natom = system_grid.Natom
-    Total_NumOrbs = system_grid.Total_NumOrbs
-    MP = system_grid.MP
     FNAN = system_grid.FNAN
     natn = system_grid.natn
     ncn = system_grid.ncn
     atv_ijk = system_grid.atv_ijk
+    Total_NumOrbs = system_grid.Total_NumOrbs
+    MP = system_grid.MP
+    fsize = sum(Total_NumOrbs)
 
     MPI_Nkpt = kpoints.MPI_Nkpt
     MPI_kpts = kpoints.MPI_kpts
@@ -284,7 +53,6 @@ end
     Cnk = electron.Cnk
 
     fill!(Enk, 0.0)
-    fsize = sum(Total_NumOrbs)
 
     S = zeros(ComplexF64, fsize, fsize)
     H = zeros(ComplexF64, fsize, fsize)
@@ -309,12 +77,13 @@ end
     myrank = MPI.Comm_rank(comm)
 
     Natom = system_grid.Natom
-    Total_NumOrbs = system_grid.Total_NumOrbs
-    MP = system_grid.MP
     FNAN = system_grid.FNAN
     natn = system_grid.natn
     ncn = system_grid.ncn
     atv_ijk = system_grid.atv_ijk
+    Total_NumOrbs = system_grid.Total_NumOrbs
+    MP = system_grid.MP
+    fsize = sum(Total_NumOrbs)
 
     MPI_Nkpt = kpoints.MPI_Nkpt
     MPI_kpts = kpoints.MPI_kpts
@@ -325,8 +94,8 @@ end
     Cnk = electron.Cnk
 
     fill!(Enk, 0.0)
-    fsize = sum(Total_NumOrbs)
     
+
     S = zeros(ComplexF64, fsize, fsize)
     H = zeros(ComplexF64, fsize, fsize)
 
@@ -352,19 +121,19 @@ end
     myrank = MPI.Comm_rank(comm)
 
     Natom = system_grid.Natom
-    Total_NumOrbs = system_grid.Total_NumOrbs
-    MP = system_grid.MP
     FNAN = system_grid.FNAN
     natn = system_grid.natn
     ncn = system_grid.ncn
     atv_ijk = system_grid.atv_ijk
+    Total_NumOrbs = system_grid.Total_NumOrbs
+    MP = system_grid.MP
+    fsize = sum(Total_NumOrbs)
     
     MPI_Nkpt = kpoints.MPI_Nkpt
     MPI_kpts = kpoints.MPI_kpts
     MPkpts = kpoints.MPkpts
     knum = MPkpts[myrank+1]
 
-    fsize = electron.fsize
     Enk = electron.Enk
     Cnk = electron.Cnk
 
@@ -375,7 +144,7 @@ end
     H = zeros(ComplexF64, 2*fsize, 2*fsize)
     
     for ik = 1:MPI_Nkpt
-        HS_matrix_NC!(tmpH, H, Hks, iHNL, Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, MPI_kpts[ik])
+        HS_matrix_NC!(H, Hks, iHNL, Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, MPI_kpts[ik])
         HS_matrix!(tmpH, OLP, Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, MPI_kpts[ik])
         @. @views S[1:fsize, 1:fsize] = tmpH
         @. @views S[fsize+1:end, fsize+1:end] = tmpH
@@ -661,6 +430,7 @@ end
     atv_ijk = system_grid.atv_ijk
 
     fsize = electron.fsize
+    Nfsize = electron.Nfsize
     Cnk = electron.Cnk
 
     AllNkpt = kpoints.AllNkpt
@@ -690,7 +460,7 @@ end
             for ist = 1:NO0, jst = 1:NO1
                 cc1 = ComplexF64(0.0, 0.0)
                 cc2 = ComplexF64(0.0, 0.0)
-                @inbounds for μ = 1:2*fsize
+                @inbounds for μ = 1:Nfsize
                     cc1 += conj(ctemp[Anum+ist,μ]) * ctemp[Bnum+jst,μ]
                     cc2 += conj(ctemp[fsize+Anum+ist,μ]) * ctemp[fsize+Bnum+jst,μ]
                 end
@@ -723,8 +493,10 @@ function Calc_EDM(electron::CrystalBloch, kpoints::KPoints, system_grid::System_
         Calc_fnkCnk!(electron, kpoints)
     end
 
-    if SpinPol ∈ ("off", "on")
-        Calc_EDM_Collinear!(EDM, electron, kpoints, system_grid)
+    if SpinPol == "off"
+        Calc_EDM_Collinear_nonpol!(EDM, electron, kpoints, system_grid)
+    elseif SpinPol == "on"
+        Calc_EDM_Collinear_pol!(EDM, electron, kpoints, system_grid)
     elseif SpinPol == "nc"
         Calc_EDM_NonCollinear!(EDM, electron, kpoints, system_grid)
     else
@@ -736,7 +508,7 @@ function Calc_EDM(electron::CrystalBloch, kpoints::KPoints, system_grid::System_
 end
 
 
-function Calc_EDM_Collinear!(EDM, electron::CrystalBloch, kpoints::KPoints, system_grid::System_Grid)
+function Calc_EDM_Collinear_nonpol!(EDM, electron::CrystalBloch, kpoints::KPoints, system_grid::System_Grid)
     
     comm = MPI.COMM_WORLD
     myrank = MPI.Comm_rank(comm)
@@ -749,7 +521,6 @@ function Calc_EDM_Collinear!(EDM, electron::CrystalBloch, kpoints::KPoints, syst
     ncn = system_grid.ncn
     atv_ijk = system_grid.atv_ijk
 
-    spinsize = electron.spinsize
     fsize = electron.fsize
     Enk = electron.Enk
     Cnk = electron.Cnk
@@ -761,9 +532,9 @@ function Calc_EDM_Collinear!(EDM, electron::CrystalBloch, kpoints::KPoints, syst
     knum = MPkpts[myrank+1]
 
     
-    for spin = 1:spinsize, ik = 1:MPI_Nkpt
+    for ik = 1:MPI_Nkpt
         ka, kb, kc = MPI_kpts[ik]
-        ctemp = Cnk[spin][ik]
+        ctemp = Cnk[1][ik]
         hst = 0
         for atom = 1:Natom, Rn = 1:FNAN[atom]+1
 
@@ -779,17 +550,73 @@ function Calc_EDM_Collinear!(EDM, electron::CrystalBloch, kpoints::KPoints, syst
             for ist = 1:NO0, jst = 1:NO1
                 cc1 = ComplexF64(0.0, 0.0)
                 @inbounds for μ = 1:fsize
-                    cc1 += conj(ctemp[Anum+ist,μ])*ctemp[Bnum+jst,μ]*Enk[μ,ik+knum,spin]
+                    cc1 += conj(ctemp[Anum+ist,μ])*ctemp[Bnum+jst,μ]*Enk[μ,ik+knum,1]
                 end
                 hst += 1
-                EDM[spin][hst] += real(cc1*ex)
+                EDM[1][hst] += real(cc1*ex)
             end
         end
     end
 
-    for spin = 1:spinsize
-        MPI.Allreduce!(EDM[spin], MPI.SUM, comm)
+    MPI.Allreduce!(EDM[1], MPI.SUM, comm)
+end
+
+
+function Calc_EDM_Collinear_pol!(EDM, electron::CrystalBloch, kpoints::KPoints, system_grid::System_Grid)
+    
+    comm = MPI.COMM_WORLD
+    myrank = MPI.Comm_rank(comm)
+
+    Natom = system_grid.Natom
+    Total_NumOrbs = system_grid.Total_NumOrbs
+    MP = system_grid.MP
+    FNAN = system_grid.FNAN
+    natn = system_grid.natn
+    ncn = system_grid.ncn
+    atv_ijk = system_grid.atv_ijk
+
+    fsize = electron.fsize
+    Enk = electron.Enk
+    Cnk = electron.Cnk
+
+    AllNkpt = kpoints.AllNkpt
+    MPI_Nkpt = kpoints.MPI_Nkpt
+    MPI_kpts = kpoints.MPI_kpts
+    MPkpts = kpoints.MPkpts
+    knum = MPkpts[myrank+1]
+
+    for ik = 1:MPI_Nkpt
+        ka, kb, kc = MPI_kpts[ik]
+        ctemp_up = Cnk[1][ik]
+        ctemp_dn = Cnk[2][ik]
+        hst = 0
+        for atom = 1:Natom, Rn = 1:FNAN[atom]+1
+
+            Anum = MP[atom]
+            NO0 = Total_NumOrbs[atom]
+            cell = ncn[atom][Rn]+1
+            jatom = natn[atom][Rn]
+            Bnum = MP[jatom]
+            NO1 = Total_NumOrbs[jatom]
+            kRn = ka*atv_ijk[cell][1] + kb*atv_ijk[cell][2] + kc*atv_ijk[cell][3]
+            ex = cispi(2*kRn)/AllNkpt
+            
+            for ist = 1:NO0, jst = 1:NO1
+                cc_up = ComplexF64(0.0, 0.0)
+                cc_dn = ComplexF64(0.0, 0.0)
+                @inbounds for μ = 1:fsize
+                    cc_up += conj(ctemp_up[Anum+ist,μ])*ctemp_up[Bnum+jst,μ]*Enk[μ,ik+knum,1]
+                    cc_dn += conj(ctemp_dn[Anum+ist,μ])*ctemp_dn[Bnum+jst,μ]*Enk[μ,ik+knum,2]
+                end
+                hst += 1
+                EDM[1][hst] += real(cc_up*ex)
+                EDM[2][hst] += real(cc_dn*ex)
+            end
+        end
     end
+
+    MPI.Allreduce!(EDM[1], MPI.SUM, comm)
+    MPI.Allreduce!(EDM[2], MPI.SUM, comm)
 end
 
 

@@ -18,14 +18,9 @@ function Calc_EVec_Wannier(boltz_setup::Boltz_Setup, Cnk)
     material = boltz_setup.material
     Nwann = material.Ngsize
     SpinPol = material.SpinPol
+    spinsize = ifelse(SpinPol=="on", 2, 1)
     kmesh = boltz_setup.kmesh
     plane_type = boltz_setup.plane_type
-
-    if SpinPol ∈ ("off", "nc")
-        spinsize = 1
-    else SpinPol == "on"
-        spinsize = 2
-    end
 
     Nkpt = prod(kmesh)
     if plane_type
@@ -45,14 +40,12 @@ function Calc_EVec_Wannier(boltz_setup::Boltz_Setup, Cnk)
             end
         end
     end
-    
 
     @inbounds for spin = 1:spinsize, ik = 1:Nkpt, ist = 1:Nwann, μ = 1:Nwann
         tmp = conj(Cnk[spin][ik][ist,μ]) * Cnk[spin][ik][ist,μ]
         EVec[spin][ik][ist][μ] = real(tmp)
     end
-
-
+    
 
     return EVec
 end

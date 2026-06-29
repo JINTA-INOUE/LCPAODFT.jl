@@ -1,4 +1,4 @@
-function Calc_Enk_Cnk(material::LCPAO_model, kpoints::KPoints, type::Integer)
+@timeit timer "Calc_Enk_Cnk" function Calc_Enk_Cnk(material::LCPAO_model, kpoints::KPoints, type::Integer)
 
     SpinPol = material.SpinPol
     Total_NumOrbs = material.Total_NumOrbs
@@ -12,6 +12,14 @@ function Calc_Enk_Cnk(material::LCPAO_model, kpoints::KPoints, type::Integer)
     if type == 1
         Enk = zeros(Float64, spinsize, Nfsize, MPI_Nkpt)
     elseif type == 2
+        Enk = Vector{Vector{Vector{Float64}}}(undef, spinsize)
+        for spin = 1:spinsize
+            Enk[spin] = Vector{Vector{Float64}}(undef, MPI_Nkpt)
+            for ik = 1:MPI_Nkpt
+                Enk[spin][ik] = zeros(Float64, Nfsize)
+            end
+        end
+    elseif type == 3
         Enk = Vector{Vector{Vector{Vector{Vector{Float64}}}}}(undef, spinsize)
         for spin = 1:spinsize
             Enk[spin] = Vector{Vector{Vector{Vector{Float64}}}}(undef, kmesh1)
@@ -79,11 +87,56 @@ function Calc_Enk_Cnk!(
         S = zeros(ComplexF64, 2*fsize, 2*fsize)
         H = zeros(ComplexF64, 2*fsize, 2*fsize)
         @inbounds for ik = 1:MPI_Nkpt
-            HS_matrix_NC!(tmpH, H, Hks, iHks, Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, MPI_kpts[ik])
+            HS_matrix_NC!(H, Hks, iHks, Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, MPI_kpts[ik])
             HS_matrix!(tmpH, OLP, Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, MPI_kpts[ik])
             @. S[1:fsize, 1:fsize] = tmpH
             @. S[fsize+1:end, fsize+1:end] = tmpH
             Enk[1,:,ik], Cnk[1][ik] = eigen(Hermitian(H), Hermitian(S))
+        end
+    end
+end
+
+
+function Calc_Enk_Cnk!(
+    material::LCPAO_model, 
+    kpoints::KPoints, 
+    Enk::Vector{Vector{Vector{Float64}}}, 
+    Cnk::Vector{Vector{Matrix{ComplexF64}}})
+
+    Natom = material.Natom
+    SpinPol = material.SpinPol
+    Total_NumOrbs = material.Total_NumOrbs
+    MP = material.MP
+    FNAN = material.FNAN
+    natn = material.natn
+    ncn = material.ncn
+    atv_ijk = material.atv_ijk
+    fsize = sum(Total_NumOrbs)
+    Hks = material.Hks
+    iHks = material.iHks
+    OLP = material.OLP
+    spinsize = ifelse(SpinPol=="on", 2, 1)
+
+    MPI_Nkpt = kpoints.MPI_Nkpt
+    MPI_kpts = kpoints.MPI_kpts
+
+    if SpinPol ∈ ("off", "on")
+        S = zeros(ComplexF64, fsize, fsize)
+        H = zeros(ComplexF64, fsize, fsize)
+        @inbounds for spin = 1:spinsize, ik = 1:MPI_Nkpt
+            HS_matrix!(S, H, OLP, Hks[spin], Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, MPI_kpts[ik])
+            Enk[spin][ik], Cnk[spin][ik] = eigen(Hermitian(H), Hermitian(S))
+        end
+    elseif SpinPol == "nc"
+        tmpH = zeros(ComplexF64, fsize, fsize)
+        S = zeros(ComplexF64, 2*fsize, 2*fsize)
+        H = zeros(ComplexF64, 2*fsize, 2*fsize)
+        @inbounds for ik = 1:MPI_Nkpt
+            HS_matrix_NC!(H, Hks, iHks, Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, MPI_kpts[ik])
+            HS_matrix!(tmpH, OLP, Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, MPI_kpts[ik])
+            @. S[1:fsize, 1:fsize] = tmpH
+            @. S[fsize+1:end, fsize+1:end] = tmpH
+            Enk[1][ik], Cnk[1][ik] = eigen(Hermitian(H), Hermitian(S))
         end
     end
 end
@@ -132,7 +185,7 @@ function Calc_Enk_Cnk!(
         k = 0
         @inbounds for ik = 1:kmesh1, jk = 1:kmesh2, kk = 1:kmesh3
             k += 1
-            HS_matrix_NC!(tmpH, H, Hks, iHks, Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, MPI_kpts[k])
+            HS_matrix_NC!(H, Hks, iHks, Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, MPI_kpts[k])
             HS_matrix!(tmpH, OLP, Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, MPI_kpts[k])
             @. S[1:fsize, 1:fsize] = tmpH
             @. S[fsize+1:end, fsize+1:end] = tmpH
@@ -154,6 +207,14 @@ function Calc_Enk_Cnk(material::CWF_model, kpoints::KPoints, type::Integer)
     if type == 1
         Enk = zeros(Float64, spinsize, Nwann, MPI_Nkpt)
     elseif type == 2
+        Enk = Vector{Vector{Vector{Float64}}}(undef, spinsize)
+        for spin = 1:spinsize
+            Enk[spin] = Vector{Vector{Float64}}(undef, MPI_Nkpt)
+            for ik = 1:MPI_Nkpt
+                Enk[spin][ik] = zeros(Float64, Nwann)
+            end
+        end
+    elseif type == 3
         Enk = Vector{Vector{Vector{Vector{Vector{Float64}}}}}(undef, spinsize)
         for spin = 1:spinsize
             Enk[spin] = Vector{Vector{Vector{Vector{Float64}}}}(undef, kmesh1)
@@ -171,6 +232,7 @@ function Calc_Enk_Cnk(material::CWF_model, kpoints::KPoints, type::Integer)
         error("please check type.")
     end
 
+    
     Cnk = Vector{Vector{Matrix{ComplexF64}}}(undef, spinsize)
     for spin = 1:spinsize
         Cnk[spin] = Vector{Matrix{ComplexF64}}(undef, MPI_Nkpt)

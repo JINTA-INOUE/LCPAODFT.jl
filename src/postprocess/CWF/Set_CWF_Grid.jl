@@ -1,3 +1,183 @@
+@timeit timer "Set_CWF_Grid" function Set_CWF_Grid(CWF_ExpnCoef, Orbs_Grid, ucell::UCell, cwf_setup::Union{CWF_Setup,CWF_Setup_MO})
+
+    comm = MPI.COMM_WORLD
+    nprocs = MPI.Comm_size(comm)
+    myrank = MPI.Comm_rank(comm)
+
+    material = cwf_setup.material
+    SpinPol = material.SpinPol
+
+
+    if SpinPol ∈ ("off", "on")
+        Set_CWF_Grid_Col(cwf_setup, ucell, CWF_ExpnCoef, Orbs_Grid)
+    elseif SpinPol == "nc"
+        Set_CWF_Grid_NonCol(cwf_setup, ucell, CWF_ExpnCoef, Orbs_Grid) 
+    end
+    MPI.Barrier(comm)
+end
+
+
+function Set_CWF_Grid_Col(cwf_setup::Union{CWF_Setup,CWF_Setup_MO}, ucell::UCell, CWF_ExpnCoef, Orbs_Grid)
+
+    comm = MPI.COMM_WORLD
+    nprocs = MPI.Comm_size(comm)
+    myrank = MPI.Comm_rank(comm)
+
+    material = cwf_setup.material
+    Natom = material.Natom
+    MP = material.MP
+    Total_NumOrbs = material.Total_NumOrbs
+    fsize = sum(Total_NumOrbs)
+    Atoms_symbol = material.Atoms_symbol
+    Gxyz_scf = material.Gxyz
+    
+    system_grid = ucell.system_grid
+    Latvecs = system_grid.Latvecs
+    Ngrid = system_grid.Ngrid
+    Grid_Origin = system_grid.Grid_Origin
+    Ngrid1, Ngrid2, Ngrid3 = Ngrid
+    
+    spinsize = cwf_setup.spinsize
+    CWF_Plot_Cube = cwf_setup.CWF_Plot_Cube
+    CWF_Plot_SuperCells = cwf_setup.CWF_Plot_SuperCells
+    Plot_NCell = prod(2*CWF_Plot_SuperCells.+1)
+    CWF_TNumGrid = prod(Ngrid)*Plot_NCell
+    filename = cwf_setup.filename
+
+
+    CWF_GridN_Atom, CWF_GridListAtom, CWF_GridOrbs_Grid = CWF_UCell(cwf_setup, ucell)
+    MPI.Barrier(comm)
+
+    gLatvecs = zeros(Float64, 3, 3)
+    gLatvecs[1,:] = Latvecs[1,:]/Ngrid1
+	gLatvecs[2,:] = Latvecs[2,:]/Ngrid2
+	gLatvecs[3,:] = Latvecs[3,:]/Ngrid3
+
+
+    N_Polt_Cube = length(CWF_Plot_Cube)
+    Nloop = spinsize*N_Polt_Cube
+    OneD2spin = zeros(Int32, Nloop)
+    OneD2proj = zeros(Int32, Nloop)
+
+    counts = 1
+    for spin = 1:spinsize, proj in CWF_Plot_Cube
+        OneD2spin[counts] = spin
+        OneD2proj[counts] = proj
+        counts += 1
+    end
+    
+    myrange = split_evenly(1:Nloop, nprocs)
+    MPI_CWF_size = length(myrange[myrank+1])
+    MPI_spin = OneD2spin[myrange[myrank+1]]
+    MPI_proj = OneD2proj[myrange[myrank+1]]
+
+
+    ExpnCoef = zeros(Float64, fsize)
+    Wannier_Orbs_Grid = zeros(Float64, CWF_TNumGrid)
+
+    for loop = 1:MPI_CWF_size
+        spin = MPI_spin[loop]
+        proj = MPI_proj[loop]
+        println("  Write myrank = $myrank   $(filename)_CWF$(spin)_$(proj).cube")
+        MPI.Barrier(comm)
+        
+        fill!(Wannier_Orbs_Grid, 0.0)
+        for cell = 1:Plot_NCell
+            @. ExpnCoef = CWF_ExpnCoef[spin][proj][cell]
+            for atom = 1:Natom
+                cwf_proj = MP[atom]
+                NO0 = Total_NumOrbs[atom]
+                _Calc_CWF_Grid8!(cwf_proj, NO0, CWF_GridN_Atom[cell][atom], CWF_GridOrbs_Grid[cell][atom], CWF_GridListAtom[cell][atom], Orbs_Grid[atom], ExpnCoef, Wannier_Orbs_Grid)
+            end
+        end
+
+        data = open("$(filename)_CWF$(spin)_$(proj).cube", "w")
+        Write_Wannier_CubeInfo(data, Atoms_symbol, CWF_Plot_SuperCells, Grid_Origin, Natom, Gxyz_scf, Latvecs, gLatvecs, Ngrid)
+        Write_Wannier_Orbs_Grid(data, CWF_Plot_SuperCells, Ngrid, Wannier_Orbs_Grid)
+        close(data)
+    end
+end
+
+
+function Set_CWF_Grid_NonCol(cwf_setup::Union{CWF_Setup,CWF_Setup_MO}, ucell::UCell, CWF_ExpnCoef, Orbs_Grid)
+
+    comm = MPI.COMM_WORLD
+    nprocs = MPI.Comm_size(comm)
+    myrank = MPI.Comm_rank(comm)
+
+    material = cwf_setup.material
+    Natom = material.Natom
+    MP = material.MP
+    Total_NumOrbs = material.Total_NumOrbs
+    Nfsize = 2*sum(Total_NumOrbs)
+    Atoms_symbol = material.Atoms_symbol
+    Gxyz_scf = material.Gxyz
+    
+    system_grid = ucell.system_grid
+    Latvecs = system_grid.Latvecs
+    Ngrid = system_grid.Ngrid
+    Grid_Origin = system_grid.Grid_Origin
+    Ngrid1, Ngrid2, Ngrid3 = Ngrid
+    
+    CWF_Plot_Cube = cwf_setup.CWF_Plot_Cube
+    CWF_Plot_SuperCells = cwf_setup.CWF_Plot_SuperCells
+    Plot_NCell = prod(2*CWF_Plot_SuperCells.+1)
+    CWF_TNumGrid = prod(Ngrid)*Plot_NCell
+    filename = cwf_setup.filename
+
+
+    CWF_GridN_Atom, CWF_GridListAtom, CWF_GridOrbs_Grid = CWF_UCell(cwf_setup, ucell)
+
+    gLatvecs = zeros(Float64, 3, 3)
+    gLatvecs[1,:] = Latvecs[1,:]/Ngrid1
+	gLatvecs[2,:] = Latvecs[2,:]/Ngrid2
+	gLatvecs[3,:] = Latvecs[3,:]/Ngrid3
+
+
+    N_Polt_Cube = length(CWF_Plot_Cube)
+    Nloop = N_Polt_Cube
+    OneD2proj = zeros(Int32, Nloop)
+
+    counts = 1
+    for proj in CWF_Plot_Cube
+        OneD2proj[counts] = proj
+        counts += 1
+    end
+    
+    myrange = split_evenly(1:Nloop, nprocs)
+    MPI_CWF_size = length(myrange[myrank+1])
+    MPI_proj = OneD2proj[myrange[myrank+1]]
+
+
+
+    ExpnCoef = zeros(ComplexF64, Nfsize)
+    Wannier_Orbs_Grid = zeros(ComplexF64, CWF_TNumGrid)
+
+    for loop = 1:MPI_CWF_size
+        proj = MPI_proj[loop]
+        println("  Write myrank = $myrank   $(filename)_CWF$(proj).nccube")
+        data = open("$(filename)_CWF$(proj).nccube", "w")
+        Write_Wannier_CubeInfo(data, Atoms_symbol, CWF_Plot_SuperCells, Grid_Origin, Natom, Gxyz_scf, Latvecs, gLatvecs, Ngrid)
+        for spin = 1:2
+            fill!(Wannier_Orbs_Grid, 0.0)
+            spin_site = ifelse(spin==1, 0, fsize)
+            for cell = 1:Plot_NCell
+                @. ExpnCoef = CWF_ExpnCoef[proj][cell]
+                for atom = 1:Natom
+                    cwf_proj = MP[atom]
+                    NO0 = Total_NumOrbs[atom]
+                    _Calc_CWF_Grid8!(spin_site+cwf_proj, NO0, CWF_GridN_Atom[cell][atom], CWF_GridOrbs_Grid[cell][atom], CWF_GridListAtom[cell][atom], Orbs_Grid[atom], ExpnCoef, Wannier_Orbs_Grid)
+                end
+            end
+
+            Write_Wannier_Orbs_Grid(data, CWF_Plot_SuperCells, Ngrid, real(Wannier_Orbs_Grid))
+            Write_Wannier_Orbs_Grid(data, CWF_Plot_SuperCells, Ngrid, imag(Wannier_Orbs_Grid))
+        end
+        close(data)
+    end
+end
+
+
 function CWF_UCell(cwf_setup::Union{CWF_Setup,CWF_Setup_MO}, ucell::UCell)
 
     CWF_Plot_SuperCells = cwf_setup.CWF_Plot_SuperCells
@@ -94,113 +274,6 @@ function CWF_UCell(cwf_setup::Union{CWF_Setup,CWF_Setup_MO}, ucell::UCell)
 
 
     return CWF_GridN_Atom, CWF_GridListAtom, CWF_GridOrbs_Grid
-end
-
-
-
-function Set_CWF_Grid(CWF_ExpnCoef, Orbs_Grid, ucell::UCell, cwf_setup::Union{CWF_Setup,CWF_Setup_MO})
-
-    material = cwf_setup.material
-    Natom = material.Natom
-    MP = material.MP
-    atv_ijk = material.atv_ijk
-    SpinPol = material.SpinPol
-    Total_NumOrbs = material.Total_NumOrbs
-    fsize = sum(Total_NumOrbs)
-    Atoms_symbol = material.Atoms_symbol
-    Gxyz_scf = material.Gxyz
-    
-    Latvecs = ucell.system_grid.Latvecs
-    Ngrid = ucell.system_grid.Ngrid
-    Grid_Origin = ucell.system_grid.Grid_Origin
-    Ngrid1, Ngrid2, Ngrid3 = Ngrid
-    
-    spinsize = cwf_setup.spinsize
-    CWF_Plot_Cube = cwf_setup.CWF_Plot_Cube
-    CWF_Plot_SuperCells = cwf_setup.CWF_Plot_SuperCells
-    CWF_Plot_SuperCells1, CWF_Plot_SuperCells2, CWF_Plot_SuperCells3 = CWF_Plot_SuperCells
-    filename = cwf_setup.filename
-
-    if SpinPol ∈ ("off", "on")
-        Nfsize = fsize
-    elseif SpinPol == "nc"
-        Nfsize = 2*fsize
-    end
-
-
-    gLatvecs = zeros(Float64, 3, 3)
-    gLatvecs[1,:] = Latvecs[1,:]/Ngrid1
-	gLatvecs[2,:] = Latvecs[2,:]/Ngrid2
-	gLatvecs[3,:] = Latvecs[3,:]/Ngrid3
-
-    
-    Plot_NCell = prod(2*CWF_Plot_SuperCells.+1)
-    CWF_TNumGrid = prod(Ngrid)*Plot_NCell
-    
-
-    CWF_GridN_Atom, CWF_GridListAtom, CWF_GridOrbs_Grid = CWF_UCell(cwf_setup, ucell)
-
-
-
-
-    if SpinPol ∈ ("off", "on")
-        
-        ExpnCoef = zeros(Float64, Nfsize)
-        Wannier_Orbs_Grid = zeros(Float64, CWF_TNumGrid)
-
-        for spin = 1:spinsize, proj in CWF_Plot_Cube
-
-            fill!(Wannier_Orbs_Grid, 0.0)
-
-            for cell = 1:Plot_NCell
-                @. ExpnCoef = CWF_ExpnCoef[spin][proj][cell]
-                for atom = 1:Natom
-                    
-                    cwf_proj = MP[atom]
-                    NO0 = Total_NumOrbs[atom]
-
-                    _Calc_CWF_Grid8!(cwf_proj, NO0, CWF_GridN_Atom[cell][atom], CWF_GridOrbs_Grid[cell][atom], CWF_GridListAtom[cell][atom], Orbs_Grid[atom], ExpnCoef, Wannier_Orbs_Grid)
-                end
-            end
-
-            data = open("$(filename)_CWF$(spin)_$(proj).cube", "w")
-            Write_Wannier_CubeInfo(data, Atoms_symbol, CWF_Plot_SuperCells, Grid_Origin, Natom, Gxyz_scf, Latvecs, gLatvecs, Ngrid)
-            Write_Wannier_Orbs_Grid(data, CWF_Plot_SuperCells, Ngrid, Wannier_Orbs_Grid)
-            close(data)
-        end
-    elseif SpinPol == "nc"
-
-        ExpnCoef = zeros(ComplexF64, Nfsize)
-        Wannier_Orbs_Grid = zeros(ComplexF64, CWF_TNumGrid)
-
-        for proj in CWF_Plot_Cube
-
-            data = open("$(filename)_CWF$(proj).nccube", "w")
-            Write_Wannier_CubeInfo(data, Atoms_symbol, CWF_Plot_SuperCells, Grid_Origin, Natom, Gxyz_scf, Latvecs, gLatvecs, Ngrid)
-
-            for spin = 1:2
-
-                fill!(Wannier_Orbs_Grid, 0.0)
-                spin_site = ifelse(spin==1, 0, fsize)
-
-                for cell = 1:Plot_NCell
-                    @. ExpnCoef = CWF_ExpnCoef[proj][cell]
-                    for atom = 1:Natom
-                    
-                        cwf_proj = MP[atom]
-                        NO0 = Total_NumOrbs[atom]
-
-                        _Calc_CWF_Grid8!(spin_site+cwf_proj, NO0, CWF_GridN_Atom[cell][atom], CWF_GridOrbs_Grid[cell][atom], CWF_GridListAtom[cell][atom], Orbs_Grid[atom], ExpnCoef, Wannier_Orbs_Grid)
-                    end
-                end
-
-                Write_Wannier_Orbs_Grid(data, CWF_Plot_SuperCells, Ngrid, real(Wannier_Orbs_Grid))
-                Write_Wannier_Orbs_Grid(data, CWF_Plot_SuperCells, Ngrid, imag(Wannier_Orbs_Grid))
-            end
-
-            close(data)
-        end
-    end
 end
 
 

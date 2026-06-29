@@ -14,21 +14,13 @@ function Calc_Sigma_decomp_2D(boltz_setup::Boltz_Setup, TDF_Energy, TDF_decomp)
     material = boltz_setup.material
     Nwann = material.Ngsize
     SpinPol = material.SpinPol
+    spinsize = ifelse(SpinPol=="on", 2, 1)
     filename = boltz_setup.filename
+    mat_type = boltz_setup.mat_type
     TDF_Erange = boltz_setup.TDF_Erange
     muE = boltz_setup.muE
     Temp = boltz_setup.Temp
     NTemp = length(Temp)
-    cal_type = "CWF"
-
-    if SpinPol ∈ ("off", "nc")
-        spinsize = 1
-    elseif SpinPol == "on"
-        SpinPol = 2
-    else
-        error("please check SpinPol")
-    end
-
 
     TDF_EneNum = length(TDF_Energy)
     dTDF = (TDF_Erange[2]-TDF_Erange[1])/(TDF_EneNum-1)
@@ -64,7 +56,7 @@ function Calc_Sigma_decomp_2D(boltz_setup::Boltz_Setup, TDF_Energy, TDF_decomp)
             sigma[ist,spin,3] = Sumyy*dTDF*elem_charge_SI^3/(hbar_SI^2)*1.0e-5
         end
 
-        Write_Sigma_decomp_2D(filename, cal_type, SpinPol, Nwann, mu, Temp[iTemp], sigma)
+        Write_Sigma_decomp_2D(filename, mat_type, SpinPol, Nwann, mu, Temp[iTemp], sigma)
     end 
 end
 
@@ -74,21 +66,13 @@ function Calc_Sigma_decomp_3D(boltz_setup::Boltz_Setup, TDF_Energy, TDF_decomp)
     material = boltz_setup.material
     Nwann = material.Ngsize
     SpinPol = material.SpinPol
+    spinsize = ifelse(SpinPol=="on", 2, 1)
     filename = boltz_setup.filename
+    mat_type = boltz_setup.mat_type
     TDF_Erange = boltz_setup.TDF_Erange
     muE = boltz_setup.muE
     Temp = boltz_setup.Temp
     NTemp = length(Temp)
-    cal_type = "CWF"
-
-    if SpinPol ∈ ("off", "nc")
-        spinsize = 1
-    elseif SpinPol == "on"
-        SpinPol = 2
-    else
-        error("please check SpinPol")
-    end
-
 
     TDF_EneNum = length(TDF_Energy)
     dTDF = (TDF_Erange[2]-TDF_Erange[1])/(TDF_EneNum-1)
@@ -135,6 +119,6 @@ function Calc_Sigma_decomp_3D(boltz_setup::Boltz_Setup, TDF_Energy, TDF_decomp)
             sigma[ist,spin,6] = Sumzz*dTDF*elem_charge_SI^3/(hbar_SI^2)*1.0e-5
         end
 
-        Write_Sigma_decomp_3D(filename, cal_type, SpinPol, Nwann, mu, Temp[iTemp], sigma)
+        Write_Sigma_decomp_3D(filename, mat_type, SpinPol, Nwann, mu, Temp[iTemp], sigma)
     end
 end

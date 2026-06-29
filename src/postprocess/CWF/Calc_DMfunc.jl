@@ -1,4 +1,4 @@
-function Calc_DMfunc(spinsize, Ngsize, Σmk, kpoints::KPoints)
+@timeit timer "Calc_DMfunc" function Calc_DMfunc(spinsize, Ngsize, Σmk, kpoints::KPoints)
 
     comm = MPI.COMM_WORLD
     myrank = MPI.Comm_rank(comm)

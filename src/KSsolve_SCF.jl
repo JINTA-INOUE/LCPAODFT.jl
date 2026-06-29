@@ -30,6 +30,12 @@ function KSsolve_SCF!(
     filepath = dft_setup.filepath
     verbosity = dft_setup.verbosity
     send_email = dft_setup.send_email
+    Hubbard_U = false # dft_setup.Hub_U
+    Hub_U_atom = dft_setup.Hub_U_atom
+    Hub_U_orbpol = dft_setup.Hub_U_orbpol
+    Hub_U_occ = dft_setup.Hub_U_occ
+    Hub_Type = dft_setup.Hub_Type
+    dc_Type = dft_setup.dc_Type
     system_grid = ucell.system_grid
     Total_Hsize = system_grid.Total_Hsize
     Atoms_Core_Charge = electron.Core_Charge
@@ -118,10 +124,17 @@ function KSsolve_SCF!(
 
 
     xc_func = XC_Func(xc_type, SpinPol, Nspin, Ngrid, gLatvecs)
+
+
+    if Hubbard_U
+        Hub_U = DFT_Hubbard_U(SpinPol, Hub_U_atom, Hub_U_orbpol, Hub_U_occ, Hub_Type, dc_Type, pao, system_grid)
+    end
+
+
     dft_mixing = DFT_Mixing(Nspin, dft_options, system_grid)
 
     TotalZ = electron.TotalZ
-    mulliken_charge = Mulliken_Charge(SpinPol, system_grid, TotalZ)
+    mulliken_charge = Mulliken_Charge(SpinPol, system_grid, Atoms_Core_Charge)
 
 
 
@@ -142,6 +155,10 @@ function KSsolve_SCF!(
         if SCF_iter ≠ 1 || SucceedReadingrhofile == 1
             myrank == 0 && println("<Poisson>  Poisson's equation using FFT")
             Solve_Poisson!(SpinPol, dft_mixing, Density_Grid, ADensity_Grid, dVHart_Grid)
+
+            if Hubbard_U
+                Set_Eff_Hub_Pot!(Hub_U, Ham.OLP)
+            end
         end
 
 
@@ -154,6 +171,11 @@ function KSsolve_SCF!(
         end
         SucceedReadingHksfile = 0
         SucceedReadingrhofile = 1
+
+
+        if Hubbard_U
+            Add_H_Hub!(Hub_U, Hks)
+        end
         
 
         if Mixing_method == "RMM-DIISH"
@@ -232,6 +254,11 @@ function KSsolve_SCF!(
         end
 
 
+        if Hubbard_U
+            Set_DM2DM_Vec!(DM, DM_Vec, system_grid)
+            Occupation_Number_DFT_U!(SCF_iter, Hub_U, DM_Vec, Ham.OLP)
+        end
+
 
         Mulliken_Charge!(mulliken_charge, DM, Ham.OLP)
         
@@ -292,7 +319,7 @@ function KSsolve_SCF!(
         end
 
 
-        system_charge = 0
+        system_charge = 0.0
         dipole_moment = Calc_dipole_moment(SpinPol, system_grid, Atoms_Core_Charge, system_charge, Density_Grid)
         if verbosity >= 1
             println("\n")
@@ -357,7 +384,7 @@ function KSsolve_SCF!(
         OLP_Vec = Set_HVNA2HVNA_Vec(Ham.OLP, system_grid)
         Hks_Vec = Set_DM2DM_Vec(Hks, system_grid)
         iHks_Vec = Set_DM2DM_Vec(Ham.iHNL, system_grid)
-        WriteFile(Atoms_Core_Charge, mulliken_charge, dft_setup, system_grid, energy, force, DM_Vec, iDM_Vec, OLP_Vec, Hks_Vec, iHks_Vec)
+        WriteFile(mulliken_charge, dft_setup, system_grid, dipole_moment, energy, force, DM_Vec, iDM_Vec, OLP_Vec, Hks_Vec, iHks_Vec)
     end
     MPI.Barrier(comm)
 

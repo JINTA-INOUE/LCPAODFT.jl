@@ -1,4 +1,4 @@
-function Calc_Ngrid(Ecut::Float64, Latvecs::Matrix{Float64})
+function Calc_Ngrid(Ecut, Latvecs)
 
     if Ecut < 0.0
         error("please check Ecut.")

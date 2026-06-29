@@ -1,6 +1,7 @@
 struct CWF_Setup
     filepath::String
     material::LCPAO_model
+    mlwf_kpoints::MLWF_KPoints
     spinsize::Int32
     GNatom::Int32
     Wannier_Guide::Vector{Vector{Float64}}
@@ -14,6 +15,7 @@ struct CWF_Setup
     CWF_Plot_Cube::Union{Vector{Int32},Nothing}
     CWF_Plot_SuperCells::Union{Vector{Int32},Nothing}
     weight_type::String
+    MLWF_kpts::Vector{Float64}
     CWF_HmnR::Bool
     CWF_Wannier::Bool
     CWF_SOC::Bool
@@ -27,6 +29,7 @@ end
 struct CWF_Setup_MO
     filepath::String
     material::LCPAO_model
+    mlwf_kpoints::MLWF_KPoints
     spinsize::Int32
     Num_CWF_Grouped_Atoms::Int32
     CWF_Grouped_Atoms_EachNum::Vector{Int32}
@@ -42,6 +45,7 @@ struct CWF_Setup_MO
     CWF_Plot_Cube::Union{Vector{Int32},Nothing}
     CWF_Plot_SuperCells::Union{Vector{Int32},Nothing}
     weight_type::String
+    MLWF_kpts::Vector{Float64}
     CWF_HmnR::Bool
     CWF_Wannier::Bool
     CWF_SOC::Bool
@@ -56,60 +60,9 @@ end
 function Print_CWF_Setup(cwf_setup::CWF_Setup)
     
     material = cwf_setup.material
-
-    # Print material information
-    filepath = cwf_setup.filepath
     Natom = material.Natom
-    Nspecies = material.Nspecies
-    Nspin = material.Nspin
-    SO_switch = material.SO_switch
-    xc_type = material.xc_type
-    ChemP = material.ChemP
-    atom2spe = material.atom2spe
-    Latvecs = material.Latvecs
-    Recvecs = material.Recvecs
-    Gxyz = material.Gxyz
     Atoms_symbol = material.Atoms_symbol
-    Atoms_pao = material.Atoms_pao
-
-
-
-    println("<Print_material>")
-    println("LCPAODFT jld2 read path")
-    println("\t$filepath")
-    println("")
-    println("\tNatom : $(Natom)")
-    println("\tNspecies : $(Nspecies)")
-    println("\tNspin : $(Nspin)")
-    println("\tSO_switch : $(SO_switch)")
-    println("\txc_type : $(xc_type)")
-    println("\tChemP (Hartee): $(ChemP)")
-    println("Latvecs (AU)")
-    @printf("\tA : %15.12f  %15.12f  %15.12f\n", Latvecs[1,1], Latvecs[1,2], Latvecs[1,3])
-    @printf("\tB : %15.12f  %15.12f  %15.12f\n", Latvecs[2,1], Latvecs[2,2], Latvecs[2,3])
-    @printf("\tC : %15.12f  %15.12f  %15.12f\n", Latvecs[3,1], Latvecs[3,2], Latvecs[3,3])
-
-    println("Recvecs (1/AU)")
-    @printf("\tA : %15.12f  %15.12f  %15.12f\n", Recvecs[1,1], Recvecs[1,2], Recvecs[1,3])
-    @printf("\tB : %15.12f  %15.12f  %15.12f\n", Recvecs[2,1], Recvecs[2,2], Recvecs[2,3])
-    @printf("\tC : %15.12f  %15.12f  %15.12f\n", Recvecs[3,1], Recvecs[3,2], Recvecs[3,3])
-
-    println("Atom Catesian positions (AU)")
-    println("\tatom\tAtom Name\t   x\t     y\t       z")
-    for atom = 1:Natom
-        @printf("\t%d\t%s\t\t%10.6f  %10.6f  %10.6f\n", atom, Atoms_symbol[atom], Gxyz[atom][1], Gxyz[atom][2], Gxyz[atom][3])
-    end
-
-    println("Pseudo Atomic Orbitals")
-    Spe_Symbol, Spe_cutoff, Spe_orb, Spe_extra = Get_Atoms_data(Atoms_pao)
-    for spe = 1:Nspecies
-        println("\t$spe  $(Spe_Symbol[spe])\tcutoff: $(Spe_cutoff[spe])\torbitals $(Spe_orb[spe]*Spe_extra[spe])")
-    end
-    println("")
-
-
-
-
+    
     Guide_index = cwf_setup.Guide_index
     Guide_Total_NumOrbs = cwf_setup.Guide_Total_NumOrbs
     Ngsize = cwf_setup.Ngsize
@@ -119,6 +72,7 @@ function Print_CWF_Setup(cwf_setup::CWF_Setup)
     CWF_Plot_Cube = cwf_setup.CWF_Plot_Cube
     CWF_Plot_SuperCells = cwf_setup.CWF_Plot_SuperCells
     weight_type = cwf_setup.weight_type
+    MLWF_kpts = cwf_setup.MLWF_kpts
     CWF_HmnR = cwf_setup.CWF_HmnR
     CWF_Wannier = cwf_setup.CWF_Wannier
     CWF_SOC = cwf_setup.CWF_SOC
@@ -132,7 +86,7 @@ function Print_CWF_Setup(cwf_setup::CWF_Setup)
     println("Guide PAO")
     println("\tatom\tAtom Name")
     for atom = 1:Natom
-        @printf("\t%d\t%s\t\t", atom, Atoms_symbol[atom])
+        @printf("\t\t%d\t%s\t\t", atom, Atoms_symbol[atom])
         for i = 1:Guide_Total_NumOrbs[atom]
             @printf("  %d ", Guide_index[atom][i])
         end
@@ -151,6 +105,10 @@ function Print_CWF_Setup(cwf_setup::CWF_Setup)
     end
     println("\tCWF_SOC: $(CWF_SOC)")
     println("\tCWF2MLWF: $(CWF2MLWF)")
+    if CWF2MLWF
+        # sampling kpoint for Calc_BANDNUM_KS_state
+        println("\t\tMLWF_kpts: $(MLWF_kpts)")
+    end
     println("\twrite_coef: $(write_coef)")
     println("\tfilename: $(filename)")
     println("\tverbosity: $(verbosity)")
@@ -158,63 +116,8 @@ function Print_CWF_Setup(cwf_setup::CWF_Setup)
 end
 
 
-
 function Print_CWF_Setup(cwf_setup::CWF_Setup_MO)
     
-    material = cwf_setup.material
-
-    # Print material information
-    filepath = cwf_setup.filepath
-    Natom = material.Natom
-    Nspecies = material.Nspecies
-    Nspin = material.Nspin
-    SO_switch = material.SO_switch
-    xc_type = material.xc_type
-    atom2spe = material.atom2spe
-    Latvecs = material.Latvecs
-    Recvecs = material.Recvecs
-    Gxyz = material.Gxyz
-    Atoms_symbol = material.Atoms_symbol
-    Atoms_pao = material.Atoms_pao
-
-
-
-    println("<Print_material>")
-    println("LCPAODFT jld2 read path")
-    println("\t$filepath")
-    println("")
-    println("\tNatom : $(Natom)")
-    println("\tNspecies : $(Nspecies)")
-    println("\tNspin : $(Nspin)")
-    println("\tSO_switch : $(SO_switch)")
-    println("\txc_type : $(xc_type)")
-    println("\tChemP (Hartee): $(ChemP)")
-    println("Latvecs (AU)")
-    @printf("\tA : %15.12f  %15.12f  %15.12f\n", Latvecs[1,1], Latvecs[1,2], Latvecs[1,3])
-    @printf("\tB : %15.12f  %15.12f  %15.12f\n", Latvecs[2,1], Latvecs[2,2], Latvecs[2,3])
-    @printf("\tC : %15.12f  %15.12f  %15.12f\n", Latvecs[3,1], Latvecs[3,2], Latvecs[3,3])
-
-    println("Recvecs (1/AU)")
-    @printf("\tA : %15.12f  %15.12f  %15.12f\n", Recvecs[1,1], Recvecs[1,2], Recvecs[1,3])
-    @printf("\tB : %15.12f  %15.12f  %15.12f\n", Recvecs[2,1], Recvecs[2,2], Recvecs[2,3])
-    @printf("\tC : %15.12f  %15.12f  %15.12f\n", Recvecs[3,1], Recvecs[3,2], Recvecs[3,3])
-
-    println("Atom Catesian positions (AU)")
-    println("\tatom\tAtom Name\t   x\t     y\t       z")
-    for atom = 1:Natom
-        @printf("\t%d\t%s\t\t%10.6f  %10.6f  %10.6f\n", atom, Atoms_symbol[atom], Gxyz[atom][1], Gxyz[atom][2], Gxyz[atom][3])
-    end
-
-    println("Pseudo Atomic Orbitals")
-    Spe_Symbol, Spe_cutoff, Spe_orb, Spe_extra = Get_Atoms_data(Atoms_pao)
-    for spe = 1:Nspecies
-        println("\t$spe  $(Spe_Symbol[spe])\tcutoff: $(Spe_cutoff[spe])\torbitals $(Spe_orb[spe]*Spe_extra[spe])")
-    end
-    println("")
-
-
-
-
     Ngsize = cwf_setup.Ngsize
     Dis_Energy = cwf_setup.Dis_Energy
     kmesh = cwf_setup.kmesh
@@ -227,6 +130,7 @@ function Print_CWF_Setup(cwf_setup::CWF_Setup_MO)
     CWF_SOC = cwf_setup.CWF_SOC
     CWF2MLWF = cwf_setup.CWF2MLWF
     write_coef = cwf_setup.write_coef
+    MLWF_kpts = cwf_setup.MLWF_kpts
     filename = cwf_setup.filename
     verbosity = cwf_setup.verbose
 
@@ -245,6 +149,10 @@ function Print_CWF_Setup(cwf_setup::CWF_Setup_MO)
     end
     println("\tCWF_SOC: $(CWF_SOC)")
     println("\tCWF2MLWF: $(CWF2MLWF)")
+    if CWF2MLWF
+        # sampling kpoint for Calc_BANDNUM_KS_state
+        println("\t\tMLWF_kpts: $(MLWF_kpts)")
+    end
     println("\twrite_coef: $(write_coef)")
     println("\tfilename: $(filename)")
     println("\tverbosity: $(verbosity)")
@@ -252,61 +160,18 @@ function Print_CWF_Setup(cwf_setup::CWF_Setup_MO)
 end
 
 
-"""
-```
-    CWF_Setup(...)
-
-Setup for Generating Closest Wannier Functions
-
-Mandatory arguments:
-
-- `filepath`
-- `Guide_Orbs`
-- `Guide_Symbol`
-- `Guide_Pos`
-- `ε`
-- `kBT`
-
-Thw following is the most commonly used optional arguments:
-
-
 function CWF_Setup(
-    filepath::String,
-    Guide_Orbs::Vector{String},
-    Guide_Symbol::Vector{String},
-    Guide_Pos::Atompos,
-    ε::Vector{Float64},
-    kBT::Vector{Float64};
-    kmesh::Union{Nothing,Tuple{Int64,Int64,Int64}}=(1,1,1),
-    Ecut = 150.0,
-    CWF_Plot_atom=nothing,
-    CWF_Plot_SuperCells=nothing,
-    RotMat = nothing,
-    PAO_scale::Vector{Float64} = ones(Float64,length(Guide_Symbol)),
-    Plot_line::String = "",
-    gtype::String="AO",
-    filename=splitext(basename(filepath))[1],
-    CWF_HmnR = false,
-    CWF_Wannier = false,
-    verbose = true
-)
-
-
-# Examples
-```
-Example case please check https://github.com/JINTA-INOUE/juOpenMX
-```
-"""
-function CWF_Setup(
-    filepath::String,
+    filepath::AbstractString,
     Guide_index,
     Dis_Energy::Vector{Float64};
     kmesh::Tuple{Signed,Signed,Signed}=(1,1,1),
     Ecut = 150.0,
-    CWF_Plot_Cube=nothing,
-    CWF_Plot_SuperCells=nothing,
-    weight_type::String = "Fermi",
-    filename=splitext(basename(filepath))[1],
+    CWF_Plot_Cube = nothing,
+    CWF_Plot_SuperCells = nothing,
+    weight_type::AbstractString = "Fermi",
+    MAXSHELL::Integer = 15,
+    MLWF_kpts::Vector{Float64} = [0.0,0.0,0.0],
+    filename::AbstractString = splitext(basename(filepath))[1],
     CWF_HmnR::Bool = false,
     CWF_Wannier::Bool = false,
     CWF_SOC::Bool = false,
@@ -324,6 +189,8 @@ function CWF_Setup(
     nthreads = Threads.nthreads()
     nblas = BLAS.get_num_threads()
 
+    LCPAODFT.reset_timer!(LCPAODFT.timer)
+
 
     # Input Error check
     weight_type = lowercase(weight_type)
@@ -336,6 +203,10 @@ function CWF_Setup(
     end
 
     if weight_type=="fermi"
+        if Dis_Energy[1] > Dis_Energy[2]
+            error("please check Dis_Energy")
+        end
+
         if Dis_Energy[3] < 0.0 || Dis_Energy[4] < 0.0
             error("please check kBT")
         end
@@ -363,11 +234,6 @@ function CWF_Setup(
             error("please set Ecut")
         end
 
-        if nprocs >= 2
-            MPI.Finalized()
-            error("please run serial.")
-        end
-
         if isnothing(CWF_Plot_Cube)
             error("please set CWF_Plot_Cube")
         end
@@ -376,18 +242,13 @@ function CWF_Setup(
             error("please set CWF_Plot_SuperCells")
         end
 
-        if length(CWF_Plot_SuperCells) ≠ 3 || all(x->x>0, CWF_Plot_SuperCells)
+        if length(CWF_Plot_SuperCells) ≠ 3 || !all(x->x>=0, CWF_Plot_SuperCells)
             error("please check CWF_Plot_SuperCells")
         end
     end
 
 
     if CWF2MLWF
-        if nprocs >= 2
-            MPI.Finalized()
-            error("please run serial.")
-        end
-
         if weight_type == "fermi"
             MPI.Finalized()
             error("please use weight_type = \"poly\"")
@@ -400,14 +261,19 @@ function CWF_Setup(
 
 
 
-
-
-    material = Load_LCPAODFT_model(filepath)
+    model = select_model(filepath)
+    if model == 1
+        material = Load_LCPAODFT_model(filepath)
+    else
+        error("please check filepath.")
+    end
+    
+    if myrank == 0
+        Print_LCPAO_model(filepath, material)
+    end
+    MPI.Barrier(comm)
 
     filepath = pwd()*"/"*filepath
-
-
-
     Natom = material.Natom
     Latvecs = material.Latvecs
     Gxyz = material.Gxyz
@@ -460,6 +326,18 @@ function CWF_Setup(
         end
     end
 
+
+
+    if CWF2MLWF
+        myrank == 0 && println("<Set_MLWF_kgrid>")
+        mlwf_kpoints = Set_MLWF_kgrid(Latvecs, kmesh, MAXSHELL)
+        myrank == 0 && Print_MLWF_kpoints(mlwf_kpoints)
+        myrank == 0 && println("")
+    else
+        mlwf_kpoints = Set_MLWF_kgrid()
+    end
+    MPI.Barrier(comm)
+
     
     if SpinPol ∈ ("off", "nc")
         spinsize = 1
@@ -472,11 +350,11 @@ function CWF_Setup(
 
 
     cwf_setup = CWF_Setup(
-        filepath, material, spinsize, 
+        filepath, material, mlwf_kpoints, spinsize, 
         GNatom, Wannier_Guide, Guide_index, Guide_Total_NumOrbs, gsize, Ngsize,
         Dis_Energy, kmesh,
         Ecut, CWF_Plot_Cube, CWF_Plot_SuperCells,
-        weight_type,
+        weight_type, MLWF_kpts,
         CWF_HmnR, CWF_Wannier, CWF_SOC, CWF2MLWF, write_coef, 
         filename, verbose)
 
@@ -492,7 +370,7 @@ end
 
 # MO type
 function CWF_Setup(
-    filepath::String,
+    filepath::AbstractString,
     Num_CWF_MOs_Group::Vector{Int64},
     CWF_MO_Grouped_Atoms::Vector{Int64},
     Dis_Energy::Vector{Float64};
@@ -500,8 +378,10 @@ function CWF_Setup(
     Ecut = 100.0,
     CWF_Plot_Cube=nothing,
     CWF_Plot_SuperCells=nothing,
-    weight_type::String = "Fermi",
-    filename = nothing,
+    weight_type::AbstractString = "Fermi",
+    MAXSHELL::Integer = 15,
+    MLWF_kpts::Vector{Float64} = [0.0,0.0,0.0],
+    filename::AbstractString = splitext(basename(filepath))[1],
     CWF_HmnR::Bool = false,
     CWF_Wannier::Bool = false,
     CWF_SOC::Bool = false,
@@ -519,6 +399,8 @@ function CWF_Setup(
     BLAS.set_num_threads(1)
     nthreads = Threads.nthreads()
     nblas = BLAS.get_num_threads()
+
+    LCPAODFT.reset_timer!(LCPAODFT.timer)
 
 
     # Input Error check
@@ -558,12 +440,6 @@ function CWF_Setup(
 
 
     if CWF_Wannier
-
-        if nprocs >= 2
-            MPI.Finalized()
-            error("please run serial.")
-        end
-        
         if isnothing(Ecut)
             error("please set Ecut")
         end
@@ -576,18 +452,13 @@ function CWF_Setup(
             error("please set CWF_Plot_SuperCells")
         end
 
-        if length(CWF_Plot_SuperCells) ≠ 3 || all(x->x>0, CWF_Plot_SuperCells)
+        if length(CWF_Plot_SuperCells) ≠ 3 || !all(x->x>=0, CWF_Plot_SuperCells)
             error("please check CWF_Plot_SuperCells")
         end
     end
 
 
     if CWF2MLWF
-        if nprocs >= 2
-            MPI.Finalized()
-            error("please run serial.")
-        end
-
         if weight_type == "fermi"
             MPI.Finalized()
             error("please use weight_type = \"poly\"")
@@ -602,10 +473,13 @@ function CWF_Setup(
 
 
     material = Load_LCPAODFT_model(filepath)
-    filepath = pwd()*"/"*filepath
+    if myrank == 0
+        Print_LCPAO_model(filepath, material)
+    end
+    MPI.Barrier(comm)
 
+    filepath = pwd()*"/"*filepath
     Natom = material.Natom
-    Latvecs = material.Latvecs
     Total_NumOrbs = material.Total_NumOrbs
     SpinPol = material.SpinPol
 
@@ -697,21 +571,37 @@ function CWF_Setup(
         error("please check SpinPol")
     end
 
+    if CWF2MLWF
+        myrank == 0 && println("<Set_MLWF_kgrid>")
+        mlwf_kpoints = Set_MLWF_kgrid(Latvecs, kmesh, MAXSHELL)
+        myrank == 0 && Print_MLWF_kpoints(mlwf_kpoints)
+        myrank == 0 && println("")
+    else
+        mlwf_kpoints = Set_MLWF_kgrid()
+    end
+    MPI.Barrier(comm)
+
+    
+
     guide_out = false
 
+
+    
+
     cwf_setup = CWF_Setup_MO(
-        filepath, material, spinsize, 
+        filepath, material, mlwf_kpoints, spinsize, 
         Num_CWF_Grouped_Atoms, CWF_Grouped_Atoms_EachNum, CWF_Grouped_Atoms,
         Num_CWF_MOs_Group, CWF_Total_NumOrbs, MP3,
         gsize, Ngsize,
         Dis_Energy, kmesh, Ecut, 
         CWF_Plot_Cube, CWF_Plot_SuperCells,
-        weight_type, CWF_HmnR, CWF_Wannier, CWF_SOC, CWF2MLWF, write_coef,
+        weight_type, MLWF_kpts, CWF_HmnR, CWF_Wannier, CWF_SOC, CWF2MLWF, write_coef,
         guide_out, filename, verbose)
 
     if myrank == 0
         Print_CWF_Setup(cwf_setup)
     end
+    MPI.Barrier(comm)
 
 
     return cwf_setup

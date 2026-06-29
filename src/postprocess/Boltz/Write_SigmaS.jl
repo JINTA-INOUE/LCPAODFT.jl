@@ -1,10 +1,10 @@
-function Write_SigmaS_2D(filename::String, cal_type::String, SpinPol::String, muE::Vector{Float64}, Temp, sigmas_mu)
+function Write_SigmaS_2D(filename::String, mat_type::String, SpinPol::String, muE::Vector{Float64}, Temp, sigmas_mu)
 
     Nmu = length(muE)
-    data = open(filename*"."*cal_type*"_sigmas"*string(Temp)*".dat", "w")
+    data = open(filename*"_"*mat_type*"_sigmas"*string(Temp)*".dat", "w")
 
-    @printf(data, "# %s", now())
-    @printf(data, "# cal_type = %s\n", cal_type)
+    @printf(data, "# %s\n", now())
+    @printf(data, "# mat_type = %s\n", mat_type)
     @printf(data, "# SpinPol = %s\n", SpinPol)
     @printf(data, "# Temp = %5.15f\n", Temp)
     @printf(data, "# Nmu = %d\n", Nmu)
@@ -36,13 +36,13 @@ function Write_SigmaS_2D(filename::String, cal_type::String, SpinPol::String, mu
 end
 
 
-function Write_SigmaS_3D(filename::String, cal_type::String, SpinPol::String, muE::Vector{Float64}, Temp, sigmas_mu)
+function Write_SigmaS_3D(filename::String, mat_type::String, SpinPol::String, muE::Vector{Float64}, Temp, sigmas_mu)
 
     Nmu = length(muE)
-    data = open(filename*"."*cal_type*"_sigmas"*string(Temp)*".dat", "w")
+    data = open(filename*"_"*mat_type*"_sigmas"*string(Temp)*".dat", "w")
 
-    @printf(data, "# %s", now())
-    @printf(data, "# cal_type = %s\n", cal_type)
+    @printf(data, "# %s\n", now())
+    @printf(data, "# mat_type = %s\n", mat_type)
     @printf(data, "# SpinPol = %s\n", SpinPol)
     @printf(data, "# Temp = %5.15f\n", Temp)
     @printf(data, "# Nmu = %d\n", Nmu)

@@ -61,7 +61,6 @@ function Extp_Charge(Opt_iter, Extra_CHistory, Natom, His_Gxyz, Gxyz)
             IA[i,j] = A[i,j]
         end
 
-        # IA = inv(Symmetric(IA))
         symMatrix_inv!(NumHis, IA)
 
 

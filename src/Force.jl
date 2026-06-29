@@ -3051,8 +3051,11 @@ function _Calc_Force3_8(NO0, NO1, NumOLG, GridListAtom, GListTAtoms1, GListTAtom
 			Sum5z = temp5 * dOrbs_Gridz[Nc5][ist]
 			Sum6z = temp6 * dOrbs_Gridz[Nc6][ist]
 			Sum7z = temp7 * dOrbs_Gridz[Nc7][ist]
-			for jst = 1:NO1
+            
+			@inbounds for jst = 1:NO1
+                
                 DM_tmp = DM[ist][jst]
+
                 orb0 = Orbs_Grid[Nh0][jst]*DM_tmp
                 orb1 = Orbs_Grid[Nh1][jst]*DM_tmp
                 orb2 = Orbs_Grid[Nh2][jst]*DM_tmp

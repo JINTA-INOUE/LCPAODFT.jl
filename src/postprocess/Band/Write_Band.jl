@@ -58,7 +58,7 @@ function Write_GNUBAND(filename::String, spinsize, Nkpath, kpath, kname, Recvecs
     println(gnu_file, "set title font \"Arial, 20\"")
     println(gnu_file, "unset key")
     println(gnu_file, "")
-    for ik = 1:Nkpath
+    for ik = 1:Nkpath+1
         println(gnu_file, "x$(ik) = $(x[ik])")
     end
     println(gnu_file, "")
@@ -77,11 +77,7 @@ function Write_GNUBAND(filename::String, spinsize, Nkpath, kpath, kname, Recvecs
             print(gnu_file, "\"$(kname[ik])\" x$ik,")
         end
     end
-    if kname[Nkpath+1]=="G"
-        println(gnu_file, "\"{/Symbol G}\" x$(Nkpath+1))")
-    else
-        println(gnu_file, "\"$(kname[Nkpath+1])\" x$(Nkpath+1))")
-    end
+    println(gnu_file, ")")
     for ik = 1:Nkpath-1
         println(gnu_file, "set arrow $ik nohead from x$(ik+1), ymin to x$(ik+1), ymax")
     end

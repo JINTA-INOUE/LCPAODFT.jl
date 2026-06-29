@@ -6,6 +6,7 @@ mutable struct Mulliken_Charge
     FNAN::Vector{Int32}
     natn::Vector{Vector{Int32}}
     Total_NumOrbs::Vector{Int32}
+    Atoms_Core_Charge::Vector{Float64}
     MulP::Vector{Float64}
     DecMulP::Vector{Vector{Vector{Float64}}}
     InitN_USpin::Vector{Float64}
@@ -14,16 +15,18 @@ mutable struct Mulliken_Charge
     Total_SpinS::Float64
     Total_SpinAngle0::Float64
     Total_SpinAngle1::Float64
-    TZ::Int32
+    TotalZ::Int32
 end
 
 
-function Mulliken_Charge(SpinPol, system_grid::System_Grid, TZ)
+function Mulliken_Charge(SpinPol::String, system_grid::System_Grid, Atoms_Core_Charge)
 
     Natom = system_grid.Natom
     FNAN = system_grid.FNAN
     natn = system_grid.natn
     Total_NumOrbs = system_grid.Total_NumOrbs
+
+    TotalZ = sum(Atoms_Core_Charge)
 
     if SpinPol == "off"
         Nspin = 1
@@ -52,8 +55,8 @@ function Mulliken_Charge(SpinPol, system_grid::System_Grid, TZ)
 
 
     Mulliken_Charge(
-        Natom, Nspin, SpinPol, FNAN, natn, Total_NumOrbs,
-        MulP, DecMulP, InitN_USpin, InitN_DSpin, Angle_Spin, 0.0, 0.0, 0.0, TZ)
+        Natom, Nspin, SpinPol, FNAN, natn, Total_NumOrbs, Atoms_Core_Charge,
+        MulP, DecMulP, InitN_USpin, InitN_DSpin, Angle_Spin, 0.0, 0.0, 0.0, TotalZ)
 end
 
 
@@ -158,7 +161,6 @@ function Mulliken_Charge!(mulliken_charge::Mulliken_Charge, DM, OLP)
             Angle_Spin[atom][1] = MulP[3,atom]
             Angle_Spin[atom][2] = MulP[4,atom]
 
-
             theta = Angle_Spin[atom][1]
             phi = Angle_Spin[atom][2]
             sden = 0.5*(InitN_USpin[atom] - InitN_DSpin[atom])
@@ -167,12 +169,10 @@ function Mulliken_Charge!(mulliken_charge::Mulliken_Charge, DM, OLP)
             Total_SpinSz += sden*cos(theta)
         end
 
-
         Total_SpinS, Total_SpinAngle0, Total_SpinAngle1 = xyz_to_spherical(Total_SpinSx, Total_SpinSy, Total_SpinSz)
         mulliken_charge.Total_SpinS = Total_SpinS
         mulliken_charge.Total_SpinAngle0 = Total_SpinAngle0
         mulliken_charge.Total_SpinAngle1 = Total_SpinAngle1
-
     else
         error("please check SpinPol")
     end

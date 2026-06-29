@@ -1,7 +1,7 @@
 struct Boltz_Setup
     filepath::String
     filename::String
-    material::Union{CWF_model}
+    material::Union{CWF_model,LCPAO_model}
     mat_type::String
     kmesh::Tuple{Int32,Int32,Int32}
     tau::Float64
@@ -16,9 +16,10 @@ end
 
 
 function Print_Boltz_Setup(boltz_setup::Boltz_Setup)
-    
-    filename = boltz_setup.filename
+
+    filename = boltz_setup.filename    
     kmesh = boltz_setup.kmesh
+    mat_type = boltz_setup.mat_type
     tau = boltz_setup.tau
     plane_type = boltz_setup.plane_type
     Temp = boltz_setup.Temp
@@ -28,9 +29,9 @@ function Print_Boltz_Setup(boltz_setup::Boltz_Setup)
     TDF_dE = boltz_setup.TDF_dE
     Write_TDF = boltz_setup.Write_TDF
 
-
     println("<Print_Boltz_Setup>")
     println("\tkmesh : $(kmesh)")
+    println("\tmat_type : $(mat_type)")
     println("\ttau : $(tau)")
     println("\tplane_type : $(plane_type)")
     println("\tTemperature : $(Temp)")
@@ -54,34 +55,32 @@ function Boltz_Setup(
     decomp::Bool = false,
     muE::Union{Float64,Vector{Float64}} = [1000.0],
     Write_TDF::Bool = true,
-    filename::Union{String,Nothing} = nothing)
+    filename = nothing)
     
 
     MPI.Init()
     comm = MPI.COMM_WORLD
     nprocs = MPI.Comm_size(comm)
+    myrank = MPI.Comm_rank(comm)
+
+
+    nthreads = Threads.nthreads()
+    # BLAS.set_num_threads(1)
+    nblas = BLAS.get_num_threads()
+    # println("\t$nthreads threads and $nblas BLAS threads")
+    # println("\t$(now())")
+    # println("")
+
+
+    LCPAODFT.reset_timer!(LCPAODFT.timer)
+
+
+    model = select_model(filepath)
+
 
     if nprocs > 1
         error("please run serial.")
     end
-
-    base_filepath = basename(filepath)
-    file = split(base_filepath, ".")
-    if file[end] ≠ "jld2"
-        error("please check filepath.")
-    end
-    if length(file) == 2
-        error("not support LCPAO version.")
-        # ext = "jld2"
-    else
-        ext = file[end-1]*"."*file[end]
-    end
-
-    if isnothing(filename)
-        filename = file[begin]
-    end
-
-
 
     NTemp = length(_Temp)
     Temp = zeros(Float64, NTemp)
@@ -103,11 +102,28 @@ function Boltz_Setup(
     end
 
 
-    if ext == "CWF.jld2"
+    if model == 1 && decomp
+        error("not support PAO decomp")
+    end
+
+
+
+    if model == 1
+        mat_type = "LCPAO"
+        material = Load_LCPAODFT_model(filepath)
+        myrank == 0 && Print_LCPAO_model(filepath, material)
+    elseif model == 2
         mat_type = "CWF"
         material = Load_CWF_model(filepath)
+        myrank == 0 && Print_CWF_model(filepath, material)
     else
         error("please check filepath.")
+    end
+    MPI.Barrier(comm)
+
+
+    if isnothing(filename)
+        filename = split(filepath, ".")[begin]
     end
 
 
@@ -116,17 +132,13 @@ function Boltz_Setup(
         material, mat_type, 
         kmesh, tau, plane_type, Temp, decomp,
         muE, TDF_Erange, TDF_dE, Write_TDF
-    )
+    ) 
 
 
-    if mat_type == "CWF"
-        Print_CWF_model(filepath, material)
-    else
-        error("please check filepath.")
+    if myrank == 0
+        Print_Boltz_Setup(boltz_setup)
     end
-
-
-    Print_Boltz_Setup(boltz_setup)
+    MPI.Barrier(comm)
     
 
     return boltz_setup

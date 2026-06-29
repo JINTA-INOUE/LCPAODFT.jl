@@ -12,19 +12,13 @@ end
 function Calc_Seebeck_2D(boltz_setup::Boltz_Setup, TDF_Energy, TDF)
 
     material = boltz_setup.material
+    mat_type = boltz_setup.mat_type
     SpinPol = material.SpinPol
+    spinsize = ifelse(SpinPol=="on", 2, 1)
     filename = boltz_setup.filename
     TDF_Erange = boltz_setup.TDF_Erange
     Temp = boltz_setup.Temp
     NTemp = length(Temp)
-    cal_type = "CWF"
-
-    if SpinPol ∈ ("off", "nc")
-        spinsize = 1
-    elseif SpinPol == "on"
-        spinsize = 2
-    end
-
 
     TDF_EneNum = length(TDF_Energy)
     dTDF = (TDF_Erange[2]-TDF_Erange[1])/(TDF_EneNum-1)
@@ -97,7 +91,7 @@ function Calc_Seebeck_2D(boltz_setup::Boltz_Setup, TDF_Energy, TDF)
             Seebeck[imu,spin,4] = -Seebeck22[2,2]    # yy
         end
 
-        Write_Seebeck_2D(filename, cal_type, SpinPol, muE, Temp[iTemp], Seebeck)
+        Write_Seebeck_2D(filename, mat_type, SpinPol, muE, Temp[iTemp], Seebeck)
     end
 end
 
@@ -105,18 +99,13 @@ end
 function Calc_Seebeck_3D(boltz_setup::Boltz_Setup, TDF_Energy, TDF)
 
     material = boltz_setup.material
+    mat_type = boltz_setup.mat_type
     filename = boltz_setup.filename
     SpinPol = material.SpinPol
+    spinsize = ifelse(SpinPol=="on", 2, 1)
     TDF_Erange = boltz_setup.TDF_Erange
     Temp = boltz_setup.Temp
     NTemp = length(Temp)
-    cal_type = "CWF"
-
-    if SpinPol ∈ ("off", "nc")
-        spinsize = 1
-    elseif SpinPol == "on"
-        spinsize = 2
-    end
 
 
     TDF_EneNum = length(TDF_Energy)
@@ -218,6 +207,6 @@ function Calc_Seebeck_3D(boltz_setup::Boltz_Setup, TDF_Energy, TDF)
             Seebeck[imu,spin,9] = -Seebeck33[3,3]    # zz
         end
 
-        Write_Seebeck_3D(filename, cal_type, SpinPol, muE, Temp[iTemp], Seebeck)
+        Write_Seebeck_3D(filename, mat_type, SpinPol, muE, Temp[iTemp], Seebeck)
     end
 end

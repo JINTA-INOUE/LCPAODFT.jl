@@ -598,14 +598,9 @@ function Calc_EXC1(SpinPol::String, xc_type::String, system_grid::System_Grid, A
     gtv[1,:] = Latvecs[1,:]/Ngrid[1]
 	gtv[2,:] = Latvecs[2,:]/Ngrid[2]
 	gtv[3,:] = Latvecs[3,:]/Ngrid[3]
-
-    if SpinPol == "off"
-        spinmax = 1
-    elseif SpinPol ∈ ("on", "nc")
-        spinmax = 2
-    end
-
-    Vxc_Grid = Calc_Vxc_Grid( xc_type, SpinPol, gtv, Ngrid, PCCDensity_Grid, Density_Grid )
+    spinmax = ifelse(SpinPol=="off", 1, 2)
+    
+    Vxc_Grid = Calc_Vxc_Grid(xc_type, SpinPol, gtv, Ngrid, PCCDensity_Grid, Density_Grid)
 
 
     EXC = zeros(Float64, 2)

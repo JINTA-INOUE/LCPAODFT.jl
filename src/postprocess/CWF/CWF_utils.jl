@@ -44,11 +44,7 @@ end
 
 function CWF_weight(ϵnk, ChemP, Dis_Energy; δ=1e-12)
 
-    ϵ0 = Dis_Energy[1]
-    ϵ1 = Dis_Energy[2]
-    kbT0 = Dis_Energy[3]
-    kbT1 = Dis_Energy[4]
-
+    ϵ0, ϵ1, kbT0, kbT1 = Dis_Energy
     b0 = 1/kbT0
     b1 = 1/kbT1
     e0 = ϵ0 + ChemP
@@ -65,10 +61,7 @@ end
 
 function CWF_weight2(ϵnk, ChemP, Dis_Energy)
 
-    out0 = Dis_Energy[1]
-    in0 = Dis_Energy[2]
-    in1 = Dis_Energy[3]
-    out1 = Dis_Energy[4]
+    out0, in0, in1, out1 = Dis_Energy
     enk = ϵnk - ChemP
 
     c0 = 1.0
@@ -93,20 +86,51 @@ function CWF_weight2(ϵnk, ChemP, Dis_Energy)
 end
 
 
-function Find_MinN_MaxN(material, Dis_Energy, Enk)
+function Calc_MLWF_Enk(MLWF_kpts::Vector{Float64}, material::LCPAO_model)
+
+    Natom = material.Natom
+    SpinPol = material.SpinPol
+    Total_NumOrbs = material.Total_NumOrbs
+    MP = material.MP
+    FNAN = material.FNAN
+    natn = material.natn
+    ncn = material.ncn
+    atv_ijk = material.atv_ijk
+    fsize = sum(Total_NumOrbs)
+    Hks = material.Hks
+    iHks = material.iHks
+    OLP = material.OLP
+
+    if SpinPol ∈ ("off", "on")
+        S = zeros(ComplexF64, fsize, fsize)
+        H = zeros(ComplexF64, fsize, fsize)
+        HS_matrix!(S, H, OLP, Hks[1], Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, MLWF_kpts)
+        MLWF_Enk = eigvals(Hermitian(H), Hermitian(S))
+    elseif SpinPol == "nc"
+        tmpH = zeros(ComplexF64, fsize, fsize)
+        S = zeros(ComplexF64, 2*fsize, 2*fsize)
+        H = zeros(ComplexF64, 2*fsize, 2*fsize)
+        HS_matrix_NC!(H, Hks, iHks, Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, MLWF_kpts)
+        HS_matrix!(tmpH, OLP, Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, MLWF_kpts)
+        @. S[1:fsize, 1:fsize] = tmpH
+        @. S[fsize+1:end, fsize+1:end] = tmpH
+        MLWF_Enk = eigvals(Hermitian(H), Hermitian(S))
+    end
+
+
+    return MLWF_Enk
+end
+
+
+function Find_MinN_MaxN(Dis_Energy, Nfsize, MLWF_Enk, ChemP)
 
     out0 = Dis_Energy[1]
     out1 = Dis_Energy[4]
-    SpinPol = material.SpinPol
-    Total_NumOrbs = material.Total_NumOrbs
-    ChemP = material.ChemP
-    fsize = sum(Total_NumOrbs)
-    Nfsize = ifelse(SpinPol=="nc", 2*fsize, fsize)
 
     MinN = 0
     MaxN = 0
     for μ = Nfsize:-1:1
-        ene = Enk[1,μ,1] - ChemP
+        ene = MLWF_Enk[μ] - ChemP
         if ene < out1
             MaxN = μ
             break
@@ -114,7 +138,7 @@ function Find_MinN_MaxN(material, Dis_Energy, Enk)
     end
 
     for μ = 1:Nfsize
-        ene = Enk[1,μ,1] - ChemP
+        ene = MLWF_Enk[μ] - ChemP
         if out0 < ene
             MinN = μ
             break
@@ -125,3 +149,44 @@ function Find_MinN_MaxN(material, Dis_Energy, Enk)
     return MinN, MaxN
 end
 
+
+function Calc_BANDNUM_KS_state(weight_type::String, MLWF_kpts, Dis_Energy, material::LCPAO_model)
+
+    SpinPol = material.SpinPol
+    Total_NumOrbs = material.Total_NumOrbs
+    fsize = sum(Total_NumOrbs)
+    Nfsize = ifelse(SpinPol=="nc", 2*fsize, fsize)
+    ChemP = material.ChemP
+
+    if weight_type == "poly"
+        MLWF_Enk = Calc_MLWF_Enk(MLWF_kpts, material)
+        MinN, MaxN = Find_MinN_MaxN(Dis_Energy, Nfsize, MLWF_Enk, ChemP)
+        BANDNUM = MaxN - MinN + 1
+    else
+        MinN = 1
+        MaxN = Nfsize
+        BANDNUM = Nfsize
+    end
+
+
+    return MinN, MaxN, BANDNUM
+end
+
+
+function Check_CWF_Band(weight_type::String, MinN, MaxN, BANDNUM, Ngsize)
+
+    if weight_type == "poly"
+
+        println("\tMinN = $MinN  MaxN = $MaxN  BANDNUM = $BANDNUM  Num_CWFs = $Ngsize")
+
+        if MaxN < MinN
+            println("Could not find any state to be included.")
+            error("Parameters for CWF disentangling must be improper.")
+        end
+
+        if BANDNUM < Ngsize
+            println("(MaxN-MinN+1) should be larger than TNum_CWFs.")
+            error("Parameters for CWF disentangling must be improper.")
+        end
+    end
+end

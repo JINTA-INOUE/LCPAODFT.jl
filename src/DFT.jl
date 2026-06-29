@@ -129,8 +129,6 @@ function DFT(geoopt_setup::GeoOpt_Setup)
     Start_Pulay_SCF = dft_setup.Start_Pulay_SCF
     Extra_CHistory = geoopt_setup.Extra_CHistory
     time_rev = dft_setup.time_rev
-    restart = false # dft_setup.restart
-    filepath = "" # dft_setup.filepath
     filename = dft_setup.filename
     verbosity = dft_setup.verbosity
     fileout = dft_setup.fileout

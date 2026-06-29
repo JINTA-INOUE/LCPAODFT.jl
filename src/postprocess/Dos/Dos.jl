@@ -1,4 +1,4 @@
-function DosMain(filepath::String, kmesh, Erange::Vector{Float64}; mode::String="Dos")
+function DosMain(filepath::String, kmesh, Erange::Vector{Float64}; mode::String="Dos", de_Dos=0.01)
 
     MPI.Init()
     comm = MPI.COMM_WORLD
@@ -47,10 +47,8 @@ function DosMain(filepath::String, kmesh, Erange::Vector{Float64}; mode::String=
     KP_flag = "Gcenter"
     kpoints = KPoints(kmesh, false, 0.0; KP_flag)
 
-
     iemin, iemax = Calc_Band_size(material, Dos_Erange)
     neg = iemax-iemin+1
-    @show iemin, iemax, neg
 
     Enk, Cnk = Calc_Enk_Cnk_Dos(material, kpoints, iemin, iemax)
 
@@ -62,11 +60,11 @@ function DosMain(filepath::String, kmesh, Erange::Vector{Float64}; mode::String=
 
     
     if mode == "all"
-        Calc_DosMain(filename, material, Enk, neg, kmesh, Dos_Erange)
-        Calc_PDosMain(filename, material, Enk, EVec, neg, kmesh, Dos_Erange)
+        Calc_DosMain(filename, material, Enk, neg, kmesh, Dos_Erange; de_Dos)
+        Calc_PDosMain(filename, material, Enk, EVec, neg, kmesh, Dos_Erange; de_Dos)
     elseif mode == "dos"
-        Calc_DosMain(filename, material, Enk, neg, kmesh, Dos_Erange)
+        Calc_DosMain(filename, material, Enk, neg, kmesh, Dos_Erange; de_Dos)
     elseif mode == "pdos"
-        Calc_PDosMain(filename, material, Enk, EVec, neg, kmesh, Dos_Erange)
+        Calc_PDosMain(filename, material, Enk, EVec, neg, kmesh, Dos_Erange; de_Dos)
     end
 end

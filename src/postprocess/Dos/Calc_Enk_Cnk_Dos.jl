@@ -68,7 +68,7 @@ function Calc_Enk_Cnk_Dos(material::LCPAO_model, kpoints::KPoints, iemin, iemax)
         kp = 0
         for ik = 1:kmesh1, jk = 1:kmesh2, kk = 1:kmesh3
             kp += 1
-            HS_matrix_NC!(tmpH, H, Hks, iHks, Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, kpts[kp])
+            HS_matrix_NC!(H, Hks, iHks, Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, kpts[kp])
             HS_matrix!(tmpH, OLP, Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, kpts[kp])
             @. S[1:fsize, 1:fsize] = tmpH
             @. S[fsize+1:end, fsize+1:end] = tmpH
