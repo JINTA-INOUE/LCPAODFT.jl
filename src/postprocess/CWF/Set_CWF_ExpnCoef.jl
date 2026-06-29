@@ -135,7 +135,6 @@ function Set_CWF_ExpnCoef_NonCol!(cwf_setup::Union{CWF_Setup,CWF_Setup_MO}, kpoi
     myrank = MPI.Comm_rank(comm)
 
     material = cwf_setup.material
-    SpinPol = material.SpinPol
     Nfsize = 2*sum(material.Total_NumOrbs)
     CWF_Plot_SuperCells = cwf_setup.CWF_Plot_SuperCells
     Ngsize = cwf_setup.Ngsize
@@ -156,7 +155,7 @@ function Set_CWF_ExpnCoef_NonCol!(cwf_setup::Union{CWF_Setup,CWF_Setup_MO}, kpoi
         Plot_cell_ijk[cell] = [l1, l2, l3]
     end
 
-    Umnk_tmp = zeros(ComplexF64, Nfsize, Ngsize)
+    Umnk_tmp = zeros(ComplexF64, BANDNUM, Ngsize)
     Cnk_tmp = zeros(ComplexF64, Nfsize, Nfsize)
 
     for proj = 1:Ngsize, cell = 1:Plot_NCell
@@ -167,9 +166,9 @@ function Set_CWF_ExpnCoef_NonCol!(cwf_setup::Union{CWF_Setup,CWF_Setup_MO}, kpoi
                 @. Cnk_tmp = Cnk[1][ik]
                 @. Umnk_tmp = Umnk[1][ik]
                 kRn = MPI_kpts[ik][1]*l + MPI_kpts[ik][2]*m + MPI_kpts[ik][3]*n
-                ex = cispi(2*kRn)/Nkpt
+                ex = cispi(2*kRn)/AllNkpt
                 temp = ComplexF64(0.0, 0.0)
-                @inbounds for μ = 1:Nfsize
+                @inbounds for μ = 1:BANDNUM
                     temp += Umnk_tmp[μ,proj]*Cnk_tmp[ist,μ+MinN-1]
                 end
                 Sum += temp*ex
