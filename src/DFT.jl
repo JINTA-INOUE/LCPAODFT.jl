@@ -64,7 +64,7 @@ function DFT(dft_setup::DFT_Setup)
 
 
     Shift_K_Point = 1.0e-12
-    kpoints = KPoints(system, SpinPol, kmesh, time_rev, Shift_K_Point)
+    kpoints = KPoints(kmesh, time_rev, Shift_K_Point)
 
     dft_options = DFT_Options(Mixing_method, SCF_criterion, SCF_max, 
                               Init_Mixing_weight, Min_Mixing_weight, Max_Mixing_weight, Max_Mixing_weight,
@@ -189,7 +189,7 @@ function DFT(geoopt_setup::GeoOpt_Setup)
 
 
     Shift_K_Point = 1.0e-12
-    kpoints = KPoints(system, SpinPol, kmesh, time_rev, Shift_K_Point)
+    kpoints = KPoints(kmesh, time_rev, Shift_K_Point)
 
     dft_options = DFT_Options(Mixing_method, SCF_criterion, SCF_max, 
                               Init_Mixing_weight, Min_Mixing_weight, Max_Mixing_weight, Max_Mixing_weight,

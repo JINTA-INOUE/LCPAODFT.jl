@@ -1,4 +1,4 @@
-@timeit timer "Set_Nonlocal" function Set_Nonlocal!(SpinPol::AbstractString, HNL, iHNL, pao::Vector{PAO}, pspot::Vector{Pspot}, system_grid::System_Grid)
+@timeit timer "Set_Nonlocal" function Set_Nonlocal!(SpinPol::AbstractString, NLPforce, HNL, iHNL, pao::Vector{PAO}, pspot::Vector{Pspot}, system_grid::System_Grid)
    
     comm = MPI.COMM_WORLD
     nprocs = MPI.Comm_size(comm)
@@ -23,14 +23,11 @@
         NLTotal_Num[atom] = tot
     end
 
-    Lmax = 0
+    Lmax_Four_Int = 0
     for spe = 1:Nspecies
-        Lmax = max(Lmax, maximum(pspot[spe].Spe_VPS_List))
+        Lmax_Four_Int = max(Lmax_Four_Int, maximum(pspot[spe].Spe_VPS_List))
+        Lmax_Four_Int = max(Lmax_Four_Int, pao[spe].Spe_MaxL_Basis)
     end
-    for spe = 1:Nspecies
-        Lmax = max(Lmax, pao[spe].Spe_MaxL_Basis)
-    end
-    Lmax = Lmax+1
 
 
     NLRF_Bessel = Vector{Vector{Vector{Vector{Float64}}}}(undef, Nspecies)
@@ -50,86 +47,84 @@
     end
 
 
+
     k1 = zeros(Float64, NkGrid+1)
     k2 = zeros(Float64, NkGrid+1)
+    k3 = zeros(Float64, NkGrid+1)
     dk = (Nkmax-Radial_kmin)/NkGrid
     for ik = 1:NkGrid+1
         k1[ik] = Radial_kmin + (ik-1)*dk
     end
     @. k2 = k1^2
+    @. k3 = k1^3
     k2[begin] = 0.5*k2[begin]
     k2[end] = 0.5*k2[end]
+    k3[begin] = 0.5*k3[begin]
+    k3[end] = 0.5*k3[end]
 
-    
 
 
     MPI_atom = system_grid.MPI_atom
+    MPI_FNAN = system_grid.MPI_FNAN
     MPI_natn = system_grid.MPI_natn
     MPI_ncn = system_grid.MPI_ncn
     MPI_size = system_grid.MPI_size
+    Natom = system_grid.Natom
+    FNAN = system_grid.FNAN
+    natn = system_grid.natn
     atv = system_grid.atv
 	Gxyz = system_grid.Gxyz
 
-
-    MPI_NLPsize = zeros(Int64, nprocs)
-    MP_NLP = zeros(Int64, nprocs)
-
-    myNLPsize = 0
-    for loop = 1:MPI_size
-        atom = MPI_atom[loop]
-        jatom = MPI_natn[loop]
-        jspe = atom2spe[jatom]
-        VPS_j_dependency = pspot[jspe].VPS_j_dependency
-        for so = 1:VPS_j_dependency+1, ist = 1:Total_NumOrbs[atom], jst = 1:NLTotal_Num[jatom]
-            myNLPsize += 1
-        end
-    end
-
-    MPI_NLPsize[myrank+1] = myNLPsize
-    Total_NLPsize = MPI.Allreduce(myNLPsize, MPI.SUM, comm)
-    MPI.Allreduce!(MPI_NLPsize, MPI.SUM, comm)
-
-    Sum = 0
-    for id = 1:nprocs
-        MP_NLP[id] = Sum
-        Sum += MPI_NLPsize[id]
-    end
-    NLP_Num = MP_NLP[myrank+1]
-    MPI_NLP = zeros(Float64, Total_NLPsize)
-
-
-
-    
 
 
     fsize = maximum(Total_NumOrbs)
     NLfsize = maximum(NLTotal_Num)
     NLPiαjβ = zeros(ComplexF64, fsize, NLfsize)
+    NLPriαjβ = zeros(ComplexF64, fsize, NLfsize)
+    NLPtiαjβ = zeros(ComplexF64, fsize, NLfsize)
+    NLPpiαjβ = zeros(ComplexF64, fsize, NLfsize)
     Ciα = Vector{Matrix{ComplexF64}}(undef, Nspecies)
     Cjβ = Vector{Matrix{ComplexF64}}(undef, Nspecies)
     for spe = 1:Nspecies
         Ciα[spe] = zeros(ComplexF64, fsize, fsize)
         Cjβ[spe] = zeros(ComplexF64, NLfsize, NLfsize)
-        Set_Comp2Real!( Ciα[spe], pao[spe].Spe_MaxL_Basis, pao[spe].Spe_Num_Basis )
-        Set_NLComp2Real!( Cjβ[spe], pspot[spe].Spe_VPS_List )
+        Set_Comp2Real!(Ciα[spe], pao[spe].Spe_MaxL_Basis, pao[spe].Spe_Num_Basis)
+        Set_NLComp2Real!(Cjβ[spe], pspot[spe].Spe_VPS_List)
         conj!(Ciα[spe])
     end
-
 
     f = zeros(Float64, S3J_MAX_FACT)
     _Set_f_for_Gaunt!(f)
 
-    
-    SphB = zeros(Float64, NkGrid+1)
+    fact2 = zeros(Float64, (2*Lmax_Four_Int+1)^2+1, (2*Lmax_Four_Int+1)^2+1)
+    Set_SqrtFactorial_Ratio!(fact2)
+
+
+    asize_lmax = 30
+    tsb = zeros(Float64, asize_lmax+10)
+    SphB_l = zeros(Float64, 2*Lmax_Four_Int+3)
+    dSphB_l = zeros(Float64, 2*Lmax_Four_Int+3)
+    SphB = Vector{Vector{Float64}}(undef, 2*Lmax_Four_Int+3)
+    dSphB = Vector{Vector{Float64}}(undef, 2*Lmax_Four_Int+3)
+    for l = 1:2*Lmax_Four_Int+3
+        SphB[l] = zeros(Float64, NkGrid+1)
+        dSphB[l] = zeros(Float64, NkGrid+1)
+    end
     SphB2 = zeros(Float64, NkGrid+1)
+    dSphB3 = zeros(Float64, NkGrid+1)
     SumNL0 = zeros(Float64, 15, 4, 4)
+    SumNLr0 = zeros(Float64, 15, 4, 4)
     tmpL = zeros(Float64, NkGrid+1)
     tmpH1 = zeros(ComplexF64, fsize)
     tmpH2 = zeros(ComplexF64, NLfsize)
 
 
+    SH = zeros(Float64, 2)
+    dSHt = zeros(Float64, 2)
+    dSHp = zeros(Float64, 2)
 
-    hst = 0
+
+
     for loop = 1:MPI_size
 
         atom = MPI_atom[loop]
@@ -138,55 +133,93 @@
         iNum_Basis = pao[ispe].Spe_Num_Basis
         iRF_Bessel = pao[ispe].Spe_RF_Bessel
 
+        NO0 = Total_NumOrbs[atom]
+
+        Rn = MPI_FNAN[loop]
         jatom = MPI_natn[loop]
+        jspe = atom2spe[jatom]
         cell = MPI_ncn[loop]+1
+        NO1 = NLTotal_Num[jatom]
+
         x = Gxyz[jatom][1] + atv[cell][1] - Gxyz[atom][1]
         y = Gxyz[jatom][2] + atv[cell][2] - Gxyz[atom][2]
         z = Gxyz[jatom][3] + atv[cell][3] - Gxyz[atom][3]
-        R = sqrt(x^2 + y^2 + z^2)
-        R = ifelse(R < 1e-10, 1e-10, R)
 
-        NO0 = Total_NumOrbs[atom]
-        NO1 = NLTotal_Num[jatom]
 
-        jspe = atom2spe[jatom]
+        R, theta, phi = xyz_to_spherical(x, y, z)
+        R = ifelse(R < 1.0e-10, 1.0e-10, R)
+        siT = sin(theta)
+        coT = cos(theta)
+        siP = sin(phi)
+        coP = cos(phi)
+            
+
         jNum_RVPS = pspot[jspe].Spe_Num_RVPS
         jVPS_List = pspot[jspe].Spe_VPS_List
-
         VPS_j_dependency = pspot[jspe].VPS_j_dependency
 
         Lmax = maximum(jVPS_List)
-        Lmax_Four_Int = 2*max(Lmax, iMaxL_Basis)
+        Lmax_Four_Int = 2*ifelse(Lmax>iMaxL_Basis, Lmax, iMaxL_Basis)
+
+        for ik = 1:NkGrid+1
+            Calc_SphericalBesselj!(Lmax_Four_Int, R*k1[ik], tsb, SphB_l, dSphB_l)
+            for l = 1:Lmax_Four_Int+1
+                SphB[l][ik] = SphB_l[l]
+                dSphB[l][ik] = dSphB_l[l]
+            end
+        end
+        
 
         for so = 1:VPS_j_dependency+1
 
             fill!(NLPiαjβ, 0.0)
+            fill!(NLPriαjβ, 0.0)
+            fill!(NLPtiαjβ, 0.0)
+            fill!(NLPpiαjβ, 0.0)
 
             # Σ_{L=0}^{Lmax_Four_Int}Sum_{M=-L}^{L}
             for L = 0:Lmax_Four_Int
 
-                @. SphB = SphericalBesselj(L, R*k1)
-                @. SphB2 = SphB*k2
+                @. SphB2 = SphB[L+1]*k2
+                @. dSphB3 = dSphB[L+1]*k3
 
                 for l = 0:iMaxL_Basis, p = 1:iNum_Basis[l+1], lnum = 1:jNum_RVPS
                     @. tmpL = iRF_Bessel[l+1][p]*NLRF_Bessel[jspe][so][lnum]
                     SumNL0[lnum,p,l+1] = dot(SphB2, tmpL)*dk
+                    SumNLr0[lnum,p,l+1] = dot(dSphB3, tmpL)*dk
                 end
+
+
 
                 for M = -L:L
                     ist = 0
                     for l = 0:iMaxL_Basis, p = 1:iNum_Basis[l+1], m = -l:l
                         jst = 0
                         ist += 1
-                        for lnum = 1:jNum_RVPS, mm = -jVPS_List[lnum]:jVPS_List[lnum]
+                        @inbounds for lnum = 1:jNum_RVPS, mm = -jVPS_List[lnum]:jVPS_List[lnum]
                             jst += 1
                             ll = jVPS_List[lnum]
                             if abs(ll-L) <= l <= abs(ll+L) && iszero(m-mm-M) && abs(m-M) <= ll
-                                Ylm = Ylm_complex(L,M,x,y,z)
-                                Ls = Float64(L+ll-l)
-                                iYC = (-im)^Ls * conj(Ylm) * Gaunt(f,l,m,ll,mm,L,M)
                                 
+                                indx0 = L-abs(M)+1
+                                indx1 = L+abs(M)+1
+                                Ylm_complex!(L,M,fact2[indx0,indx1],theta,phi,SH,dSHt,dSHp)
+                                Ls = Float64(L+ll-l)
+                                gaunt = Gaunt(f,l,m,ll,mm,L,M)
+                                tmp = (-im)^Ls
+                                    
+                                Ylm = ComplexF64(SH[1], SH[2])
+                                dYlmdtheta = ComplexF64(dSHt[1], dSHt[2])
+                                dYlmdphi = ComplexF64(dSHp[1], dSHp[2])
+                                    
+                                iYC = conj(Ylm) * tmp * gaunt
+                                iYCt = conj(dYlmdtheta) * tmp * gaunt
+                                iYCp = conj(dYlmdphi) * tmp * gaunt
+
                                 NLPiαjβ[ist,jst] += iYC*SumNL0[lnum,p,l+1]
+                                NLPriαjβ[ist,jst] += iYC*SumNLr0[lnum,p,l+1]
+                                NLPtiαjβ[ist,jst] += iYCt*SumNL0[lnum,p,l+1]
+                                NLPpiαjβ[ist,jst] += iYCp*SumNL0[lnum,p,l+1]
                             end
                         end
                     end
@@ -195,58 +228,75 @@
             
 
             # complex to real        
-            for ist = 1:NO0
+            @inbounds for ist = 1:NO0
                 @views mul!(tmpH2, Cjβ[jspe], NLPiαjβ[ist,:])
-                @. @views NLPiαjβ[ist,:] = tmpH2
+                @views NLPiαjβ[ist,:] = tmpH2
+                @views mul!(tmpH2, Cjβ[jspe], NLPriαjβ[ist,:])
+                @views NLPriαjβ[ist,:] = tmpH2
+                @views mul!(tmpH2, Cjβ[jspe], NLPtiαjβ[ist,:])
+                @views NLPtiαjβ[ist,:] = tmpH2
+                @views mul!(tmpH2, Cjβ[jspe], NLPpiαjβ[ist,:])
+                @views NLPpiαjβ[ist,:] = tmpH2
             end
 
-            for jst = 1:NO1
+            @inbounds for jst = 1:NO1
                 @views mul!(tmpH1, Ciα[ispe], NLPiαjβ[:,jst])
-                @. @views NLPiαjβ[:,jst] = tmpH1
+                @views NLPiαjβ[:,jst] = tmpH1
+                @views mul!(tmpH1, Ciα[ispe], NLPriαjβ[:,jst])
+                @views NLPriαjβ[:,jst] = tmpH1
+                @views mul!(tmpH1, Ciα[ispe], NLPtiαjβ[:,jst])
+                @views NLPtiαjβ[:,jst] = tmpH1
+                @views mul!(tmpH1, Ciα[ispe], NLPpiαjβ[:,jst])
+                @views NLPpiαjβ[:,jst] = tmpH1
             end
             
-            for ist = 1:NO0, jst = 1:NO1
-                hst += 1
-                MPI_NLP[NLP_Num+hst] = 8*real(NLPiαjβ[ist,jst])
+
+            
+            NLPforce1 = NLPforce[1][atom][Rn][so]
+            NLPforce2 = NLPforce[2][atom][Rn][so]
+            NLPforce3 = NLPforce[3][atom][Rn][so]
+            NLPforce4 = NLPforce[4][atom][Rn][so]
+
+            @inbounds for ist = 1:NO0, jst = 1:NO1
+                NLPforce1[ist,jst] = 8*real(NLPiαjβ[ist,jst])
+            end
+
+            if Rn ≠ 1
+                if abs(siT) < 1.0e-13
+                    @inbounds for ist = 1:NO0, jst = 1:NO1
+                        NLPforce2[ist,jst] = -8*real(siT*coP*NLPriαjβ[ist,jst] + coT*coP/R*NLPtiαjβ[ist,jst])
+                        NLPforce3[ist,jst] = -8*real(siT*siP*NLPriαjβ[ist,jst] + coT*siP/R*NLPtiαjβ[ist,jst])
+                        NLPforce4[ist,jst] = -8*real(coT*NLPriαjβ[ist,jst] - siT/R*NLPtiαjβ[ist,jst])
+                    end
+                else
+                    @inbounds for ist = 1:NO0, jst = 1:NO1
+                        NLPforce2[ist,jst] = -8*real(siT*coP*NLPriαjβ[ist,jst] + coT*coP/R*NLPtiαjβ[ist,jst] - siP/siT/R*NLPpiαjβ[ist,jst])
+                        NLPforce3[ist,jst] = -8*real(siT*siP*NLPriαjβ[ist,jst] + coT*siP/R*NLPtiαjβ[ist,jst] + coP/siT/R*NLPpiαjβ[ist,jst])
+                        NLPforce4[ist,jst] = -8*real(coT*NLPriαjβ[ist,jst] - siT/R*NLPtiαjβ[ist,jst])
+                    end
+                end
+            else
+                @inbounds for ist = 1:NO0, jst = 1:NO1
+                    NLPforce2[ist,jst] = 0.0
+                    NLPforce3[ist,jst] = 0.0
+                    NLPforce4[ist,jst] = 0.0
+                end
             end
         end
     end
 
-    
-    MPI.Allreduce!(MPI_NLP, MPI.SUM, comm) 
 
-
-    FNAN = system_grid.FNAN
-    natn = system_grid.natn
-
-    NLP = Vector{Vector{Vector{Vector{Vector{Float64}}}}}(undef, Natom)
-	for atom = 1:Natom
-		NLP[atom] = Vector{Vector{Vector{Vector{Float64}}}}(undef, FNAN[atom]+1)
-		for Rn = 1:FNAN[atom]+1
-            jatom = natn[atom][Rn]
-            jspe = atom2spe[jatom]
-            VPS_j_dependency = pspot[jspe].VPS_j_dependency
-			NLP[atom][Rn] = Vector{Vector{Vector{Float64}}}(undef, Total_NumOrbs[atom])
-            for ist = 1:Total_NumOrbs[atom]
-                NLP[atom][Rn][ist] = Vector{Vector{Float64}}(undef, VPS_j_dependency+1)
-                for so = 1:VPS_j_dependency+1
-				    NLP[atom][Rn][ist][so] = zeros(Float64, NLTotal_Num[jatom])
-                end
-			end
-		end
-	end
-
-    hst = 0
     for atom = 1:Natom, Rn = 1:FNAN[atom]+1
         jatom = natn[atom][Rn]
         jspe = atom2spe[jatom]
         VPS_j_dependency = pspot[jspe].VPS_j_dependency
-        for so = 1:VPS_j_dependency+1, ist = 1:Total_NumOrbs[atom], jst = 1:NLTotal_Num[jatom]
-            hst += 1
-            NLP[atom][Rn][ist][so][jst] = MPI_NLP[hst]
+        @inbounds for so = 1:VPS_j_dependency+1
+            MPI.Allreduce!(NLPforce[1][atom][Rn][so], MPI.SUM, comm)
+            MPI.Allreduce!(NLPforce[2][atom][Rn][so], MPI.SUM, comm)
+            MPI.Allreduce!(NLPforce[3][atom][Rn][so], MPI.SUM, comm)
+            MPI.Allreduce!(NLPforce[4][atom][Rn][so], MPI.SUM, comm)
         end
     end
-    MPI.Barrier(comm)
     
     
     if SpinPol ∈ ("off", "on")
@@ -267,10 +317,10 @@
             end
         end
 
-        Set_Nonlocal_Col!(HNL, NLP, VNLE, NLTotal_Num, system_grid)
+        Set_Nonlocal_Col!(HNL, NLPforce[1], VNLE, NLTotal_Num, system_grid)
 
     elseif SpinPol == "nc"
-        Set_Nonlocal_NonCol!(HNL, iHNL, NLP, pspot, system_grid)
+        Set_Nonlocal_NonCol!(HNL, iHNL, NLPforce[1], pspot, system_grid)
     end
 end
 
@@ -280,22 +330,17 @@ function Set_Nonlocal_Col!(HNL, NLP, VNLE, NLTotal_Num, system_grid::System_Grid
     comm = MPI.COMM_WORLD
     myrank = MPI.Comm_rank(comm)
 
-
     Natom = system_grid.Natom
     Total_NumOrbs = system_grid.Total_NumOrbs
     FNAN = system_grid.FNAN
 	natn = system_grid.natn
     Atom_Cut1 = system_grid.Atom_Cut1
-
+    Dis = system_grid.Dis
+    RMI = system_grid.RMI
     MPI_atom = system_grid.MPI_atom
     MPI_FNAN = system_grid.MPI_FNAN
     MPI_natn = system_grid.MPI_natn
-    Dis = system_grid.Dis
-    RMI = system_grid.RMI
-
     MPI_size = system_grid.MPI_size
-    MPHks = system_grid.MPHks
-    Hks_Num = MPHks[myrank+1]
 
 
     tmpL = Vector{Vector{Float64}}(undef, Natom)
@@ -303,11 +348,13 @@ function Set_Nonlocal_Col!(HNL, NLP, VNLE, NLTotal_Num, system_grid::System_Grid
         tmpL[atom] = zeros(Float64, NLTotal_Num[atom])
     end
 
+    max_orbitals = Int(maximum(Total_NumOrbs))
+    max_projectors = Int(maximum(NLTotal_Num))
+    HNL_temp = zeros(Float64, max_orbitals, max_orbitals)
+    weighted_projector = zeros(Float64, max_orbitals, max_projectors)
 
-    HNL_temp = zeros(Float64, maximum(Total_NumOrbs), maximum(Total_NumOrbs))
-    hst = 0
+
     for loop = 1:MPI_size
-
         atom = MPI_atom[loop]
         Rn = MPI_FNAN[loop]
         jatom = MPI_natn[loop]
@@ -315,27 +362,34 @@ function Set_Nonlocal_Col!(HNL, NLP, VNLE, NLTotal_Num, system_grid::System_Grid
         NO1 = Total_NumOrbs[jatom]
 
         fill!(HNL_temp, 0.0)
-
+        C = @view HNL_temp[1:NO0, 1:NO1]
         for Rm = 1:FNAN[atom]+1
             kg = natn[atom][Rm]
             kl = RMI[atom][Rn][Rm]
             if kl >= 0
-                @inbounds for jst = 1:NO1, ist = 1:NO0
-                    @. tmpL[kg] = NLP[jatom][kl+1][jst][1]*VNLE[kg]
-                    HNL_temp[ist,jst] += dot(NLP[atom][Rm][ist][1], tmpL[kg])
+                A = NLP[atom][Rm][1]
+                B = NLP[jatom][kl+1][1]
+                nprojectors = Int(NLTotal_Num[kg])
+                energies = VNLE[kg]
+                @inbounds for projector = 1:nprojectors, jst = 1:NO1
+                    weighted_projector[jst, projector] = B[jst, projector] * energies[projector]
                 end
+                Bweighted = @view weighted_projector[1:NO1, 1:nprojectors]
+                mul!(C, A, transpose(Bweighted), 1.0, 1.0)
             end
         end
 
+        HNL1 = HNL[1][atom][Rn]
         rcut = Atom_Cut1[atom] + Atom_Cut1[jatom]
         dmp = dampingF(rcut, Dis[atom][Rn])
-        for ist = 1:NO0, jst = 1:NO1
-            hst += 1
-            HNL[1][Hks_Num+hst] = dmp * HNL_temp[ist,jst]
+        @inbounds for ist = 1:NO0, jst = 1:NO1
+            HNL1[ist][jst] = dmp * HNL_temp[ist, jst]
         end
     end
 
-    MPI.Allreduce!(HNL[1], MPI.SUM, comm) 
+    @inbounds for atom = 1:Natom, Rn = 1:FNAN[atom]+1, ist = 1:Total_NumOrbs[atom]
+        MPI.Allreduce!(HNL[1][atom][Rn][ist], MPI.SUM, comm)
+    end
 end
 
 
@@ -344,27 +398,24 @@ function Set_Nonlocal_NonCol!(HNL, iHNL, NLP, pspot::Vector{Pspot}, system_grid:
     comm = MPI.COMM_WORLD
     myrank = MPI.Comm_rank(comm)
     
+    Natom = system_grid.Natom
     atom2spe = system_grid.atom2spe
     Total_NumOrbs = system_grid.Total_NumOrbs
     FNAN = system_grid.FNAN
 	natn = system_grid.natn
     Atom_Cut1 = system_grid.Atom_Cut1
-
+    Dis = system_grid.Dis
+    RMI = system_grid.RMI
     MPI_atom = system_grid.MPI_atom
     MPI_FNAN = system_grid.MPI_FNAN
     MPI_natn = system_grid.MPI_natn
-    Dis = system_grid.Dis
-    RMI = system_grid.RMI
-
     MPI_size = system_grid.MPI_size
-    MPHks = system_grid.MPHks
-    Hks_Num = MPHks[myrank+1]
-
+    max_orbitals = Int(maximum(Total_NumOrbs))
     
-    HNL_temp = zeros(Float64, maximum(Total_NumOrbs), maximum(Total_NumOrbs), 3)
-    iHNL_temp = zeros(Float64, maximum(Total_NumOrbs), maximum(Total_NumOrbs), 3)
+    HNL_temp = zeros(Float64, max_orbitals, max_orbitals, 3)
+    iHNL_temp = zeros(Float64, max_orbitals, max_orbitals, 3)
 
-    hst = 0
+
     for loop = 1:MPI_size
 
         atom = MPI_atom[loop]
@@ -386,6 +437,12 @@ function Set_Nonlocal_NonCol!(HNL, iHNL, NLP, pspot::Vector{Pspot}, system_grid:
             Spe_VPS_List = pspot[kgspe].Spe_VPS_List 
 
             if kl >= 0
+
+                NLP11 = NLP[atom][Rm][1]
+                NLP12 = NLP[atom][Rm][2]
+                NLP21 = NLP[jatom][kl+1][1]
+                NLP22 = NLP[jatom][kl+1][2]
+
                 for ist = 1:NO0, jst = 1:NO1
 
                     Sum0_r = 0.0
@@ -422,53 +479,53 @@ function Set_Nonlocal_NonCol!(HNL, iHNL, NLP, pspot::Vector{Pspot}, system_grid:
 
                         # off-diagonal contribution on up-dn
                         if L2 == 2
-                            Sum2_r += (ene_p/3 * NLP[atom][Rm][ist][1][L  ] * NLP[jatom][kl+1][jst][1][L+2]
-                                      -ene_p/3 * NLP[atom][Rm][ist][1][L+2] * NLP[jatom][kl+1][jst][1][L  ])
+                            Sum2_r += (ene_p/3 * NLP11[ist,L  ] * NLP21[jst,L+2]
+                                      -ene_p/3 * NLP11[ist,L+2] * NLP21[jst,L  ])
 
-                            Sum2_i += (-ene_p/3 * NLP[atom][Rm][ist][1][L+1] * NLP[jatom][kl+1][jst][1][L+2]
-                                       +ene_p/3 * NLP[atom][Rm][ist][1][L+2] * NLP[jatom][kl+1][jst][1][L+1])
+                            Sum2_i += (-ene_p/3 * NLP11[ist,L+1] * NLP21[jst,L+2]
+                                       +ene_p/3 * NLP11[ist,L+2] * NLP21[jst,L+1])
 
 
-                            Sum2_r -= (ene_m/3 * NLP[atom][Rm][ist][2][L  ] * NLP[jatom][kl+1][jst][2][L+2]
-                                      -ene_m/3 * NLP[atom][Rm][ist][2][L+2] * NLP[jatom][kl+1][jst][2][L  ])
+                            Sum2_r -= (ene_m/3 * NLP12[ist,L  ] * NLP22[jst,L+2]
+                                      -ene_m/3 * NLP12[ist,L+2] * NLP22[jst,L  ])
 
-                            Sum2_i -= (-ene_m/3 * NLP[atom][Rm][ist][2][L+1] * NLP[jatom][kl+1][jst][2][L+2]
-                                       +ene_m/3 * NLP[atom][Rm][ist][2][L+2] * NLP[jatom][kl+1][jst][2][L+1])
+                            Sum2_i -= (-ene_m/3 * NLP12[ist,L+1] * NLP22[jst,L+2]
+                                       +ene_m/3 * NLP12[ist,L+2] * NLP22[jst,L+1])
                         elseif L2 == 4
                             tmp0 = sqrt(3)
                             tmp1 = ene_p/5
                             tmp2 = tmp0*tmp1
 
-                            Sum2_r += (-tmp2 * NLP[atom][Rm][ist][1][L  ] * NLP[jatom][kl+1][jst][1][L+3]
-                                       +tmp2 * NLP[atom][Rm][ist][1][L+3] * NLP[jatom][kl+1][jst][1][L  ]
-                                       +tmp1 * NLP[atom][Rm][ist][1][L+1] * NLP[jatom][kl+1][jst][1][L+3]
-                                       -tmp1 * NLP[atom][Rm][ist][1][L+3] * NLP[jatom][kl+1][jst][1][L+1]
-                                       +tmp1 * NLP[atom][Rm][ist][1][L+2] * NLP[jatom][kl+1][jst][1][L+4]
-                                       -tmp1 * NLP[atom][Rm][ist][1][L+4] * NLP[jatom][kl+1][jst][1][L+2])
+                            Sum2_r += (-tmp2 * NLP11[ist,L  ] * NLP21[jst,L+3]
+                                       +tmp2 * NLP11[ist,L+3] * NLP21[jst,L  ]
+                                       +tmp1 * NLP11[ist,L+1] * NLP21[jst,L+3]
+                                       -tmp1 * NLP11[ist,L+3] * NLP21[jst,L+1]
+                                       +tmp1 * NLP11[ist,L+2] * NLP21[jst,L+4]
+                                       -tmp1 * NLP11[ist,L+4] * NLP21[jst,L+2])
                                 
-                            Sum2_i +=  (tmp2 * NLP[atom][Rm][ist][1][L  ] * NLP[jatom][kl+1][jst][1][L+4]
-                                       -tmp2 * NLP[atom][Rm][ist][1][L+4] * NLP[jatom][kl+1][jst][1][L  ]
-                                       +tmp1 * NLP[atom][Rm][ist][1][L+1] * NLP[jatom][kl+1][jst][1][L+4]
-                                       -tmp1 * NLP[atom][Rm][ist][1][L+4] * NLP[jatom][kl+1][jst][1][L+1]
-                                       -tmp1 * NLP[atom][Rm][ist][1][L+2] * NLP[jatom][kl+1][jst][1][L+3]
-                                       +tmp1 * NLP[atom][Rm][ist][1][L+3] * NLP[jatom][kl+1][jst][1][L+2])
+                            Sum2_i +=  (tmp2 * NLP11[ist,L  ] * NLP21[jst,L+4]
+                                       -tmp2 * NLP11[ist,L+4] * NLP21[jst,L  ]
+                                       +tmp1 * NLP11[ist,L+1] * NLP21[jst,L+4]
+                                       -tmp1 * NLP11[ist,L+4] * NLP21[jst,L+1]
+                                       -tmp1 * NLP11[ist,L+2] * NLP21[jst,L+3]
+                                       +tmp1 * NLP11[ist,L+3] * NLP21[jst,L+2])
 
                             tmp1 = ene_m/5
                             tmp2 = tmp0*tmp1
 
-                            Sum2_r -= (-tmp2 * NLP[atom][Rm][ist][2][L  ] * NLP[jatom][kl+1][jst][2][L+3]
-                                       +tmp2 * NLP[atom][Rm][ist][2][L+3] * NLP[jatom][kl+1][jst][2][L  ]
-                                       +tmp1 * NLP[atom][Rm][ist][2][L+1] * NLP[jatom][kl+1][jst][2][L+3]
-                                       -tmp1 * NLP[atom][Rm][ist][2][L+3] * NLP[jatom][kl+1][jst][2][L+1]
-                                       +tmp1 * NLP[atom][Rm][ist][2][L+2] * NLP[jatom][kl+1][jst][2][L+4]
-                                       -tmp1 * NLP[atom][Rm][ist][2][L+4] * NLP[jatom][kl+1][jst][2][L+2])
+                            Sum2_r -= (-tmp2 * NLP12[ist,L  ] * NLP22[jst,L+3]
+                                       +tmp2 * NLP12[ist,L+3] * NLP22[jst,L  ]
+                                       +tmp1 * NLP12[ist,L+1] * NLP22[jst,L+3]
+                                       -tmp1 * NLP12[ist,L+3] * NLP22[jst,L+1]
+                                       +tmp1 * NLP12[ist,L+2] * NLP22[jst,L+4]
+                                       -tmp1 * NLP12[ist,L+4] * NLP22[jst,L+2])
 
-                            Sum2_i -= ( tmp2 * NLP[atom][Rm][ist][2][L  ] * NLP[jatom][kl+1][jst][2][L+4]
-                                       -tmp2 * NLP[atom][Rm][ist][2][L+4] * NLP[jatom][kl+1][jst][2][L  ]
-                                       +tmp1 * NLP[atom][Rm][ist][2][L+1] * NLP[jatom][kl+1][jst][2][L+4]
-                                       -tmp1 * NLP[atom][Rm][ist][2][L+4] * NLP[jatom][kl+1][jst][2][L+1]
-                                       -tmp1 * NLP[atom][Rm][ist][2][L+2] * NLP[jatom][kl+1][jst][2][L+3]
-                                       +tmp1 * NLP[atom][Rm][ist][2][L+3] * NLP[jatom][kl+1][jst][2][L+2])
+                            Sum2_i -= ( tmp2 * NLP12[ist,L  ] * NLP22[jst,L+4]
+                                       -tmp2 * NLP12[ist,L+4] * NLP22[jst,L  ]
+                                       +tmp1 * NLP12[ist,L+1] * NLP22[jst,L+4]
+                                       -tmp1 * NLP12[ist,L+4] * NLP22[jst,L+1]
+                                       -tmp1 * NLP12[ist,L+2] * NLP22[jst,L+3]
+                                       +tmp1 * NLP12[ist,L+3] * NLP22[jst,L+2])
                         elseif L2 == 6
                             tmp0 = sqrt(6)
                             tmp1 = sqrt(3/2)
@@ -478,102 +535,102 @@ function Set_Nonlocal_NonCol!(HNL, iHNL, NLP, pspot::Vector{Pspot}, system_grid:
                             tmp5 = tmp2*tmp3
                             tmp6 = tmp0*tmp3
 
-                            Sum2_r += (-tmp6*NLP[atom][Rm][ist][1][L  ] * NLP[jatom][kl+1][jst][1][L+1]
-                                       +tmp6*NLP[atom][Rm][ist][1][L+1] * NLP[jatom][kl+1][jst][1][L  ]
-                                       -tmp5*NLP[atom][Rm][ist][1][L+1] * NLP[jatom][kl+1][jst][1][L+3]
-                                       +tmp5*NLP[atom][Rm][ist][1][L+3] * NLP[jatom][kl+1][jst][1][L+1]
-                                       -tmp5*NLP[atom][Rm][ist][1][L+2] * NLP[jatom][kl+1][jst][1][L+4]
-                                       +tmp5*NLP[atom][Rm][ist][1][L+4] * NLP[jatom][kl+1][jst][1][L+2]
-                                       -tmp4*NLP[atom][Rm][ist][1][L+3] * NLP[jatom][kl+1][jst][1][L+5]
-                                       +tmp4*NLP[atom][Rm][ist][1][L+5] * NLP[jatom][kl+1][jst][1][L+3]
-                                       -tmp4*NLP[atom][Rm][ist][1][L+4] * NLP[jatom][kl+1][jst][1][L+6]
-                                       +tmp4*NLP[atom][Rm][ist][1][L+6] * NLP[jatom][kl+1][jst][1][L+4])
+                            Sum2_r += (-tmp6*NLP11[ist,L  ] * NLP21[jst,L+1]
+                                       +tmp6*NLP11[ist,L+1] * NLP21[jst,L  ]
+                                       -tmp5*NLP11[ist,L+1] * NLP21[jst,L+3]
+                                       +tmp5*NLP11[ist,L+3] * NLP21[jst,L+1]
+                                       -tmp5*NLP11[ist,L+2] * NLP21[jst,L+4]
+                                       +tmp5*NLP11[ist,L+4] * NLP21[jst,L+2]
+                                       -tmp4*NLP11[ist,L+3] * NLP21[jst,L+5]
+                                       +tmp4*NLP11[ist,L+5] * NLP21[jst,L+3]
+                                       -tmp4*NLP11[ist,L+4] * NLP21[jst,L+6]
+                                       +tmp4*NLP11[ist,L+6] * NLP21[jst,L+4])
 
-                            Sum2_i += ( tmp6*NLP[atom][Rm][ist][1][L  ] * NLP[jatom][kl+1][jst][1][L+2]
-                                       -tmp6*NLP[atom][Rm][ist][1][L+2] * NLP[jatom][kl+1][jst][1][L  ]
-                                       +tmp5*NLP[atom][Rm][ist][1][L+1] * NLP[jatom][kl+1][jst][1][L+4]
-                                       -tmp5*NLP[atom][Rm][ist][1][L+4] * NLP[jatom][kl+1][jst][1][L+1]
-                                       -tmp5*NLP[atom][Rm][ist][1][L+2] * NLP[jatom][kl+1][jst][1][L+3]
-                                       +tmp5*NLP[atom][Rm][ist][1][L+3] * NLP[jatom][kl+1][jst][1][L+2]
-                                       +tmp4*NLP[atom][Rm][ist][1][L+3] * NLP[jatom][kl+1][jst][1][L+6]
-                                       -tmp4*NLP[atom][Rm][ist][1][L+6] * NLP[jatom][kl+1][jst][1][L+3]
-                                       -tmp4*NLP[atom][Rm][ist][1][L+4] * NLP[jatom][kl+1][jst][1][L+5]
-                                       +tmp4*NLP[atom][Rm][ist][1][L+5] * NLP[jatom][kl+1][jst][1][L+4])            
+                            Sum2_i += ( tmp6*NLP11[ist,L  ] * NLP21[jst,L+2]
+                                       -tmp6*NLP11[ist,L+2] * NLP21[jst,L  ]
+                                       +tmp5*NLP11[ist,L+1] * NLP21[jst,L+4]
+                                       -tmp5*NLP11[ist,L+4] * NLP21[jst,L+1]
+                                       -tmp5*NLP11[ist,L+2] * NLP21[jst,L+3]
+                                       +tmp5*NLP11[ist,L+3] * NLP21[jst,L+2]
+                                       +tmp4*NLP11[ist,L+3] * NLP21[jst,L+6]
+                                       -tmp4*NLP11[ist,L+6] * NLP21[jst,L+3]
+                                       -tmp4*NLP11[ist,L+4] * NLP21[jst,L+5]
+                                       +tmp4*NLP11[ist,L+5] * NLP21[jst,L+4])            
 
                             tmp3 = ene_m/7
                             tmp4 = tmp1*tmp3
                             tmp5 = tmp2*tmp3
                             tmp6 = tmp0*tmp3
 
-                            Sum2_r -= (-tmp6*NLP[atom][Rm][ist][2][L  ] * NLP[jatom][kl+1][jst][2][L+1]
-                                       +tmp6*NLP[atom][Rm][ist][2][L+1] * NLP[jatom][kl+1][jst][2][L  ]
-                                       -tmp5*NLP[atom][Rm][ist][2][L+1] * NLP[jatom][kl+1][jst][2][L+3]
-                                       +tmp5*NLP[atom][Rm][ist][2][L+3] * NLP[jatom][kl+1][jst][2][L+1]
-                                       -tmp5*NLP[atom][Rm][ist][2][L+2] * NLP[jatom][kl+1][jst][2][L+4]
-                                       +tmp5*NLP[atom][Rm][ist][2][L+4] * NLP[jatom][kl+1][jst][2][L+2]
-                                       -tmp4*NLP[atom][Rm][ist][2][L+3] * NLP[jatom][kl+1][jst][2][L+5]
-                                       +tmp4*NLP[atom][Rm][ist][2][L+5] * NLP[jatom][kl+1][jst][2][L+3]
-                                       -tmp4*NLP[atom][Rm][ist][2][L+4] * NLP[jatom][kl+1][jst][2][L+6]
-                                       +tmp4*NLP[atom][Rm][ist][2][L+6] * NLP[jatom][kl+1][jst][2][L+4])
+                            Sum2_r -= (-tmp6*NLP12[ist,L  ] * NLP22[jst,L+1]
+                                       +tmp6*NLP12[ist,L+1] * NLP22[jst,L  ]
+                                       -tmp5*NLP12[ist,L+1] * NLP22[jst,L+3]
+                                       +tmp5*NLP12[ist,L+3] * NLP22[jst,L+1]
+                                       -tmp5*NLP12[ist,L+2] * NLP22[jst,L+4]
+                                       +tmp5*NLP12[ist,L+4] * NLP22[jst,L+2]
+                                       -tmp4*NLP12[ist,L+3] * NLP22[jst,L+5]
+                                       +tmp4*NLP12[ist,L+5] * NLP22[jst,L+3]
+                                       -tmp4*NLP12[ist,L+4] * NLP22[jst,L+6]
+                                       +tmp4*NLP12[ist,L+6] * NLP22[jst,L+4])
 
-                            Sum2_i -= ( tmp6*NLP[atom][Rm][ist][2][L  ] * NLP[jatom][kl+1][jst][2][L+2]
-                                       -tmp6*NLP[atom][Rm][ist][2][L+2] * NLP[jatom][kl+1][jst][2][L  ]
-                                       +tmp5*NLP[atom][Rm][ist][2][L+1] * NLP[jatom][kl+1][jst][2][L+4]
-                                       -tmp5*NLP[atom][Rm][ist][2][L+4] * NLP[jatom][kl+1][jst][2][L+1]
-                                       -tmp5*NLP[atom][Rm][ist][2][L+2] * NLP[jatom][kl+1][jst][2][L+3]
-                                       +tmp5*NLP[atom][Rm][ist][2][L+3] * NLP[jatom][kl+1][jst][2][L+2]
-                                       +tmp4*NLP[atom][Rm][ist][2][L+3] * NLP[jatom][kl+1][jst][2][L+6]
-                                       -tmp4*NLP[atom][Rm][ist][2][L+6] * NLP[jatom][kl+1][jst][2][L+3]
-                                       -tmp4*NLP[atom][Rm][ist][2][L+4] * NLP[jatom][kl+1][jst][2][L+5]
-                                       +tmp4*NLP[atom][Rm][ist][2][L+5] * NLP[jatom][kl+1][jst][2][L+4])
+                            Sum2_i -= ( tmp6*NLP12[ist,L  ] * NLP22[jst,L+2]
+                                       -tmp6*NLP12[ist,L+2] * NLP22[jst,L  ]
+                                       +tmp5*NLP12[ist,L+1] * NLP22[jst,L+4]
+                                       -tmp5*NLP12[ist,L+4] * NLP22[jst,L+1]
+                                       -tmp5*NLP12[ist,L+2] * NLP22[jst,L+3]
+                                       +tmp5*NLP12[ist,L+3] * NLP22[jst,L+2]
+                                       +tmp4*NLP12[ist,L+3] * NLP22[jst,L+6]
+                                       -tmp4*NLP12[ist,L+6] * NLP22[jst,L+3]
+                                       -tmp4*NLP12[ist,L+4] * NLP22[jst,L+5]
+                                       +tmp4*NLP12[ist,L+5] * NLP22[jst,L+4])
                         end
 
                         # off-diagonal contribution on up-up and dn-dn
                         if L2 == 2
-                            tmp0 = (ene_p/3 * NLP[atom][Rm][ist][1][L  ] * NLP[jatom][kl+1][jst][1][L+1]
-                                   -ene_p/3 * NLP[atom][Rm][ist][1][L+1] * NLP[jatom][kl+1][jst][1][L  ])
+                            tmp0 = (ene_p/3 * NLP11[ist,L  ] * NLP21[jst,L+1]
+                                   -ene_p/3 * NLP11[ist,L+1] * NLP21[jst,L  ])
 
                             Sum0_i += -tmp0
                             Sum1_i += tmp0
 
-                            tmp0 = (ene_m/3 * NLP[atom][Rm][ist][2][L  ] * NLP[jatom][kl+1][jst][2][L+1]
-                                   -ene_m/3 * NLP[atom][Rm][ist][2][L+1] * NLP[jatom][kl+1][jst][2][L  ])
+                            tmp0 = (ene_m/3 * NLP12[ist,L  ] * NLP22[jst,L+1]
+                                   -ene_m/3 * NLP12[ist,L+1] * NLP22[jst,L  ])
 
                             Sum0_i += tmp0
                             Sum1_i += -tmp0
                         elseif L2 == 4
-                            tmp0 = ( ene_p*2/5 * NLP[atom][Rm][ist][1][L+1] * NLP[jatom][kl+1][jst][1][L+2]
-                                    -ene_p*2/5 * NLP[atom][Rm][ist][1][L+2] * NLP[jatom][kl+1][jst][1][L+1]
-                                    +ene_p*1/5 * NLP[atom][Rm][ist][1][L+3] * NLP[jatom][kl+1][jst][1][L+4]
-                                    -ene_p*1/5 * NLP[atom][Rm][ist][1][L+4] * NLP[jatom][kl+1][jst][1][L+3])
+                            tmp0 = ( ene_p*2/5 * NLP11[ist,L+1] * NLP21[jst,L+2]
+                                    -ene_p*2/5 * NLP11[ist,L+2] * NLP21[jst,L+1]
+                                    +ene_p*1/5 * NLP11[ist,L+3] * NLP21[jst,L+4]
+                                    -ene_p*1/5 * NLP11[ist,L+4] * NLP21[jst,L+3])
 
                             Sum0_i += -tmp0
                             Sum1_i += tmp0
 
-                            tmp0 = ( ene_m*2/5 * NLP[atom][Rm][ist][2][L+1] * NLP[jatom][kl+1][jst][2][L+2]
-                                    -ene_m*2/5 * NLP[atom][Rm][ist][2][L+2] * NLP[jatom][kl+1][jst][2][L+1]
-                                    +ene_m*1/5 * NLP[atom][Rm][ist][2][L+3] * NLP[jatom][kl+1][jst][2][L+4]
-                                    -ene_m*1/5 * NLP[atom][Rm][ist][2][L+4] * NLP[jatom][kl+1][jst][2][L+3])
+                            tmp0 = ( ene_m*2/5 * NLP12[ist,L+1] * NLP22[jst,L+2]
+                                    -ene_m*2/5 * NLP12[ist,L+2] * NLP22[jst,L+1]
+                                    +ene_m*1/5 * NLP12[ist,L+3] * NLP22[jst,L+4]
+                                    -ene_m*1/5 * NLP12[ist,L+4] * NLP22[jst,L+3])
 
                             Sum0_i += tmp0
                             Sum1_i += -tmp0
                         elseif L2 == 6
-                            tmp0 = ( ene_p*1/7 * NLP[atom][Rm][ist][1][L+1] * NLP[jatom][kl+1][jst][1][L+2]
-                                    -ene_p*1/7 * NLP[atom][Rm][ist][1][L+2] * NLP[jatom][kl+1][jst][1][L+1]
-                                    +ene_p*2/7 * NLP[atom][Rm][ist][1][L+3] * NLP[jatom][kl+1][jst][1][L+4]
-                                    -ene_p*2/7 * NLP[atom][Rm][ist][1][L+4] * NLP[jatom][kl+1][jst][1][L+3]
-                                    +ene_p*3/7 * NLP[atom][Rm][ist][1][L+5] * NLP[jatom][kl+1][jst][1][L+6]
-                                    -ene_p*3/7 * NLP[atom][Rm][ist][1][L+6] * NLP[jatom][kl+1][jst][1][L+5])
+                            tmp0 = ( ene_p*1/7 * NLP11[ist,L+1] * NLP21[jst,L+2]
+                                    -ene_p*1/7 * NLP11[ist,L+2] * NLP21[jst,L+1]
+                                    +ene_p*2/7 * NLP11[ist,L+3] * NLP21[jst,L+4]
+                                    -ene_p*2/7 * NLP11[ist,L+4] * NLP21[jst,L+3]
+                                    +ene_p*3/7 * NLP11[ist,L+5] * NLP21[jst,L+6]
+                                    -ene_p*3/7 * NLP11[ist,L+6] * NLP21[jst,L+5])
 
                             Sum0_i += -tmp0
                             Sum1_i += tmp0
 
-                            tmp0 = ( ene_m*1/7 * NLP[atom][Rm][ist][2][L+1] * NLP[jatom][kl+1][jst][2][L+2]
-                                    -ene_m*1/7 * NLP[atom][Rm][ist][2][L+2] * NLP[jatom][kl+1][jst][2][L+1]
-                                    +ene_m*2/7 * NLP[atom][Rm][ist][2][L+3] * NLP[jatom][kl+1][jst][2][L+4]
-                                    -ene_m*2/7 * NLP[atom][Rm][ist][2][L+4] * NLP[jatom][kl+1][jst][2][L+3]
-                                    +ene_m*3/7 * NLP[atom][Rm][ist][2][L+5] * NLP[jatom][kl+1][jst][2][L+6]
-                                    -ene_m*3/7 * NLP[atom][Rm][ist][2][L+6] * NLP[jatom][kl+1][jst][2][L+5])
+                            tmp0 = ( ene_m*1/7 * NLP12[ist,L+1] * NLP22[jst,L+2]
+                                    -ene_m*1/7 * NLP12[ist,L+2] * NLP22[jst,L+1]
+                                    +ene_m*2/7 * NLP12[ist,L+3] * NLP22[jst,L+4]
+                                    -ene_m*2/7 * NLP12[ist,L+4] * NLP22[jst,L+3]
+                                    +ene_m*3/7 * NLP12[ist,L+5] * NLP22[jst,L+6]
+                                    -ene_m*3/7 * NLP12[ist,L+6] * NLP22[jst,L+5])
                                     
                             Sum0_i += tmp0
                             Sum1_i += -tmp0
@@ -581,11 +638,11 @@ function Set_Nonlocal_NonCol!(HNL, iHNL, NLP, pspot::Vector{Pspot}, system_grid:
 
                         # diagonal contribution on up-up and dn-dn
                         for _ = 0:L2
-                            Sum0_r += PFp*ene_p * NLP[atom][Rm][ist][1][L] * NLP[jatom][kl+1][jst][1][L]
-                            Sum1_r += PFp*ene_p * NLP[atom][Rm][ist][1][L] * NLP[jatom][kl+1][jst][1][L]
+                            Sum0_r += PFp*ene_p * NLP11[ist,L] * NLP21[jst,L]
+                            Sum1_r += PFp*ene_p * NLP11[ist,L] * NLP21[jst,L]
 
-                            Sum0_r += PFm*ene_m * NLP[atom][Rm][ist][2][L] * NLP[jatom][kl+1][jst][2][L]
-                            Sum1_r += PFm*ene_m * NLP[atom][Rm][ist][2][L] * NLP[jatom][kl+1][jst][2][L]
+                            Sum0_r += PFm*ene_m * NLP12[ist,L] * NLP22[jst,L]
+                            Sum1_r += PFm*ene_m * NLP12[ist,L] * NLP22[jst,L]
 
                             L += 1
                         end
@@ -601,24 +658,33 @@ function Set_Nonlocal_NonCol!(HNL, iHNL, NLP, pspot::Vector{Pspot}, system_grid:
             end
         end
 
+
+        HNL1 = HNL[1][atom][Rn]
+        HNL2 = HNL[2][atom][Rn]
+        HNL3 = HNL[3][atom][Rn]
+        iHNL1 = iHNL[1][atom][Rn]
+        iHNL2 = iHNL[2][atom][Rn]
+        iHNL3 = iHNL[3][atom][Rn]
+
         rcut = Atom_Cut1[atom] + Atom_Cut1[jatom]
         dmp = dampingF(rcut, Dis[atom][Rn])
         for ist = 1:NO0, jst = 1:NO1
-            hst += 1
-            HNL[1][Hks_Num+hst] = dmp * HNL_temp[ist,jst,1]
-            HNL[2][Hks_Num+hst] = dmp * HNL_temp[ist,jst,2]
-            HNL[3][Hks_Num+hst] = dmp * HNL_temp[ist,jst,3]
-            iHNL[1][Hks_Num+hst] = dmp * iHNL_temp[ist,jst,1]
-            iHNL[2][Hks_Num+hst] = dmp * iHNL_temp[ist,jst,2]
-            iHNL[3][Hks_Num+hst] = dmp * iHNL_temp[ist,jst,3]
+            HNL1[ist][jst] = dmp * HNL_temp[ist,jst,1]
+            HNL2[ist][jst] = dmp * HNL_temp[ist,jst,2]
+            HNL3[ist][jst] = dmp * HNL_temp[ist,jst,3]
+            iHNL1[ist][jst] = dmp * iHNL_temp[ist,jst,1]
+            iHNL2[ist][jst] = dmp * iHNL_temp[ist,jst,2]
+            iHNL3[ist][jst] = dmp * iHNL_temp[ist,jst,3]
         end
     end
 
 
-    MPI.Allreduce!(HNL[1], MPI.SUM, comm)
-    MPI.Allreduce!(HNL[2], MPI.SUM, comm)
-    MPI.Allreduce!(HNL[3], MPI.SUM, comm)
-    MPI.Allreduce!(iHNL[1], MPI.SUM, comm)
-    MPI.Allreduce!(iHNL[2], MPI.SUM, comm)
-    MPI.Allreduce!(iHNL[3], MPI.SUM, comm)
+    for atom = 1:Natom, Rn = 1:FNAN[atom]+1, ist = 1:Total_NumOrbs[atom]
+        MPI.Allreduce!(HNL[1][atom][Rn][ist], MPI.SUM, comm)
+        MPI.Allreduce!(HNL[2][atom][Rn][ist], MPI.SUM, comm)
+        MPI.Allreduce!(HNL[3][atom][Rn][ist], MPI.SUM, comm)
+        MPI.Allreduce!(iHNL[1][atom][Rn][ist], MPI.SUM, comm)
+        MPI.Allreduce!(iHNL[2][atom][Rn][ist], MPI.SUM, comm)
+        MPI.Allreduce!(iHNL[3][atom][Rn][ist], MPI.SUM, comm)
+    end
 end

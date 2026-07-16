@@ -1,3 +1,17 @@
+function Set_Nstate(material::LCPAO_model)
+    SpinPol = material.SpinPol
+    fsize = sum(material.Total_NumOrbs)
+    Nfsize = ifelse(SpinPol=="nc", 2*fsize, fsize)
+    return Nfsize
+end
+
+
+function Set_Nstate(material::CWF_model)
+    Ngsize = material.Ngsize
+    return Ngsize
+end
+
+
 function Set_dfdE!(fermi_T_dE, mu, TDFE, TDF_N, kBT; MaxExp = 36.0)
     
     for ie = 1:TDF_N

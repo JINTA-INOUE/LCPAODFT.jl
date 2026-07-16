@@ -124,8 +124,8 @@ end
 
 function Find_MinN_MaxN(Dis_Energy, Nfsize, MLWF_Enk, ChemP)
 
-    out0 = Dis_Energy[1]
-    out1 = Dis_Energy[4]
+    out0 = Dis_Energy[begin]
+    out1 = Dis_Energy[end]
 
     MinN = 0
     MaxN = 0

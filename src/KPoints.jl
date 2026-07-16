@@ -1,6 +1,3 @@
-"""
-The type for describing Bloch wave vector of electronic states for MPI
-"""
 struct KPoints
     AllNkpt::Int32
     Nkpt::Int32
@@ -17,41 +14,6 @@ struct KPoints
 end
 
 
-function KPoints(system::String, SpinPol::String, kmesh::Tuple{Signed,Signed,Signed}, time_rev::Bool, Shift_K_Point; KP_flag="Gcenter")
-    
-    if system == "Crystal"
-        if SpinPol ≠ "nc"
-            # only using time reversal symmetry
-            kpoints = KPoints(kmesh, time_rev, Shift_K_Point; KP_flag)
-        else
-            # NonCollinear case is no time reversal symmetry
-            kpoints = KPoints(kmesh, false, Shift_K_Point; KP_flag)
-        end
-    elseif system ∈ ("Atom", "Cluster")
-		kpoints = nothing
-	else
-		error("now system = $system. please check system")
-	end
-
-    
-    return kpoints
-end
-
-
-
-"""
-    MPI_KPoints(...)
-
-Generate mesh in BZ.
-
-Mandatory arguments:
-
-- `LatVecs`: Lattice vectrors
-- `kmesh`: mesh number in BZ
-
-The following is the most commonly used optional arguments:
-- `time_rev` : is time reversing
-"""
 function KPoints(kmesh::Tuple{Signed,Signed,Signed}, time_rev::Bool, Shift_K_Point; KP_flag="Gcenter")
 
     comm = MPI.COMM_WORLD

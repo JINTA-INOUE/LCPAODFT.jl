@@ -51,8 +51,8 @@
 
 
     if write_coef && myrank == 0
-        println("Write $(filename).ExpnCoef.jld2")
-        jldopen("$(filename).ExpnCoef.jld2", "w") do file
+        println("Write $filename.ExpnCoef.jld2")
+        jldopen("$filename.ExpnCoef.jld2", "w") do file
             file["Dates"] = now()
             file["SpinPol"] = SpinPol
             file["spinsize"] = spinsize
@@ -66,6 +66,7 @@
 
     return CWF_ExpnCoef
 end
+
 
 
 function Set_CWF_ExpnCoef_Col!(cwf_setup::Union{CWF_Setup,CWF_Setup_MO}, kpoints::KPoints, MinN, MaxN, Cnk, Umnk, CWF_ExpnCoef)
@@ -102,23 +103,25 @@ function Set_CWF_ExpnCoef_Col!(cwf_setup::Union{CWF_Setup,CWF_Setup_MO}, kpoints
     Umnk_tmp = zeros(ComplexF64, BANDNUM, Ngsize)
     Cnk_tmp = zeros(ComplexF64, Nfsize, Nfsize)
 
-    for spin = 1:spinsize, proj = 1:Ngsize, cell = 1:Plot_NCell
-        l, m, n = Plot_cell_ijk[cell]
-        for ist = 1:Nfsize
-            Sum = ComplexF64(0.0, 0.0)
-            for ik = 1:MPI_Nkpt
-                @. Cnk_tmp = Cnk[spin][ik]
-                @. Umnk_tmp = Umnk[spin][ik]
-                kRn = MPI_kpts[ik][1]*l + MPI_kpts[ik][2]*m + MPI_kpts[ik][3]*n
-                ex = cispi(2*kRn)/AllNkpt
+    for spin = 1:spinsize, ik = 1:MPI_Nkpt
+        ka, kb, kc = MPI_kpts[ik]
+        @. Cnk_tmp = Cnk[spin][ik]
+        @. Umnk_tmp = Umnk[spin][ik]
+
+        for proj = 1:Ngsize, cell = 1:Plot_NCell
+            l, m, n = Plot_cell_ijk[cell]
+            kRn = ka*l + kb*m + kc*n
+            ex = cispi(2*kRn)/AllNkpt
+
+            for ist = 1:Nfsize
                 temp = ComplexF64(0.0, 0.0)
                 @inbounds for μ = 1:BANDNUM
                     temp += Umnk_tmp[μ,proj]*Cnk_tmp[ist,μ+MinN-1]
                 end
-                Sum += temp*ex
+            
+                temp = temp*ex
+                CWF_ExpnCoef[spin][proj][cell][ist] += real(temp)
             end
-
-            CWF_ExpnCoef[spin][proj][cell][ist] = real(Sum)
         end
     end
 
@@ -158,23 +161,25 @@ function Set_CWF_ExpnCoef_NonCol!(cwf_setup::Union{CWF_Setup,CWF_Setup_MO}, kpoi
     Umnk_tmp = zeros(ComplexF64, BANDNUM, Ngsize)
     Cnk_tmp = zeros(ComplexF64, Nfsize, Nfsize)
 
-    for proj = 1:Ngsize, cell = 1:Plot_NCell
-        l, m, n = Plot_cell_ijk[cell]
-        for ist = 1:Nfsize
-            Sum = ComplexF64(0.0, 0.0)
-            for ik = 1:MPI_Nkpt
-                @. Cnk_tmp = Cnk[1][ik]
-                @. Umnk_tmp = Umnk[1][ik]
-                kRn = MPI_kpts[ik][1]*l + MPI_kpts[ik][2]*m + MPI_kpts[ik][3]*n
-                ex = cispi(2*kRn)/AllNkpt
+    for ik = 1:MPI_Nkpt
+        ka, kb, kc = MPI_kpts[ik]
+        @. Cnk_tmp = Cnk[1][ik]
+        @. Umnk_tmp = Umnk[1][ik]
+
+        for proj = 1:Ngsize, cell = 1:Plot_NCell
+            l, m, n = Plot_cell_ijk[cell]
+            kRn = ka*l + kb*m + kc*n
+            ex = cispi(2*kRn)/AllNkpt
+
+            for ist = 1:Nfsize
                 temp = ComplexF64(0.0, 0.0)
                 @inbounds for μ = 1:BANDNUM
                     temp += Umnk_tmp[μ,proj]*Cnk_tmp[ist,μ+MinN-1]
                 end
-                Sum += temp*ex
+            
+                temp = temp*ex
+                CWF_ExpnCoef[proj][cell][ist] += temp
             end
-
-            CWF_ExpnCoef[proj][cell][ist] = Sum
         end
     end
 

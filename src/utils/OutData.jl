@@ -272,7 +272,7 @@ function WriteFile(
 end
 
 
-function WriteFile(
+function WriteFile!(
     mulliken_charge::Mulliken_Charge, 
     dft_setup::DFT_Setup, 
     system_grid::System_Grid, 
@@ -322,6 +322,10 @@ function WriteFile(
     Etot = energy.Etot
     ForceAll = force.ForceAll
     filename = dft_setup.filename
+
+    if isnothing(iDM)
+        iDM = [[[[[1.0]]]]]
+    end
 
     data = open(pwd()*"/"*PROGRAM_FILE, "r")
     scf_inputfile = readlines(data)

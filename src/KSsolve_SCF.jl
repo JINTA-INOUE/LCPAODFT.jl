@@ -2,7 +2,7 @@ function KSsolve_SCF!(
     GeoOpt_iter,
     dft_setup::DFT_Setup,
     pao::Vector{PAO}, pspot::Vector{Pspot}, 
-    ucell::UCell, electron::CrystalBloch, 
+    ucell::UCell, electron::AbstractBloch, 
     kpoints::KPoints,
     dft_options::DFT_Options,
     energy::Energy, force::Force, 
@@ -58,6 +58,7 @@ function KSsolve_SCF!(
     
     Ham = Hamiltonian(SpinPol, pao, pspot, system_grid)
     
+    
     Orbs_Grid = Set_Orbitals_Grid(pao, ucell)
     ADensity_Grid, PCCDensity_Grid, Density_Grid = Set_AdenPCC_Grid(SpinPol, Init_Atoms_Nspin, Init_Atoms_Angle, pao, pspot, ucell)
 
@@ -79,10 +80,23 @@ function KSsolve_SCF!(
     end
 
     if SpinPol == "nc"
-        iDM = Vector{Vector{Float64}}(undef, 2)
-        for spin = 1:2
-            iDM[spin] = zeros(Float64, Total_Hsize)
-        end
+        system_grid = ucell.system_grid
+        FNAN = system_grid.FNAN
+        natn = system_grid.natn
+        Total_NumOrbs = system_grid.Total_NumOrbs
+        iDM = Vector{Vector{Vector{Vector{Vector{Float64}}}}}(undef, 2)
+		for spin = 1:2
+			iDM[spin] = Vector{Vector{Vector{Vector{Float64}}}}(undef, Natom)
+			for atom = 1:Natom
+				iDM[spin][atom] = Vector{Vector{Vector{Float64}}}(undef, FNAN[atom]+1)
+				for Rn = 1:FNAN[atom]+1
+					iDM[spin][atom][Rn] = Vector{Vector{Float64}}(undef, Total_NumOrbs[atom])
+					for ist = 1:Total_NumOrbs[atom]
+						iDM[spin][atom][Rn][ist] = zeros(Float64, Total_NumOrbs[natn[atom][Rn]])
+					end
+				end
+			end
+		end
     else
         iDM = nothing
     end
@@ -137,7 +151,6 @@ function KSsolve_SCF!(
     mulliken_charge = Mulliken_Charge(SpinPol, system_grid, Atoms_Core_Charge)
 
 
-
     scf_po = false
     dEele = 1.0
     pEele = 100.0
@@ -187,7 +200,8 @@ function KSsolve_SCF!(
 
         # solve Hc = ϵSc
         if system == "Cluster"
-            error("not support")
+            myrank == 0 && println("<Cluster_DFT>  Solving the eigenvalue problem ...")
+            Cluster_DFT!(Ham, system_grid, electron, Hks, DM)
         elseif system == "Crystal"
             myrank == 0 && println("<Crystal_DFT>  Solving the eigenvalue problem ...")
             Crystal_DFT!(Ham, system_grid, electron, kpoints, Hks, DM)
@@ -339,9 +353,14 @@ function KSsolve_SCF!(
     myrank == 0 && println("\n")
     myrank == 0 && println("<Energy> Energy calculation ...")
     
-    Calc_iDM_Crystal_NonCollinear!(electron, kpoints, system_grid, iDM)
+    if system == "Cluster"
+        Calc_iDM_Cluster_NonCollinear!(electron, system_grid, iDM)
+    elseif system == "Crystal"
+        Calc_iDM_Crystal_NonCollinear!(electron, kpoints, system_grid, iDM)
+    end
 
-    Total_Energy!(energy, force, DM, iDM, 
+    DM_Vec = Set_DM2DM_Vec(DM, system_grid)
+    Total_Energy!(energy, force, DM_Vec, iDM, 
                   ADensity_Grid, PCCDensity_Grid, Density_Grid, 
                   dVHart_Grid, Ham, system_grid, pao, pspot)
     energy.Eele = electron.Eele
@@ -358,15 +377,11 @@ function KSsolve_SCF!(
     myrank == 0 && println("\n")
     myrank == 0 && println("<Force> Force calculation ...")
 
-    DM_Vec = Set_DM2DM_Vec(DM, system_grid)
-    iDM_Vec = Set_DM2DM_Vec(iDM, system_grid)
-
     Force!(force, electron, kpoints,
-           DM_Vec, iDM_Vec, Orbs_Grid,
+           DM_Vec, iDM, Orbs_Grid,
            ADensity_Grid, PCCDensity_Grid, 
            dVHart_Grid, xc_func.Vxc_Grid, Vpot_Grid,
            Ham, ucell, pao, pspot)
-    myrank == 0 && println("\n")
     
 
 
@@ -383,13 +398,13 @@ function KSsolve_SCF!(
     if fileout && myrank == 0
         OLP_Vec = Set_HVNA2HVNA_Vec(Ham.OLP, system_grid)
         Hks_Vec = Set_DM2DM_Vec(Hks, system_grid)
-        iHks_Vec = Set_DM2DM_Vec(Ham.iHNL, system_grid)
-        WriteFile(mulliken_charge, dft_setup, system_grid, dipole_moment, energy, force, DM_Vec, iDM_Vec, OLP_Vec, Hks_Vec, iHks_Vec)
+        WriteFile!(mulliken_charge, dft_setup, system_grid, dipole_moment, energy, force, DM_Vec, iDM, OLP_Vec, Hks_Vec, Ham.iHNL)
     end
     MPI.Barrier(comm)
 
 
-
+    
+    
     if verbosity>=1 && myrank==0
         println("")
         println("")
@@ -405,5 +420,5 @@ function KSsolve_SCF!(
 
 
     MPI.Barrier(comm)
+    
 end
-

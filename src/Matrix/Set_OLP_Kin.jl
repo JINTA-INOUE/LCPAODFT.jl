@@ -3,7 +3,7 @@
     comm = MPI.COMM_WORLD
     myrank = MPI.Comm_rank(comm)
 
-    
+
     atom2spe = system_grid.atom2spe
     Nspecies = length(pao)
     Lmax = 0
@@ -26,15 +26,19 @@
 
 
 
+    Natom = system_grid.Natom
+    FNAN = system_grid.FNAN
+    atv = system_grid.atv
+	Gxyz = system_grid.Gxyz
+    Total_NumOrbs = system_grid.Total_NumOrbs
     MPI_atom = system_grid.MPI_atom
+    MPI_FNAN = system_grid.MPI_FNAN
     MPI_natn = system_grid.MPI_natn
     MPI_ncn = system_grid.MPI_ncn
     MPI_size = system_grid.MPI_size
     MPHks = system_grid.MPHks
     Hks_Num = MPHks[myrank+1]
-    atv = system_grid.atv
-	Gxyz = system_grid.Gxyz
-    Total_NumOrbs = system_grid.Total_NumOrbs
+    
 
 
 
@@ -68,6 +72,7 @@
     for loop = 1:MPI_size
 
         atom = MPI_atom[loop]
+        Rn = MPI_FNAN[loop]
         ispe = atom2spe[atom]
         jatom = MPI_natn[loop]
         jspe = atom2spe[jatom]
@@ -129,14 +134,14 @@
 
 
         # complex to real
-        for ist = 1:NO0
+        @inbounds for ist = 1:NO0
             @views mul!(tmpH, Cjβ[jspe], OLPiαjβ[ist,:])
             @views OLPiαjβ[ist,:] = tmpH
             @views mul!(tmpH, Cjβ[jspe], Hkiniαjβ[ist,:])
             @views Hkiniαjβ[ist,:] = tmpH
         end
 
-        for jst = 1:NO1
+        @inbounds for jst = 1:NO1
             @views mul!(tmpH, Ciα[ispe], OLPiαjβ[:,jst])
             @views OLPiαjβ[:,jst] = tmpH
             @views mul!(tmpH, Ciα[ispe], Hkiniαjβ[:,jst])
@@ -144,14 +149,17 @@
         end
 
         
-        for ist = 1:NO0, jst = 1:NO1
+        _Hkin = Hkin[atom][Rn]
+        @inbounds for ist = 1:NO0, jst = 1:NO1
             hst += 1
             OLP[Hks_Num+hst] = 8*real(OLPiαjβ[ist,jst])
-            Hkin[Hks_Num+hst] = 4*real(Hkiniαjβ[ist,jst])
+            _Hkin[ist][jst] = 4*real(Hkiniαjβ[ist,jst])
         end
     end
 
 
     MPI.Allreduce!(OLP, MPI.SUM, comm)
-    MPI.Allreduce!(Hkin, MPI.SUM, comm)
+   @inbounds for atom = 1:Natom, Rn = 1:FNAN[atom]+1, ist = 1:Total_NumOrbs[atom]
+        MPI.Allreduce!(Hkin[atom][Rn][ist], MPI.SUM, comm)
+    end
 end

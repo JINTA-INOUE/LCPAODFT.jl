@@ -79,6 +79,10 @@ Mandatory arguments:
     Ham::Hamiltonian, system_grid::System_Grid, 
     pao::Vector{PAO}, pspot::Vector{Pspot})
 
+    comm = MPI.COMM_WORLD
+    nprocs = MPI.Comm_size(comm)
+    myrank = MPI.Comm_rank(comm)
+
     Natom = system_grid.Natom
     atom2spe = system_grid.atom2spe
     GridVol = system_grid.GridVol
@@ -95,10 +99,10 @@ Mandatory arguments:
 	end
 
 
-    Enl = Calc_Enl(SpinPol, DM, iDM, HNL, iHNL)
-    Ekin = Calc_Ekin(SpinPol, DM, Hkin)
-    Ena = Calc_Ena(SpinPol, DM, HVNA)
-    EH0, EH0Force = Calc_EH0( pao, pspot, system_grid)
+    Enl = Calc_Enl(SpinPol, DM, iDM, HNL, iHNL, system_grid)
+    Ekin = Calc_Ekin(SpinPol, DM, Hkin, system_grid)
+    Ena = Calc_Ena(SpinPol, DM, HVNA, system_grid)
+    EH0, EH0Force = Calc_EH0(pao, pspot, system_grid)
     EH1 = Calc_EH1(SpinPol, GridVol, ADensity_Grid, Density_Grid, dVHart_Grid)
     Exc, ExcForce = Calc_EXC(SpinPol, pao, pspot, system_grid, ADensity_Grid, PCCDensity_Grid, Density_Grid)
     Ecore = Calc_Ecore(system_grid, Core_Charge)
@@ -120,7 +124,7 @@ Mandatory arguments:
 end
 
 
-function Calc_Ecore(system_grid::System_Grid, Core_Charge)
+@timeit timer "Calc_Ecore" function Calc_Ecore(system_grid::System_Grid, Core_Charge)
     
     comm = MPI.COMM_WORLD
 
@@ -153,12 +157,11 @@ function Calc_Ecore(system_grid::System_Grid, Core_Charge)
 end
 
 
-function Calc_EH0(pao::Vector{PAO}, pspot::Vector{Pspot}, system_grid::System_Grid)
+@timeit timer "Calc_EH0" function Calc_EH0(pao::Vector{PAO}, pspot::Vector{Pspot}, system_grid::System_Grid)
     
     comm = MPI.COMM_WORLD
     nprocs = MPI.Comm_size(comm)
     myrank = MPI.Comm_rank(comm)
-
 
     Gxyz = system_grid.Gxyz
     Natom = system_grid.Natom
@@ -469,68 +472,75 @@ function Calc_EH0(pao::Vector{PAO}, pspot::Vector{Pspot}, system_grid::System_Gr
 end
 
 
-function Calc_Ekin(SpinPol::String, DM, Hkin)
+@timeit timer "Calc_Ekin" function Calc_Ekin(SpinPol::String, DM, Hkin, system_grid::System_Grid)
+
+    Natom = system_grid.Natom
+    FNAN = system_grid.FNAN
+    natn = system_grid.natn
+    Total_NumOrbs = system_grid.Total_NumOrbs
 
     Ekin = 0.0
     if SpinPol == "off"
-        Ekin += dot(DM[1], Hkin)
+        Ekin += Sum_DMdotH(DM[1], Hkin, Natom, FNAN, Total_NumOrbs, natn)
+        Ekin = 2*Ekin
     elseif SpinPol ∈ ("on", "nc")
-        Ekin += dot(DM[1], Hkin)
-        Ekin += dot(DM[2], Hkin)
+        Ekin += Sum_DMdotH(DM[1], Hkin, Natom, FNAN, Total_NumOrbs, natn)
+        Ekin += Sum_DMdotH(DM[2], Hkin, Natom, FNAN, Total_NumOrbs, natn)
     else
         error("please check SpinPol")
     end
 
-
-    if SpinPol == "off"
-        Ekin = 2*Ekin
-    end
 
     return Ekin
 end
 
 
-function Calc_Ena(SpinPol::String, DM, HVNA)
+@timeit timer "Calc_Ena" function Calc_Ena(SpinPol::String, DM, HVNA, system_grid::System_Grid)
     
+    Natom = system_grid.Natom
+    FNAN = system_grid.FNAN
+    natn = system_grid.natn
+    Total_NumOrbs = system_grid.Total_NumOrbs
+
     Ena = 0.0
     if SpinPol == "off"
-        Ena += dot(DM[1], HVNA)
+        Ena += Sum_DMdotH(DM[1], HVNA, Natom, FNAN, Total_NumOrbs, natn)
+        Ena = 2*Ena
     elseif SpinPol ∈ ("on", "nc")
-        Ena += dot(DM[1], HVNA)
-        Ena += dot(DM[2], HVNA)
+        Ena += Sum_DMdotH(DM[1], HVNA, Natom, FNAN, Total_NumOrbs, natn)
+        Ena += Sum_DMdotH(DM[2], HVNA, Natom, FNAN, Total_NumOrbs, natn)
     else
         error("please check SpinPol")
     end
 
-    if SpinPol == "off"
-        Ena = 2*Ena
-    end
 
     return Ena
 end
 
 
-function Calc_Enl(SpinPol::String, DM, iDM, HNL, iHNL)
+@timeit timer "Calc_Enl" function Calc_Enl(SpinPol::String, DM, iDM, HNL, iHNL, system_grid::System_Grid)
        
+    Natom = system_grid.Natom
+    FNAN = system_grid.FNAN
+    natn = system_grid.natn
+    Total_NumOrbs = system_grid.Total_NumOrbs
+
     Enl = 0.0
     if SpinPol == "off"
-        Enl += dot(DM[1], HNL[1])
+        Enl += Sum_DMdotH(DM[1], HNL[1], Natom, FNAN, Total_NumOrbs, natn)
+        Enl = 2*Enl
     elseif SpinPol == "on"
-        Enl += dot(DM[1], HNL[1])
-        Enl += dot(DM[2], HNL[1])
+        Enl += Sum_DMdotH(DM[1], HNL[1], Natom, FNAN, Total_NumOrbs, natn)
+        Enl += Sum_DMdotH(DM[2], HNL[1], Natom, FNAN, Total_NumOrbs, natn)
     elseif SpinPol == "nc"
-        Enl +=   dot( DM[1],  HNL[1])
-        Enl -=   dot(iDM[1], iHNL[1])
-        Enl +=   dot( DM[2],  HNL[2])
-        Enl -=   dot(iDM[2], iHNL[2])
-        Enl += 2*dot( DM[3],  HNL[3])
-        Enl -= 2*dot( DM[4], iHNL[3])
+        Enl +=   Sum_DMdotH( DM[1], HNL[1], Natom, FNAN, Total_NumOrbs, natn)
+        Enl -=   Sum_DMdotH(iDM[1],iHNL[1], Natom, FNAN, Total_NumOrbs, natn)
+        Enl +=   Sum_DMdotH( DM[2], HNL[2], Natom, FNAN, Total_NumOrbs, natn)
+        Enl -=   Sum_DMdotH(iDM[2],iHNL[2], Natom, FNAN, Total_NumOrbs, natn)
+        Enl += 2*Sum_DMdotH( DM[3], HNL[3], Natom, FNAN, Total_NumOrbs, natn)
+        Enl -= 2*Sum_DMdotH( DM[4],iHNL[3], Natom, FNAN, Total_NumOrbs, natn)
     else
         error("please check SpinPol")
-    end
-
-    if SpinPol == "off"
-        Enl = 2*Enl
     end
     
 
@@ -538,7 +548,7 @@ function Calc_Enl(SpinPol::String, DM, iDM, HNL, iHNL)
 end
 
 
-function Calc_EXC(
+@timeit timer "Calc_EXC" function Calc_EXC(
     SpinPol::AbstractString,
     pao::Vector{PAO}, pspot::Vector{Pspot}, 
     system_grid::System_Grid, 
@@ -574,7 +584,7 @@ function Calc_EXC(
 end
 
 
-function Calc_EH1(SpinPol::AbstractString, GridVol, ADensity_Grid, Density_Grid, dVHart_Grid)
+@timeit timer "Calc_EH1" function Calc_EH1(SpinPol::AbstractString, GridVol, ADensity_Grid, Density_Grid, dVHart_Grid)
 
     EH1 = 0.0
     if SpinPol == "off"
@@ -607,8 +617,9 @@ function Calc_EXC1(SpinPol::String, xc_type::String, system_grid::System_Grid, A
     for spin = 1:spinmax
         Sum = 0.0
         for i = 1:NN
+            temp = ADensity_Grid[i]+PCCDensity_Grid[i]
             Sum += (Density_Grid[spin][i] + PCCDensity_Grid[i])*Vxc_Grid[spin][i]
-            Sum -= (ADensity_Grid[i] + PCCDensity_Grid[i])*LDA_CA(2*(ADensity_Grid[i]+PCCDensity_Grid[i]), 0) 
+            Sum -= temp*LDA_CA(2*temp, 0) 
         end
         EXC[spin] = Sum
     end
@@ -820,4 +831,18 @@ function Calc_Atomic_Den2(pao::PAO, pspot::Pspot)
 
 
     return Spe_Atomic_Den2
+end
+
+
+function Sum_DMdotH(A, B, Natom, FNAN, Total_NumOrbs, natn)
+    Sum = 0.0
+    for atom = 1:Natom, Rn = 1:FNAN[atom]+1
+        AA = A[atom][Rn]
+        BB = B[atom][Rn]
+        for ist = 1:Total_NumOrbs[atom], jst = 1:Total_NumOrbs[natn[atom][Rn]]
+            Sum += AA[ist][jst]*BB[ist][jst]
+        end
+    end
+
+    return Sum
 end

@@ -1,4 +1,4 @@
-function Calc_Sigma(boltz_setup::Boltz_Setup, TDF_Energy, TDF)
+@timeit timer "Calc_Sigma" function Calc_Sigma(boltz_setup::Boltz_Setup, TDF_Energy, TDF)
 
     plane_type = boltz_setup.plane_type
     if plane_type

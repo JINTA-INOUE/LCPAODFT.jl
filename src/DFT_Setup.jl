@@ -34,6 +34,7 @@ struct DFT_Setup
     Start_Pulay_SCF::Int32
     E_Temp::Float64
     kmesh::Tuple{Int32,Int32,Int32}
+    symmetry::Symmetry
     Hub_U::Bool
     Hub_U_atom::Vector{Vector{Float64}}
     Hub_U_orbpol::Vector{Bool}
@@ -48,7 +49,6 @@ struct DFT_Setup
     send_email::Bool
     verbosity::Int64
 end
-
 
 
 function Print_DFT_Setup(dft_setup::DFT_Setup)
@@ -191,6 +191,9 @@ function Print_DFT_Setup(dft_setup::DFT_Setup)
         end
     end
 
+
+    println("")
+    Print_Symmetry(dft_setup.symmetry)
     
     fileout = dft_setup.fileout
     filename = dft_setup.filename
@@ -387,7 +390,9 @@ function DFT_Setup(
 
 
     system = lowercase(strip(system))
-    if system ∈ ("band", "bands", "crystal", "crystals")
+    if system ∈ ("atom", "atoms", "cluster")
+        system = "Cluster"
+    elseif system ∈ ("band", "bands", "crystal", "crystals")
         system = "Crystal"
     else
         println("only support system = Crystal")
@@ -485,11 +490,12 @@ function DFT_Setup(
         error("please check kmesh")
     end
 
-    if SpinPol ∈ ("off", "on") && nprocs > div(prod(kmesh),2)
+    if SpinPol ∈ ("off", "on") && system == "Crystal" && nprocs > div(prod(kmesh),2)
         error("not support number of process > number of Total kmesh points")
-    elseif SpinPol == "nc" && nprocs > prod(kmesh)
+    elseif SpinPol == "nc" && system == "Crystal" && nprocs > prod(kmesh)
         error("not support number of process > number of Total kmesh points")
     end
+
 
     if Hub_U
         if isnothing(Hub_U_atom)
@@ -706,6 +712,9 @@ function DFT_Setup(
 
 
 
+    symmetry = Get_Symmetry_Spglib(Latvecs, Gxyz_frac, atom2spe)
+
+
 
     pao_file = Vector{String}(undef, Nspecies)
     pspot_file = Vector{String}(undef, Nspecies)
@@ -750,7 +759,7 @@ function DFT_Setup(
         pao_file, pspot_file, Ngrid,
         Mixing_method, SCF_criterion, SCF_max, 
         Init_Mixing_weight, Min_Mixing_weight, Max_Mixing_weight, Num_Mixing_Pulay,
-        Start_Pulay_SCF, E_Temp, kmesh,
+        Start_Pulay_SCF, E_Temp, kmesh, symmetry,
         Hub_U, Hub_U_atom, Hub_U_orbpol, Hub_U_occ, Hub_Type, dc_Type,
         time_rev, fileout, filename2, restart, filepath2, send_email, verbosity
     )

@@ -1,4 +1,4 @@
-function Set_OLP_Kinforce(pao::Vector{PAO}, system_grid::System_Grid)
+@timeit timer "Set_OLP_Kinforce" function Set_OLP_Kinforce(pao::Vector{PAO}, system_grid::System_Grid)
 
     Natom = system_grid.Natom
 	FNAN = system_grid.FNAN
@@ -116,11 +116,7 @@ function Set_OLP_Kinforce!(OLP_force, Hkin_force, pao::Vector{PAO}, system_grid:
 
     Lmax2 = Lmax*2
     fact2 = zeros(Float64, 2*Lmax2+1, 2*Lmax2+1)
-    for i = 0:2*Lmax2, j = 0:2*Lmax2
-        tmp0 = sqrt(factorial(big(i)))
-        tmp1 = sqrt(factorial(big(j)))
-        fact2[i+1,j+1] = tmp0/tmp1
-    end
+    Set_SqrtFactorial_Ratio!(fact2)
 
 
     f = zeros(Float64, S3J_MAX_FACT)

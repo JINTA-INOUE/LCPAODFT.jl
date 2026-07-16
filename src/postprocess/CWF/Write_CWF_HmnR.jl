@@ -15,9 +15,11 @@ function Write_CWF_HmnR(cwf_setup::Union{CWF_Setup, CWF_Setup_MO}, DMfunc, NCell
     weight_type = cwf_setup.weight_type
     scf_inputfile = material.scf_inputfile
     
-    data = open(pwd()*"/"*PROGRAM_FILE, "r")
-    cwf_inputfile = readlines(data)
-    close(data)
+    # data = open(pwd()*"/"*PROGRAM_FILE, "r")
+    # cwf_inputfile = readlines(data)
+    # close(data)
+
+    cwf_inputfile = [""]
 
 
     println("Write $(filename).CWF.jld2")

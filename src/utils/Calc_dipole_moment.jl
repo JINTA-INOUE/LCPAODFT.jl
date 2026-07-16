@@ -89,25 +89,25 @@ function Calc_dipole_moment_nospin(system_grid::System_Grid, Core_Charge, system
     AU2Debye = 2.54174776
 
 
-    dipole_memont = zeros(Float64, 4, 3)
-    dipole_memont[1,1] = AU2Debye*(C_dpx - E_dpx - E_dpx_BG)
-    dipole_memont[1,2] = AU2Debye*(C_dpy - E_dpy - E_dpy_BG)
-    dipole_memont[1,3] = AU2Debye*(C_dpz - E_dpz - E_dpz_BG)
+    dipole_moment = zeros(Float64, 4, 3)
+    dipole_moment[1,1] = AU2Debye*(C_dpx - E_dpx - E_dpx_BG)
+    dipole_moment[1,2] = AU2Debye*(C_dpy - E_dpy - E_dpy_BG)
+    dipole_moment[1,3] = AU2Debye*(C_dpz - E_dpz - E_dpz_BG)
 
-    dipole_memont[2,1] = AU2Debye*C_dpx
-    dipole_memont[2,2] = AU2Debye*C_dpy
-    dipole_memont[2,3] = AU2Debye*C_dpz
+    dipole_moment[2,1] = AU2Debye*C_dpx
+    dipole_moment[2,2] = AU2Debye*C_dpy
+    dipole_moment[2,3] = AU2Debye*C_dpz
 
-    dipole_memont[3,1] = -AU2Debye*E_dpx
-    dipole_memont[3,2] = -AU2Debye*E_dpy
-    dipole_memont[3,3] = -AU2Debye*E_dpz
+    dipole_moment[3,1] = -AU2Debye*E_dpx
+    dipole_moment[3,2] = -AU2Debye*E_dpy
+    dipole_moment[3,3] = -AU2Debye*E_dpz
 
-    dipole_memont[4,1] = -AU2Debye*E_dpx_BG
-    dipole_memont[4,2] = -AU2Debye*E_dpy_BG
-    dipole_memont[4,3] = -AU2Debye*E_dpz_BG
+    dipole_moment[4,1] = -AU2Debye*E_dpx_BG
+    dipole_moment[4,2] = -AU2Debye*E_dpy_BG
+    dipole_moment[4,3] = -AU2Debye*E_dpz_BG
 
 
-    return dipole_memont
+    return dipole_moment
 end
 
 
@@ -192,23 +192,23 @@ function Calc_dipole_moment_spin(system_grid::System_Grid, Core_Charge, system_c
     AU2Debye = 2.54174776
 
 
-    dipole_memont = zeros(Float64, 4, 3)
-    dipole_memont[1,1] = AU2Debye*(C_dpx - E_dpx - E_dpx_BG)
-    dipole_memont[1,2] = AU2Debye*(C_dpy - E_dpy - E_dpy_BG)
-    dipole_memont[1,3] = AU2Debye*(C_dpz - E_dpz - E_dpz_BG)
+    dipole_moment = zeros(Float64, 4, 3)
+    dipole_moment[1,1] = AU2Debye*(C_dpx - E_dpx - E_dpx_BG)
+    dipole_moment[1,2] = AU2Debye*(C_dpy - E_dpy - E_dpy_BG)
+    dipole_moment[1,3] = AU2Debye*(C_dpz - E_dpz - E_dpz_BG)
 
-    dipole_memont[2,1] = AU2Debye*C_dpx
-    dipole_memont[2,2] = AU2Debye*C_dpy
-    dipole_memont[2,3] = AU2Debye*C_dpz
+    dipole_moment[2,1] = AU2Debye*C_dpx
+    dipole_moment[2,2] = AU2Debye*C_dpy
+    dipole_moment[2,3] = AU2Debye*C_dpz
 
-    dipole_memont[3,1] = -AU2Debye*E_dpx
-    dipole_memont[3,2] = -AU2Debye*E_dpy
-    dipole_memont[3,3] = -AU2Debye*E_dpz
+    dipole_moment[3,1] = -AU2Debye*E_dpx
+    dipole_moment[3,2] = -AU2Debye*E_dpy
+    dipole_moment[3,3] = -AU2Debye*E_dpz
 
-    dipole_memont[4,1] = -AU2Debye*E_dpx_BG
-    dipole_memont[4,2] = -AU2Debye*E_dpy_BG
-    dipole_memont[4,3] = -AU2Debye*E_dpz_BG
+    dipole_moment[4,1] = -AU2Debye*E_dpx_BG
+    dipole_moment[4,2] = -AU2Debye*E_dpy_BG
+    dipole_moment[4,3] = -AU2Debye*E_dpz_BG
 
 
-    return dipole_memont
+    return dipole_moment
 end

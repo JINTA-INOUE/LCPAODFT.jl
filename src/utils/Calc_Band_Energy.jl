@@ -1,3 +1,45 @@
+function Calc_Band_Energy!(electron::ClusterBloch)
+
+    comm = MPI.COMM_WORLD
+    myrank = MPI.Comm_rank(comm)
+
+    Spindeg = electron.Spindeg
+    TotalZ = electron.TotalZ
+    Beta = 1/electron.E_Temp/kb*eV2Hartree
+    spinsize = electron.spinsize
+    Nfsize = electron.Nfsize
+    Enk = electron.Enk
+    FF = electron.FF
+
+    ChemP = Calc_ChemP(spinsize, Spindeg, Nfsize, TotalZ, Beta, Enk)
+    ChemP = MPI.Bcast(ChemP, 0, comm)
+    electron.ChemP = ChemP
+
+
+    Eele0 = 0.0
+    @inbounds for spin = 1:spinsize, μ = 1:Nfsize
+            
+        x = (Enk[μ,spin]-ChemP)*Beta
+        if x <= -max_x
+            x = -max_x
+         end
+
+        if x >= max_x
+            x = max_x
+        end
+            
+        FermiF = 1/(1 + exp(x))
+        FF[μ,spin] = FermiF
+        Eele0 += FermiF*Enk[μ,spin]
+    end
+    Eele0 = Spindeg*Eele0
+    Eele0 = MPI.Bcast(Eele0, 0, comm)
+
+    electron.FF = FF
+    electron.Eele = Eele0
+end
+
+
 function Calc_Band_Energy!(electron::CrystalBloch, kpoints::KPoints)
 
     comm = MPI.COMM_WORLD

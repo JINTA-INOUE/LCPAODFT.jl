@@ -43,7 +43,7 @@ end
 
 
 @timeit timer "Force" function Force!(
-    force::Force, electron::CrystalBloch, kpoints::KPoints,
+    force::Force, electron::AbstractBloch, kpoints::KPoints,
     DM, iDM, Orbs_Grid,
     ADensity_Grid, PCCDensity_Grid, 
     dVHart_Grid, Vxc_Grid, Vpot_Grid,
@@ -62,10 +62,6 @@ end
     Core_Charge = electron.Core_Charge
     Natom = system_grid.Natom
 
-
-    HNL_Vec = Set_HNL2HNL_Vec(HNL, system_grid)
-    iHNL_Vec = Set_HNL2HNL_Vec(iHNL, system_grid)
-    HVNA_Vec = Set_HVNA2HVNA_Vec(HVNA, system_grid)
 
 
 
@@ -96,9 +92,10 @@ end
 
     
     myrank == 0 && println("<HVNA_Force>")
-    DS_VNAforce = Set_DS_VNAforce(pao, pspot, system_grid)
-    HVNA2force, HVNA3force = Set_HVNA2_3force(pao, pspot, system_grid)    
-    HVNAForce = HVNA_Force(SpinPol, DS_VNAforce, HVNA2force, HVNA3force, HVNA_Vec, DM, system_grid)
+    DS_VNAforce = Ham.DS_VNAforce
+    HVNA2force = Ham.HVNA2force
+    HVNA3force = Ham.HVNA3force
+    HVNAForce = HVNA_Force(SpinPol, DS_VNAforce, HVNA2force, HVNA3force, HVNA, DM, system_grid)
     myrank == 0 && Print_Force("HVNA_Force", Natom, HVNAForce)
     MPI.Barrier(comm)
 
@@ -110,11 +107,11 @@ end
 
     
     myrank == 0 && println("<HNL_Force>")
-    NLPforce = Set_NLPforce(pao, pspot, system_grid)
+    NLPforce = Ham.NLPforce
     if SpinPol ∈ ("off", "on")
-        HNLForce = HNL_Force(SpinPol, pspot, NLPforce, HNL_Vec, DM, system_grid)
+        HNLForce = HNL_Force(SpinPol, pspot, NLPforce, HNL, DM, system_grid)
     else 
-        HNLForce = HNL_Force_NC(pspot, NLPforce, HNL_Vec, iHNL_Vec, DM, iDM, system_grid)
+        HNLForce = HNL_Force_NC(pspot, NLPforce, HNL, iHNL, DM, iDM, system_grid)
     end
     myrank == 0 && Print_Force("HNL_Force", Natom, HNLForce)
     MPI.Barrier(comm)
@@ -570,7 +567,7 @@ end
     MPI_size = system_grid.MPI_size
     Total_NumOrbs = system_grid.Total_NumOrbs
     maxTotal_NumOrbs = maximum(Total_NumOrbs)
-    VNATotal_Num = length(DS_VNA[1][1][1][1])
+    VNATotal_Num = size(DS_VNA[1][1][1], 2)
 
     Hx = zeros(Float64, maxTotal_NumOrbs, maxTotal_NumOrbs)
     Hy = zeros(Float64, maxTotal_NumOrbs, maxTotal_NumOrbs)
@@ -703,7 +700,7 @@ end
 end
 
 
-@timeit timer "OLP_Force" function OLP_Force(OLP_force, electron::CrystalBloch, kpoints::KPoints, system_grid::System_Grid, occ_flag::Bool)
+@timeit timer "OLP_Force" function OLP_Force(OLP_force, electron::AbstractBloch, kpoints::KPoints, system_grid::System_Grid, occ_flag::Bool)
 
     SpinPol = electron.SpinPol
     EDM = Calc_EDM(electron, kpoints, system_grid, occ_flag)
@@ -825,6 +822,7 @@ end
     Hz = zeros(Float64, maxTotal_NumOrbs, maxTotal_NumOrbs)
 
     HNLForce = zeros(Float64, Natom, 3)
+    weighted_NLP = zeros(Float64, maxTotal_NumOrbs, maximum(NLTotal_Num))
 
 
     for loop = 1:MPI_size
@@ -847,27 +845,30 @@ end
         fill!(Hy, 0.0)
         fill!(Hz, 0.0)
 
-        dHNL!( 0, atom, Rn, Rm, NLTotal_Num, VNLE,
+        dHNL!( 0, atom, Rn, Rm, NLTotal_Num, VNLE, weighted_NLP,
                Hx, Hy, Hz, 
                NLPforce, HNL[1][atom],
                system_grid)
 
         if SpinPol == "off"
+            DM1 = DM[1][jatom][kl+1]
             pref = ifelse(isequal(Rn,Rm), 2.0, 4.0)
             for ist = 1:NO0, jst = 1:NO1
-                dEx += pref*DM[1][jatom][kl+1][ist][jst]*Hx[ist,jst]
-                dEy += pref*DM[1][jatom][kl+1][ist][jst]*Hy[ist,jst]
-                dEz += pref*DM[1][jatom][kl+1][ist][jst]*Hz[ist,jst]
+                dEx += pref*DM1[ist][jst]*Hx[ist,jst]
+                dEy += pref*DM1[ist][jst]*Hy[ist,jst]
+                dEz += pref*DM1[ist][jst]*Hz[ist,jst]
             end
         elseif SpinPol == "on"
+            DM1 = DM[1][jatom][kl+1]
+            DM2 = DM[2][jatom][kl+1]
             pref = ifelse(isequal(Rn,Rm), 1.0, 2.0)
-            for ist = 1:NO0, jst = 1:NO1
-                dEx += pref*DM[1][jatom][kl+1][ist][jst]*Hx[ist,jst]
-                dEy += pref*DM[1][jatom][kl+1][ist][jst]*Hy[ist,jst]
-                dEz += pref*DM[1][jatom][kl+1][ist][jst]*Hz[ist,jst]
-                dEx += pref*DM[2][jatom][kl+1][ist][jst]*Hx[ist,jst]
-                dEy += pref*DM[2][jatom][kl+1][ist][jst]*Hy[ist,jst]
-                dEz += pref*DM[2][jatom][kl+1][ist][jst]*Hz[ist,jst]
+            @inbounds for ist = 1:NO0, jst = 1:NO1
+                dEx += pref*DM1[ist][jst]*Hx[ist,jst]
+                dEy += pref*DM1[ist][jst]*Hy[ist,jst]
+                dEz += pref*DM1[ist][jst]*Hz[ist,jst]
+                dEx += pref*DM2[ist][jst]*Hx[ist,jst]
+                dEy += pref*DM2[ist][jst]*Hy[ist,jst]
+                dEz += pref*DM2[ist][jst]*Hz[ist,jst]
             end
         end
 
@@ -913,27 +914,30 @@ end
                 fill!(Hy, 0.0)
                 fill!(Hz, 0.0)
 
-                dHNL!( 1, atom, Rn, Rm, NLTotal_Num, VNLE,
+                dHNL!( 1, atom, Rn, Rm, NLTotal_Num, VNLE, weighted_NLP,
                        Hx, Hy, Hz, 
                        NLPforce, HNL[1][atom],
                        system_grid)
 
                 if SpinPol == "off"
+                    DM1 = DM[1][jatom][kl+1]
                     pref = ifelse(isequal(Rn,Rm), 2.0, 4.0)
-                    for ist = 1:NO0, jst = 1:NO1
-                        dEx += pref*DM[1][jatom][kl+1][ist][jst]*Hx[ist,jst]
-                        dEy += pref*DM[1][jatom][kl+1][ist][jst]*Hy[ist,jst]
-                        dEz += pref*DM[1][jatom][kl+1][ist][jst]*Hz[ist,jst]
+                    @inbounds for ist = 1:NO0, jst = 1:NO1
+                        dEx += pref*DM1[ist][jst]*Hx[ist,jst]
+                        dEy += pref*DM1[ist][jst]*Hy[ist,jst]
+                        dEz += pref*DM1[ist][jst]*Hz[ist,jst]
                     end
                 elseif SpinPol == "on"
+                    DM1 = DM[1][jatom][kl+1]
+                    DM2 = DM[2][jatom][kl+1]
                     pref = ifelse(isequal(Rn,Rm), 1.0, 2.0)
-                    for ist = 1:NO0, jst = 1:NO1
-                        dEx += pref*DM[1][jatom][kl+1][ist][jst]*Hx[ist,jst]
-                        dEy += pref*DM[1][jatom][kl+1][ist][jst]*Hy[ist,jst]
-                        dEz += pref*DM[1][jatom][kl+1][ist][jst]*Hz[ist,jst]
-                        dEx += pref*DM[2][jatom][kl+1][ist][jst]*Hx[ist,jst]
-                        dEy += pref*DM[2][jatom][kl+1][ist][jst]*Hy[ist,jst]
-                        dEz += pref*DM[2][jatom][kl+1][ist][jst]*Hz[ist,jst]
+                    @inbounds for ist = 1:NO0, jst = 1:NO1
+                        dEx += pref*DM1[ist][jst]*Hx[ist,jst]
+                        dEy += pref*DM1[ist][jst]*Hy[ist,jst]
+                        dEz += pref*DM1[ist][jst]*Hz[ist,jst]
+                        dEx += pref*DM2[ist][jst]*Hx[ist,jst]
+                        dEy += pref*DM2[ist][jst]*Hy[ist,jst]
+                        dEz += pref*DM2[ist][jst]*Hz[ist,jst]
                     end
                 end
             end
@@ -1015,7 +1019,6 @@ end
         jatom = natn[atom][Rn]
         kl = RMI[atom][Rn][Rm]
         katom = natn[atom][Rm]
-
         NO0 = Total_NumOrbs[jatom]
         NO1 = Total_NumOrbs[katom]
 
@@ -1034,50 +1037,66 @@ end
                    system_grid)
 
         if Rn == Rm
-            for ist = 1:NO0, jst = 1:NO1
-                dEx +=   DM[1][jatom][kl+1][ist][jst]*real(Hx[ist,jst,1])
-                dEx -=  iDM[1][jatom][kl+1][ist][jst]*imag(Hx[ist,jst,1])
-                dEx +=   DM[2][jatom][kl+1][ist][jst]*real(Hx[ist,jst,2])
-                dEx -=  iDM[2][jatom][kl+1][ist][jst]*imag(Hx[ist,jst,2])
-                dEx += 2*DM[3][jatom][kl+1][ist][jst]*real(Hx[ist,jst,3])
-                dEx -= 2*DM[4][jatom][kl+1][ist][jst]*imag(Hx[ist,jst,3])
+
+            DM1 = DM[1][jatom][kl+1]
+            DM2 = DM[2][jatom][kl+1]
+            DM3 = DM[3][jatom][kl+1]
+            DM4 = DM[4][jatom][kl+1]
+            iDM1 = iDM[1][jatom][kl+1]
+            iDM2 = iDM[2][jatom][kl+1]
+            
+            @inbounds for ist = 1:NO0, jst = 1:NO1
+                dEx +=   DM1[ist][jst]*real(Hx[ist,jst,1])
+                dEx -=  iDM1[ist][jst]*imag(Hx[ist,jst,1])
+                dEx +=   DM2[ist][jst]*real(Hx[ist,jst,2])
+                dEx -=  iDM2[ist][jst]*imag(Hx[ist,jst,2])
+                dEx += 2*DM3[ist][jst]*real(Hx[ist,jst,3])
+                dEx -= 2*DM4[ist][jst]*imag(Hx[ist,jst,3])
         
-                dEy +=   DM[1][jatom][kl+1][ist][jst]*real(Hy[ist,jst,1])
-                dEy -=  iDM[1][jatom][kl+1][ist][jst]*imag(Hy[ist,jst,1])
-                dEy +=   DM[2][jatom][kl+1][ist][jst]*real(Hy[ist,jst,2])
-                dEy -=  iDM[2][jatom][kl+1][ist][jst]*imag(Hy[ist,jst,2])
-                dEy += 2*DM[3][jatom][kl+1][ist][jst]*real(Hy[ist,jst,3])
-                dEy -= 2*DM[4][jatom][kl+1][ist][jst]*imag(Hy[ist,jst,3])
+                dEy +=   DM1[ist][jst]*real(Hy[ist,jst,1])
+                dEy -=  iDM1[ist][jst]*imag(Hy[ist,jst,1])
+                dEy +=   DM2[ist][jst]*real(Hy[ist,jst,2])
+                dEy -=  iDM2[ist][jst]*imag(Hy[ist,jst,2])
+                dEy += 2*DM3[ist][jst]*real(Hy[ist,jst,3])
+                dEy -= 2*DM4[ist][jst]*imag(Hy[ist,jst,3])
         
-                dEz +=   DM[1][jatom][kl+1][ist][jst]*real(Hz[ist,jst,1])
-                dEz -=  iDM[1][jatom][kl+1][ist][jst]*imag(Hz[ist,jst,1])
-                dEz +=   DM[2][jatom][kl+1][ist][jst]*real(Hz[ist,jst,2])
-                dEz -=  iDM[2][jatom][kl+1][ist][jst]*imag(Hz[ist,jst,2])
-                dEz += 2*DM[3][jatom][kl+1][ist][jst]*real(Hz[ist,jst,3])
-                dEz -= 2*DM[4][jatom][kl+1][ist][jst]*imag(Hz[ist,jst,3])
+                dEz +=   DM1[ist][jst]*real(Hz[ist,jst,1])
+                dEz -=  iDM1[ist][jst]*imag(Hz[ist,jst,1])
+                dEz +=   DM2[ist][jst]*real(Hz[ist,jst,2])
+                dEz -=  iDM2[ist][jst]*imag(Hz[ist,jst,2])
+                dEz += 2*DM3[ist][jst]*real(Hz[ist,jst,3])
+                dEz -= 2*DM4[ist][jst]*imag(Hz[ist,jst,3])
             end
         else
-            for ist = 1:NO0, jst = 1:NO1
-                dEx +=   DM[1][jatom][kl+1][ist][jst]*real(Hx[ist,jst,1])
-                dEx -=  iDM[1][jatom][kl+1][ist][jst]*imag(Hx[ist,jst,1])
-                dEx +=   DM[2][jatom][kl+1][ist][jst]*real(Hx[ist,jst,2])
-                dEx -=  iDM[2][jatom][kl+1][ist][jst]*imag(Hx[ist,jst,2])
-                dEx += 2*DM[3][jatom][kl+1][ist][jst]*real(Hx[ist,jst,3])
-                dEx -= 2*DM[4][jatom][kl+1][ist][jst]*imag(Hx[ist,jst,3])
+
+            DM1 = DM[1][jatom][kl+1]
+            DM2 = DM[2][jatom][kl+1]
+            DM3 = DM[3][jatom][kl+1]
+            DM4 = DM[4][jatom][kl+1]
+            iDM1 = iDM[1][jatom][kl+1]
+            iDM2 = iDM[2][jatom][kl+1]
+            
+            @inbounds for ist = 1:NO0, jst = 1:NO1
+                dEx +=   DM1[ist][jst]*real(Hx[ist,jst,1])
+                dEx -=  iDM1[ist][jst]*imag(Hx[ist,jst,1])
+                dEx +=   DM2[ist][jst]*real(Hx[ist,jst,2])
+                dEx -=  iDM2[ist][jst]*imag(Hx[ist,jst,2])
+                dEx += 2*DM3[ist][jst]*real(Hx[ist,jst,3])
+                dEx -= 2*DM4[ist][jst]*imag(Hx[ist,jst,3])
         
-                dEy +=   DM[1][jatom][kl+1][ist][jst]*real(Hy[ist,jst,1])
-                dEy -=  iDM[1][jatom][kl+1][ist][jst]*imag(Hy[ist,jst,1])
-                dEy +=   DM[2][jatom][kl+1][ist][jst]*real(Hy[ist,jst,2])
-                dEy -=  iDM[2][jatom][kl+1][ist][jst]*imag(Hy[ist,jst,2])
-                dEy += 2*DM[3][jatom][kl+1][ist][jst]*real(Hy[ist,jst,3])
-                dEy -= 2*DM[4][jatom][kl+1][ist][jst]*imag(Hy[ist,jst,3])
+                dEy +=   DM1[ist][jst]*real(Hy[ist,jst,1])
+                dEy -=  iDM1[ist][jst]*imag(Hy[ist,jst,1])
+                dEy +=   DM2[ist][jst]*real(Hy[ist,jst,2])
+                dEy -=  iDM2[ist][jst]*imag(Hy[ist,jst,2])
+                dEy += 2*DM3[ist][jst]*real(Hy[ist,jst,3])
+                dEy -= 2*DM4[ist][jst]*imag(Hy[ist,jst,3])
         
-                dEz +=   DM[1][jatom][kl+1][ist][jst]*real(Hz[ist,jst,1])
-                dEz -=  iDM[1][jatom][kl+1][ist][jst]*imag(Hz[ist,jst,1])
-                dEz +=   DM[2][jatom][kl+1][ist][jst]*real(Hz[ist,jst,2])
-                dEz -=  iDM[2][jatom][kl+1][ist][jst]*imag(Hz[ist,jst,2])
-                dEz += 2*DM[3][jatom][kl+1][ist][jst]*real(Hz[ist,jst,3])
-                dEz -= 2*DM[4][jatom][kl+1][ist][jst]*imag(Hz[ist,jst,3])
+                dEz +=   DM1[ist][jst]*real(Hz[ist,jst,1])
+                dEz -=  iDM1[ist][jst]*imag(Hz[ist,jst,1])
+                dEz +=   DM2[ist][jst]*real(Hz[ist,jst,2])
+                dEz -=  iDM2[ist][jst]*imag(Hz[ist,jst,2])
+                dEz += 2*DM3[ist][jst]*real(Hz[ist,jst,3])
+                dEz -= 2*DM4[ist][jst]*imag(Hz[ist,jst,3])
             end
     
             fill!(Hx, 0.0)
@@ -1091,27 +1110,35 @@ end
                 system_grid)
     
             kl1 = RMI[atom][Rm][Rn]
-            for ist = 1:NO1, jst = 1:NO0
-                dEx +=   DM[1][katom][kl1+1][ist][jst]*real(Hx[ist,jst,1])
-                dEx -=  iDM[1][katom][kl1+1][ist][jst]*imag(Hx[ist,jst,1])
-                dEx +=   DM[2][katom][kl1+1][ist][jst]*real(Hx[ist,jst,2])
-                dEx -=  iDM[2][katom][kl1+1][ist][jst]*imag(Hx[ist,jst,2])
-                dEx += 2*DM[3][katom][kl1+1][ist][jst]*real(Hx[ist,jst,3])
-                dEx -= 2*DM[4][katom][kl1+1][ist][jst]*imag(Hx[ist,jst,3])
+
+            DM1 = DM[1][katom][kl1+1]
+            DM2 = DM[2][katom][kl1+1]
+            DM3 = DM[3][katom][kl1+1]
+            DM4 = DM[4][katom][kl1+1]
+            iDM1 = iDM[1][katom][kl1+1]
+            iDM2 = iDM[2][katom][kl1+1]
+            
+            @inbounds for ist = 1:NO1, jst = 1:NO0
+                dEx +=   DM1[ist][jst]*real(Hx[ist,jst,1])
+                dEx -=  iDM1[ist][jst]*imag(Hx[ist,jst,1])
+                dEx +=   DM2[ist][jst]*real(Hx[ist,jst,2])
+                dEx -=  iDM2[ist][jst]*imag(Hx[ist,jst,2])
+                dEx += 2*DM3[ist][jst]*real(Hx[ist,jst,3])
+                dEx -= 2*DM4[ist][jst]*imag(Hx[ist,jst,3])
     
-                dEy +=   DM[1][katom][kl1+1][ist][jst]*real(Hy[ist,jst,1])
-                dEy -=  iDM[1][katom][kl1+1][ist][jst]*imag(Hy[ist,jst,1])
-                dEy +=   DM[2][katom][kl1+1][ist][jst]*real(Hy[ist,jst,2])
-                dEy -=  iDM[2][katom][kl1+1][ist][jst]*imag(Hy[ist,jst,2])
-                dEy += 2*DM[3][katom][kl1+1][ist][jst]*real(Hy[ist,jst,3])
-                dEy -= 2*DM[4][katom][kl1+1][ist][jst]*imag(Hy[ist,jst,3])
+                dEy +=   DM1[ist][jst]*real(Hy[ist,jst,1])
+                dEy -=  iDM1[ist][jst]*imag(Hy[ist,jst,1])
+                dEy +=   DM2[ist][jst]*real(Hy[ist,jst,2])
+                dEy -=  iDM2[ist][jst]*imag(Hy[ist,jst,2])
+                dEy += 2*DM3[ist][jst]*real(Hy[ist,jst,3])
+                dEy -= 2*DM4[ist][jst]*imag(Hy[ist,jst,3])
     
-                dEz +=   DM[1][katom][kl1+1][ist][jst]*real(Hz[ist,jst,1])
-                dEz -=  iDM[1][katom][kl1+1][ist][jst]*imag(Hz[ist,jst,1])
-                dEz +=   DM[2][katom][kl1+1][ist][jst]*real(Hz[ist,jst,2])
-                dEz -=  iDM[2][katom][kl1+1][ist][jst]*imag(Hz[ist,jst,2])
-                dEz += 2*DM[3][katom][kl1+1][ist][jst]*real(Hz[ist,jst,3])
-                dEz -= 2*DM[4][katom][kl1+1][ist][jst]*imag(Hz[ist,jst,3])
+                dEz +=   DM1[ist][jst]*real(Hz[ist,jst,1])
+                dEz -=  iDM1[ist][jst]*imag(Hz[ist,jst,1])
+                dEz +=   DM2[ist][jst]*real(Hz[ist,jst,2])
+                dEz -=  iDM2[ist][jst]*imag(Hz[ist,jst,2])
+                dEz += 2*DM3[ist][jst]*real(Hz[ist,jst,3])
+                dEz -= 2*DM4[ist][jst]*imag(Hz[ist,jst,3])
             end
         end
 
@@ -1160,27 +1187,34 @@ end
                         NLPforce, HNL, iHNL,
                         system_grid)
 
-                for ist = 1:NO0, jst = 1:NO1
-                    dEx +=   DM[1][jatom][kl+1][ist][jst]*real(Hx[ist,jst,1])
-                    dEx -=  iDM[1][jatom][kl+1][ist][jst]*imag(Hx[ist,jst,1])
-                    dEx +=   DM[2][jatom][kl+1][ist][jst]*real(Hx[ist,jst,2])
-                    dEx -=  iDM[2][jatom][kl+1][ist][jst]*imag(Hx[ist,jst,2])
-                    dEx += 2*DM[3][jatom][kl+1][ist][jst]*real(Hx[ist,jst,3])
-                    dEx -= 2*DM[4][jatom][kl+1][ist][jst]*imag(Hx[ist,jst,3])
+                DM1 = DM[1][jatom][kl+1]
+                DM2 = DM[2][jatom][kl+1]
+                DM3 = DM[3][jatom][kl+1]
+                DM4 = DM[4][jatom][kl+1]
+                iDM1 = iDM[1][jatom][kl+1]
+                iDM2 = iDM[2][jatom][kl+1]
+                
+                @inbounds for ist = 1:NO0, jst = 1:NO1
+                    dEx +=   DM1[ist][jst]*real(Hx[ist,jst,1])
+                    dEx -=  iDM1[ist][jst]*imag(Hx[ist,jst,1])
+                    dEx +=   DM2[ist][jst]*real(Hx[ist,jst,2])
+                    dEx -=  iDM2[ist][jst]*imag(Hx[ist,jst,2])
+                    dEx += 2*DM3[ist][jst]*real(Hx[ist,jst,3])
+                    dEx -= 2*DM4[ist][jst]*imag(Hx[ist,jst,3])
 
-                    dEy +=   DM[1][jatom][kl+1][ist][jst]*real(Hy[ist,jst,1])
-                    dEy -=  iDM[1][jatom][kl+1][ist][jst]*imag(Hy[ist,jst,1])
-                    dEy +=   DM[2][jatom][kl+1][ist][jst]*real(Hy[ist,jst,2])
-                    dEy -=  iDM[2][jatom][kl+1][ist][jst]*imag(Hy[ist,jst,2])
-                    dEy += 2*DM[3][jatom][kl+1][ist][jst]*real(Hy[ist,jst,3])
-                    dEy -= 2*DM[4][jatom][kl+1][ist][jst]*imag(Hy[ist,jst,3])
+                    dEy +=   DM1[ist][jst]*real(Hy[ist,jst,1])
+                    dEy -=  iDM1[ist][jst]*imag(Hy[ist,jst,1])
+                    dEy +=   DM2[ist][jst]*real(Hy[ist,jst,2])
+                    dEy -=  iDM2[ist][jst]*imag(Hy[ist,jst,2])
+                    dEy += 2*DM3[ist][jst]*real(Hy[ist,jst,3])
+                    dEy -= 2*DM4[ist][jst]*imag(Hy[ist,jst,3])
 
-                    dEz +=   DM[1][jatom][kl+1][ist][jst]*real(Hz[ist,jst,1])
-                    dEz -=  iDM[1][jatom][kl+1][ist][jst]*imag(Hz[ist,jst,1])
-                    dEz +=   DM[2][jatom][kl+1][ist][jst]*real(Hz[ist,jst,2])
-                    dEz -=  iDM[2][jatom][kl+1][ist][jst]*imag(Hz[ist,jst,2])
-                    dEz += 2*DM[3][jatom][kl+1][ist][jst]*real(Hz[ist,jst,3])
-                    dEz -= 2*DM[4][jatom][kl+1][ist][jst]*imag(Hz[ist,jst,3])
+                    dEz +=   DM1[ist][jst]*real(Hz[ist,jst,1])
+                    dEz -=  iDM1[ist][jst]*imag(Hz[ist,jst,1])
+                    dEz +=   DM2[ist][jst]*real(Hz[ist,jst,2])
+                    dEz -=  iDM2[ist][jst]*imag(Hz[ist,jst,2])
+                    dEz += 2*DM3[ist][jst]*real(Hz[ist,jst,3])
+                    dEz -= 2*DM4[ist][jst]*imag(Hz[ist,jst,3])
                 end
             end
         end
@@ -1767,11 +1801,11 @@ function Set_DS_VNA_Natom!(atom, OneDatom, OneDFNAN, HVNA_FNAN, MP_FNAN, FNAN, T
         Rm = OneDFNAN[Rn+num]
         Rl = HVNA_FNAN[Rn+num]+1
         NO0 = Total_NumOrbs[atom1]
-        for ist = 1:NO0, jst = 1:VNATotal_Num
-            DS_VNA[1][end][Rl][ist][jst] = DS_VNA[1][atom1][Rm][ist][jst]
-            DS_VNA[2][end][Rl][ist][jst] = DS_VNA[2][atom1][Rm][ist][jst]
-            DS_VNA[3][end][Rl][ist][jst] = DS_VNA[3][atom1][Rm][ist][jst]
-            DS_VNA[4][end][Rl][ist][jst] = DS_VNA[4][atom1][Rm][ist][jst]
+        @inbounds for ist = 1:NO0, jst = 1:VNATotal_Num
+            DS_VNA[1][end][Rl][ist,jst] = DS_VNA[1][atom1][Rm][ist,jst]
+            DS_VNA[2][end][Rl][ist,jst] = DS_VNA[2][atom1][Rm][ist,jst]
+            DS_VNA[3][end][Rl][ist,jst] = DS_VNA[3][atom1][Rm][ist,jst]
+            DS_VNA[4][end][Rl][ist,jst] = DS_VNA[4][atom1][Rm][ist,jst]
         end
     end
 end
@@ -1787,11 +1821,11 @@ function Set_NLPforce_Natom!(atom, OneDatom, OneDjatom, OneDFNAN, HNL_FNAN, MP_F
         Rl = HNL_FNAN[Rn+num]+1
         NO0 = Total_NumOrbs[atom1]
         NO1 = NLTotal_Num[jatom]
-        for ist = 1:NO0, so = 1:VPS_j_dependency+1, jst = 1:NO1
-            NLPforce[1][end][Rl][ist][so][jst] = NLPforce[1][atom1][Rm][ist][so][jst]
-            NLPforce[2][end][Rl][ist][so][jst] = NLPforce[2][atom1][Rm][ist][so][jst]
-            NLPforce[3][end][Rl][ist][so][jst] = NLPforce[3][atom1][Rm][ist][so][jst]
-            NLPforce[4][end][Rl][ist][so][jst] = NLPforce[4][atom1][Rm][ist][so][jst]
+        @inbounds for so = 1:VPS_j_dependency+1, ist = 1:NO0, jst = 1:NO1
+            NLPforce[1][end][Rl][so][ist,jst] = NLPforce[1][atom1][Rm][so][ist,jst]
+            NLPforce[2][end][Rl][so][ist,jst] = NLPforce[2][atom1][Rm][so][ist,jst]
+            NLPforce[3][end][Rl][so][ist,jst] = NLPforce[3][atom1][Rm][so][ist,jst]
+            NLPforce[4][end][Rl][so][ist,jst] = NLPforce[4][atom1][Rm][so][ist,jst]
         end
     end
 end
@@ -1853,15 +1887,10 @@ function dHVNA!(
                 if kl >= 0 && where_flag == 0
 
                     jatom = ifelse(jg <= Natom, jg, Natom)
-                    for ist = 1:NO0, jst = 1:NO1
-                        Sumx = dot(DS_VNA[2][atom][Rl][ist], DS_VNA[1][jatom][kl+1][jst])
-                        Sumy = dot(DS_VNA[3][atom][Rl][ist], DS_VNA[1][jatom][kl+1][jst])
-                        Sumz = dot(DS_VNA[4][atom][Rl][ist], DS_VNA[1][jatom][kl+1][jst])
-
-                        Hx[ist,jst] += Sumx
-                        Hy[ist,jst] += Sumy
-                        Hz[ist,jst] += Sumz
-                    end
+                    base = view(DS_VNA[1][jatom][kl+1], 1:NO1, :)
+                    mul!(view(Hx, 1:NO0, 1:NO1), view(DS_VNA[2][atom][Rl], 1:NO0, :), transpose(base), 1.0, 1.0)
+                    mul!(view(Hy, 1:NO0, 1:NO1), view(DS_VNA[3][atom][Rl], 1:NO0, :), transpose(base), 1.0, 1.0)
+                    mul!(view(Hz, 1:NO0, 1:NO1), view(DS_VNA[4][atom][Rl], 1:NO0, :), transpose(base), 1.0, 1.0)
                 end
             end
 
@@ -1889,40 +1918,25 @@ function dHVNA!(
                     kl = RMI[atom][1][Rm]
                 end
 
-                for ist = 1:NO0, jst = 1:NO1
-                    Sumx = -dot(DS_VNA[2][jatom][kl+1][jst], DS_VNA[1][atom][1][ist])
-                    Sumy = -dot(DS_VNA[3][jatom][kl+1][jst], DS_VNA[1][atom][1][ist])
-                    Sumz = -dot(DS_VNA[4][jatom][kl+1][jst], DS_VNA[1][atom][1][ist])
-
-                    Hx[ist,jst] += Sumx
-                    Hy[ist,jst] += Sumy
-                    Hz[ist,jst] += Sumz
-                end
+                base = view(DS_VNA[1][atom][1], 1:NO0, :)
+                mul!(view(Hx, 1:NO0, 1:NO1), base, transpose(view(DS_VNA[2][jatom][kl+1], 1:NO1, :)), -1.0, 1.0)
+                mul!(view(Hy, 1:NO0, 1:NO1), base, transpose(view(DS_VNA[3][jatom][kl+1], 1:NO1, :)), -1.0, 1.0)
+                mul!(view(Hz, 1:NO0, 1:NO1), base, transpose(view(DS_VNA[4][jatom][kl+1], 1:NO1, :)), -1.0, 1.0)
             end
         else
             kl1 = RMI[atom][1][Rn]+1
             kl2 = RMI[atom][1][Rm]+1
 
-            for ist = 1:NO0, jst = 1:NO1
-                Sumx = -dot(DS_VNA[2][end][kl1][ist], DS_VNA[1][end][kl2][jst])
-                Sumy = -dot(DS_VNA[3][end][kl1][ist], DS_VNA[1][end][kl2][jst])
-                Sumz = -dot(DS_VNA[4][end][kl1][ist], DS_VNA[1][end][kl2][jst])
-                
-                Hx[ist,jst] = Sumx
-                Hy[ist,jst] = Sumy
-                Hz[ist,jst] = Sumz
-            end
+            base2 = view(DS_VNA[1][end][kl2], 1:NO1, :)
+            mul!(view(Hx, 1:NO0, 1:NO1), view(DS_VNA[2][end][kl1], 1:NO0, :), transpose(base2), -1.0, 0.0)
+            mul!(view(Hy, 1:NO0, 1:NO1), view(DS_VNA[3][end][kl1], 1:NO0, :), transpose(base2), -1.0, 0.0)
+            mul!(view(Hz, 1:NO0, 1:NO1), view(DS_VNA[4][end][kl1], 1:NO0, :), transpose(base2), -1.0, 0.0)
 
             if Rm ≠ 1
-                for ist = 1:NO0, jst = 1:NO1
-                    Sumx = -dot(DS_VNA[2][end][kl2][jst], DS_VNA[1][end][kl1][ist])
-                    Sumy = -dot(DS_VNA[3][end][kl2][jst], DS_VNA[1][end][kl1][ist])
-                    Sumz = -dot(DS_VNA[4][end][kl2][jst], DS_VNA[1][end][kl1][ist])
-
-                    Hx[ist,jst] += Sumx
-                    Hy[ist,jst] += Sumy
-                    Hz[ist,jst] += Sumz
-                end
+                base1 = view(DS_VNA[1][end][kl1], 1:NO0, :)
+                mul!(view(Hx, 1:NO0, 1:NO1), base1, transpose(view(DS_VNA[2][end][kl2], 1:NO1, :)), -1.0, 1.0)
+                mul!(view(Hy, 1:NO0, 1:NO1), base1, transpose(view(DS_VNA[3][end][kl2], 1:NO1, :)), -1.0, 1.0)
+                mul!(view(Hz, 1:NO0, 1:NO1), base1, transpose(view(DS_VNA[4][end][kl2], 1:NO1, :)), -1.0, 1.0)
             end
         end
     end
@@ -1986,7 +2000,7 @@ end
 function dHNL!(
     where_flag,
     atom, Rn, Rm, 
-    NLTotal_Num, VNLE, 
+    NLTotal_Num, VNLE, weighted_NLP,
     Hx, Hy, Hz, 
     NLP, HNL,
     system_grid::System_Grid)
@@ -2027,19 +2041,13 @@ function dHNL!(
             kl = RMI[atom][Rm][Rl]
 
             if kl >= 0 && where_flag == 0
-                for ist = 1:NO0, jst = 1:NO1
-                    Sumx = 0.0
-                    Sumy = 0.0
-                    Sumz = 0.0
-                    for l = 1:NLTotal_Num[kg]
-                        Sumx += VNLE[kg][l]*NLP[1][jatom][kl+1][jst][1][l]*NLP[2][atom][Rl][ist][1][l]
-                        Sumy += VNLE[kg][l]*NLP[1][jatom][kl+1][jst][1][l]*NLP[3][atom][Rl][ist][1][l]
-                        Sumz += VNLE[kg][l]*NLP[1][jatom][kl+1][jst][1][l]*NLP[4][atom][Rl][ist][1][l]
-                    end
-
-                    Hx[ist,jst] += Sumx
-                    Hy[ist,jst] += Sumy
-                    Hz[ist,jst] += Sumz
+                nl = NLTotal_Num[kg]
+                base = NLP[1][jatom][kl+1][1]
+                for (xyz, H) in ((2, Hx), (3, Hy), (4, Hz))
+                    derivative = NLP[xyz][atom][Rl][1]
+                    @views weighted_NLP[1:NO0,1:nl] .= derivative[1:NO0,1:nl] .* transpose(VNLE[kg])
+                    @views mul!(H[1:NO0,1:NO1], weighted_NLP[1:NO0,1:nl],
+                        transpose(base[1:NO1,1:nl]), 1.0, 1.0)
                 end
             end
         end
@@ -2064,56 +2072,35 @@ function dHNL!(
             jatom = jg
             kg = natn[atom][1]
             kl = RMI[atom][Rm][1]+1
-
-            for ist = 1:NO0, jst = 1:NO1
-                Sumx = 0.0
-                Sumy = 0.0
-                Sumz = 0.0
-                for l = 1:NLTotal_Num[kg]
-                    Sumx -= VNLE[kg][l]*NLP[1][atom][1][ist][1][l]*NLP[2][jatom][kl][jst][1][l]
-                    Sumy -= VNLE[kg][l]*NLP[1][atom][1][ist][1][l]*NLP[3][jatom][kl][jst][1][l]
-                    Sumz -= VNLE[kg][l]*NLP[1][atom][1][ist][1][l]*NLP[4][jatom][kl][jst][1][l]
-                end
-
-                Hx[ist,jst] += Sumx
-                Hy[ist,jst] += Sumy
-                Hz[ist,jst] += Sumz
+            nl = NLTotal_Num[kg]
+            base = NLP[1][atom][1][1]
+            @views weighted_NLP[1:NO0,1:nl] .= base[1:NO0,1:nl] .* transpose(VNLE[kg])
+            for (xyz, H) in ((2, Hx), (3, Hy), (4, Hz))
+                derivative = NLP[xyz][jatom][kl][1]
+                @views mul!(H[1:NO0,1:NO1], weighted_NLP[1:NO0,1:nl],
+                    transpose(derivative[1:NO1,1:nl]), -1.0, 1.0)
             end
         end
     else
         kg = natn[atom][1]
         kl1 = RMI[atom][1][Rn]+1
         kl2 = RMI[atom][1][Rm]+1
-
-        for ist = 1:NO0, jst = 1:NO1            
-            Sumx = 0.0
-            Sumy = 0.0
-            Sumz = 0.0
-            for l = 1:NLTotal_Num[kg]
-                Sumx -= VNLE[kg][l]*NLP[1][end][kl2][jst][1][l]*NLP[2][end][kl1][ist][1][l]
-                Sumy -= VNLE[kg][l]*NLP[1][end][kl2][jst][1][l]*NLP[3][end][kl1][ist][1][l]
-                Sumz -= VNLE[kg][l]*NLP[1][end][kl2][jst][1][l]*NLP[4][end][kl1][ist][1][l]
-            end
-
-            Hx[ist,jst] = Sumx
-            Hy[ist,jst] = Sumy
-            Hz[ist,jst] = Sumz
+        nl = NLTotal_Num[kg]
+        base = NLP[1][end][kl2][1]
+        for (xyz, H) in ((2, Hx), (3, Hy), (4, Hz))
+            derivative = NLP[xyz][end][kl1][1]
+            @views weighted_NLP[1:NO0,1:nl] .= derivative[1:NO0,1:nl] .* transpose(VNLE[kg])
+            @views mul!(H[1:NO0,1:NO1], weighted_NLP[1:NO0,1:nl],
+                transpose(base[1:NO1,1:nl]), -1.0, 0.0)
         end
 
         if Rm ≠ 1
-            for ist = 1:NO0, jst = 1:NO1
-                Sumx = 0.0
-                Sumy = 0.0
-                Sumz = 0.0
-                for l = 1:NLTotal_Num[kg]
-                    Sumx -= VNLE[kg][l]*NLP[1][end][kl1][ist][1][l]*NLP[2][end][kl2][jst][1][l]
-                    Sumy -= VNLE[kg][l]*NLP[1][end][kl1][ist][1][l]*NLP[3][end][kl2][jst][1][l]
-                    Sumz -= VNLE[kg][l]*NLP[1][end][kl1][ist][1][l]*NLP[4][end][kl2][jst][1][l]
-                end
-
-                Hx[ist,jst] += Sumx
-                Hy[ist,jst] += Sumy
-                Hz[ist,jst] += Sumz
+            base = NLP[1][end][kl1][1]
+            @views weighted_NLP[1:NO0,1:nl] .= base[1:NO0,1:nl] .* transpose(VNLE[kg])
+            for (xyz, H) in ((2, Hx), (3, Hy), (4, Hz))
+                derivative = NLP[xyz][end][kl2][1]
+                @views mul!(H[1:NO0,1:NO1], weighted_NLP[1:NO0,1:nl],
+                    transpose(derivative[1:NO1,1:nl]), -1.0, 1.0)
             end
         end
     end
@@ -2314,56 +2301,63 @@ function dHNL_NC!(
         end
     
 
+        HNL1 = HNL[1][atom][kl]
+        HNL2 = HNL[2][atom][kl]
+        HNL3 = HNL[3][atom][kl]
+        iHNL1 = iHNL[1][atom][kl]
+        iHNL2 = iHNL[2][atom][kl]
+        iHNL3 = iHNL[3][atom][kl]
+
         if Rn == 1
             for ist = 1:NO0, jst = 1:NO1
-                Hx[ist,jst,1] += HNL[1][atom][kl][ist][jst]*dx
-                Hx[ist,jst,2] += HNL[2][atom][kl][ist][jst]*dx
-                Hx[ist,jst,3] += HNL[3][atom][kl][ist][jst]*dx
-                Hy[ist,jst,1] += HNL[1][atom][kl][ist][jst]*dy
-                Hy[ist,jst,2] += HNL[2][atom][kl][ist][jst]*dy
-                Hy[ist,jst,3] += HNL[3][atom][kl][ist][jst]*dy
-                Hz[ist,jst,1] += HNL[1][atom][kl][ist][jst]*dz
-                Hz[ist,jst,2] += HNL[2][atom][kl][ist][jst]*dz
-                Hz[ist,jst,3] += HNL[3][atom][kl][ist][jst]*dz
+                Hx[ist,jst,1] += HNL1[ist][jst]*dx
+                Hx[ist,jst,2] += HNL2[ist][jst]*dx
+                Hx[ist,jst,3] += HNL3[ist][jst]*dx
+                Hy[ist,jst,1] += HNL1[ist][jst]*dy
+                Hy[ist,jst,2] += HNL2[ist][jst]*dy
+                Hy[ist,jst,3] += HNL3[ist][jst]*dy
+                Hz[ist,jst,1] += HNL1[ist][jst]*dz
+                Hz[ist,jst,2] += HNL2[ist][jst]*dz
+                Hz[ist,jst,3] += HNL3[ist][jst]*dz
             end
         elseif Rm == 1
             for ist = 1:NO0, jst = 1:NO1
-                Hx[ist,jst,1] += HNL[1][atom][kl][jst][ist]*dx
-                Hx[ist,jst,2] += HNL[2][atom][kl][jst][ist]*dx
-                Hx[ist,jst,3] += HNL[3][atom][kl][jst][ist]*dx
-                Hy[ist,jst,1] += HNL[1][atom][kl][jst][ist]*dy
-                Hy[ist,jst,2] += HNL[2][atom][kl][jst][ist]*dy
-                Hy[ist,jst,3] += HNL[3][atom][kl][jst][ist]*dy
-                Hz[ist,jst,1] += HNL[1][atom][kl][jst][ist]*dz
-                Hz[ist,jst,2] += HNL[2][atom][kl][jst][ist]*dz
-                Hz[ist,jst,3] += HNL[3][atom][kl][jst][ist]*dz
+                Hx[ist,jst,1] += HNL1[jst][ist]*dx
+                Hx[ist,jst,2] += HNL2[jst][ist]*dx
+                Hx[ist,jst,3] += HNL3[jst][ist]*dx
+                Hy[ist,jst,1] += HNL1[jst][ist]*dy
+                Hy[ist,jst,2] += HNL2[jst][ist]*dy
+                Hy[ist,jst,3] += HNL3[jst][ist]*dy
+                Hz[ist,jst,1] += HNL1[jst][ist]*dz
+                Hz[ist,jst,2] += HNL2[jst][ist]*dz
+                Hz[ist,jst,3] += HNL3[jst][ist]*dz
             end
         end
 
 
         if Rn == 1
             for ist = 1:NO0, jst = 1:NO1
-                Hx[ist,jst,1] += im*iHNL[1][atom][kl][ist][jst]*dx
-                Hx[ist,jst,2] += im*iHNL[2][atom][kl][ist][jst]*dx
-                Hx[ist,jst,3] += im*iHNL[3][atom][kl][ist][jst]*dx
-                Hy[ist,jst,1] += im*iHNL[1][atom][kl][ist][jst]*dy
-                Hy[ist,jst,2] += im*iHNL[2][atom][kl][ist][jst]*dy
-                Hy[ist,jst,3] += im*iHNL[3][atom][kl][ist][jst]*dy
-                Hz[ist,jst,1] += im*iHNL[1][atom][kl][ist][jst]*dz
-                Hz[ist,jst,2] += im*iHNL[2][atom][kl][ist][jst]*dz
-                Hz[ist,jst,3] += im*iHNL[3][atom][kl][ist][jst]*dz
+                Hx[ist,jst,1] += im*iHNL1[ist][jst]*dx
+                Hx[ist,jst,2] += im*iHNL2[ist][jst]*dx
+                Hx[ist,jst,3] += im*iHNL3[ist][jst]*dx
+                Hy[ist,jst,1] += im*iHNL1[ist][jst]*dy
+                Hy[ist,jst,2] += im*iHNL2[ist][jst]*dy
+                Hy[ist,jst,3] += im*iHNL3[ist][jst]*dy
+                Hz[ist,jst,1] += im*iHNL1[ist][jst]*dz
+                Hz[ist,jst,2] += im*iHNL2[ist][jst]*dz
+                Hz[ist,jst,3] += im*iHNL3[ist][jst]*dz
             end
         elseif Rm == 1
             for ist = 1:NO0, jst = 1:NO1
-                Hx[ist,jst,1] += im*iHNL[1][atom][kl][jst][ist]*dx
-                Hx[ist,jst,2] += im*iHNL[2][atom][kl][jst][ist]*dx
-                Hx[ist,jst,3] += im*iHNL[3][atom][kl][jst][ist]*dx
-                Hy[ist,jst,1] += im*iHNL[1][atom][kl][jst][ist]*dy
-                Hy[ist,jst,2] += im*iHNL[2][atom][kl][jst][ist]*dy
-                Hy[ist,jst,3] += im*iHNL[3][atom][kl][jst][ist]*dy
-                Hz[ist,jst,1] += im*iHNL[1][atom][kl][jst][ist]*dz
-                Hz[ist,jst,2] += im*iHNL[2][atom][kl][jst][ist]*dz
-                Hz[ist,jst,3] += im*iHNL[3][atom][kl][jst][ist]*dz
+                Hx[ist,jst,1] += im*iHNL1[jst][ist]*dx
+                Hx[ist,jst,2] += im*iHNL2[jst][ist]*dx
+                Hx[ist,jst,3] += im*iHNL3[jst][ist]*dx
+                Hy[ist,jst,1] += im*iHNL1[jst][ist]*dy
+                Hy[ist,jst,2] += im*iHNL2[jst][ist]*dy
+                Hy[ist,jst,3] += im*iHNL3[jst][ist]*dy
+                Hz[ist,jst,1] += im*iHNL1[jst][ist]*dz
+                Hz[ist,jst,2] += im*iHNL2[jst][ist]*dz
+                Hz[ist,jst,3] += im*iHNL3[jst][ist]*dz
             end
         end
     end    
@@ -2375,6 +2369,15 @@ function dHNL_SO!(
     Hx, Hy, Hz, NO0, NO1, fugou, 
     Spe_Num_RVPS, Spe_VNLE, Spe_VPS_List,
     NLP0, NLPx, NLPy, NLPz)
+
+    NLP01 = NLP0[1]
+    NLP02 = NLP0[2]
+    NLPx1 = NLPx[1]
+    NLPx2 = NLPx[2]
+    NLPy1 = NLPy[1]
+    NLPy2 = NLPy[2]
+    NLPz1 = NLPz[1]
+    NLPz2 = NLPz[2]
 
     l2 = 0
     PFp = 0.0
@@ -2430,24 +2433,24 @@ function dHNL_SO!(
                 tmp = ene_p/3
 
                 # real contribution of l+1/2 to off diagonal up-down matrix
-                tmpx = (tmp*NLPx[ist][1][l  ]*NLP0[jst][1][l+2] 
-                       -tmp*NLPx[ist][1][l+2]*NLP0[jst][1][l  ])
-                tmpy = (tmp*NLPy[ist][1][l  ]*NLP0[jst][1][l+2] 
-                       -tmp*NLPy[ist][1][l+2]*NLP0[jst][1][l  ])
-                tmpz = (tmp*NLPz[ist][1][l  ]*NLP0[jst][1][l+2] 
-                       -tmp*NLPz[ist][1][l+2]*NLP0[jst][1][l  ])
+                tmpx = (tmp*NLPx1[ist,l  ]*NLP01[jst,l+2] 
+                       -tmp*NLPx1[ist,l+2]*NLP01[jst,l  ])
+                tmpy = (tmp*NLPy1[ist,l  ]*NLP01[jst,l+2] 
+                       -tmp*NLPy1[ist,l+2]*NLP01[jst,l  ])
+                tmpz = (tmp*NLPz1[ist,l  ]*NLP01[jst,l+2] 
+                       -tmp*NLPz1[ist,l+2]*NLP01[jst,l  ])
                 
                 Sum2x_re += fugou*tmpx
                 Sum2y_re += fugou*tmpy
                 Sum2z_re += fugou*tmpz
 
                 # imaginary contribution of l+1/2 to off diagonal up-down matrix
-                tmpx = (-tmp*NLPx[ist][1][l+1]*NLP0[jst][1][l+2] 
-                        +tmp*NLPx[ist][1][l+2]*NLP0[jst][1][l+1])
-                tmpy = (-tmp*NLPy[ist][1][l+1]*NLP0[jst][1][l+2] 
-                        +tmp*NLPy[ist][1][l+2]*NLP0[jst][1][l+1])
-                tmpz = (-tmp*NLPz[ist][1][l+1]*NLP0[jst][1][l+2] 
-                        +tmp*NLPz[ist][1][l+2]*NLP0[jst][1][l+1])
+                tmpx = (-tmp*NLPx1[ist,l+1]*NLP01[jst,l+2] 
+                        +tmp*NLPx1[ist,l+2]*NLP01[jst,l+1])
+                tmpy = (-tmp*NLPy1[ist,l+1]*NLP01[jst,l+2] 
+                        +tmp*NLPy1[ist,l+2]*NLP01[jst,l+1])
+                tmpz = (-tmp*NLPz1[ist,l+1]*NLP01[jst,l+2] 
+                        +tmp*NLPz1[ist,l+2]*NLP01[jst,l+1])
                 
                 Sum2x_im += fugou*tmpx
                 Sum2y_im += fugou*tmpy
@@ -2456,24 +2459,24 @@ function dHNL_SO!(
                 tmp = ene_m/3
 
                 # real contribution of l-1/2 for to diagonal up-down matrix
-                tmpx = (tmp*NLPx[ist][2][l  ]*NLP0[jst][2][l+2] 
-                       -tmp*NLPx[ist][2][l+2]*NLP0[jst][2][l  ])
-                tmpy = (tmp*NLPy[ist][2][l  ]*NLP0[jst][2][l+2] 
-                       -tmp*NLPy[ist][2][l+2]*NLP0[jst][2][l  ])
-                tmpz = (tmp*NLPz[ist][2][l  ]*NLP0[jst][2][l+2] 
-                       -tmp*NLPz[ist][2][l+2]*NLP0[jst][2][l  ])
+                tmpx = (tmp*NLPx2[ist,l  ]*NLP02[jst,l+2] 
+                       -tmp*NLPx2[ist,l+2]*NLP02[jst,l  ])
+                tmpy = (tmp*NLPy2[ist,l  ]*NLP02[jst,l+2] 
+                       -tmp*NLPy2[ist,l+2]*NLP02[jst,l  ])
+                tmpz = (tmp*NLPz2[ist,l  ]*NLP02[jst,l+2] 
+                       -tmp*NLPz2[ist,l+2]*NLP02[jst,l  ])
                 
                 Sum2x_re -= fugou*tmpx
                 Sum2y_re -= fugou*tmpy
                 Sum2z_re -= fugou*tmpz
 
                 # imaginary contribution of l-1/2 to off diagonal up-down matrix
-                tmpx = (-tmp*NLPx[ist][2][l+1]*NLP0[jst][2][l+2] 
-                        +tmp*NLPx[ist][2][l+2]*NLP0[jst][2][l+1])
-                tmpy = (-tmp*NLPy[ist][2][l+1]*NLP0[jst][2][l+2] 
-                        +tmp*NLPy[ist][2][l+2]*NLP0[jst][2][l+1])
-                tmpz = (-tmp*NLPz[ist][2][l+1]*NLP0[jst][2][l+2] 
-                        +tmp*NLPz[ist][2][l+2]*NLP0[jst][2][l+1])
+                tmpx = (-tmp*NLPx2[ist,l+1]*NLP02[jst,l+2] 
+                        +tmp*NLPx2[ist,l+2]*NLP02[jst,l+1])
+                tmpy = (-tmp*NLPy2[ist,l+1]*NLP02[jst,l+2] 
+                        +tmp*NLPy2[ist,l+2]*NLP02[jst,l+1])
+                tmpz = (-tmp*NLPz2[ist,l+1]*NLP02[jst,l+2] 
+                        +tmp*NLPz2[ist,l+2]*NLP02[jst,l+1])
                 
                 Sum2x_im -= fugou*tmpx
                 Sum2y_im -= fugou*tmpy
@@ -2487,48 +2490,48 @@ function dHNL_SO!(
                 tmp2 = tmp0*tmp1
 
                 # real contribution of l+1/2 to off diagonal up-down matrix
-                tmpx = (-tmp2*NLPx[ist][1][l  ]*NLP0[jst][1][l+3] 
-                        +tmp2*NLPx[ist][1][l+3]*NLP0[jst][1][l  ]
-                        +tmp1*NLPx[ist][1][l+1]*NLP0[jst][1][l+3] 
-                        -tmp1*NLPx[ist][1][l+3]*NLP0[jst][1][l+1]
-                        +tmp1*NLPx[ist][1][l+2]*NLP0[jst][1][l+4] 
-                        -tmp1*NLPx[ist][1][l+4]*NLP0[jst][1][l+2])
-                tmpy = (-tmp2*NLPy[ist][1][l  ]*NLP0[jst][1][l+3] 
-                        +tmp2*NLPy[ist][1][l+3]*NLP0[jst][1][l  ]
-                        +tmp1*NLPy[ist][1][l+1]*NLP0[jst][1][l+3] 
-                        -tmp1*NLPy[ist][1][l+3]*NLP0[jst][1][l+1]
-                        +tmp1*NLPy[ist][1][l+2]*NLP0[jst][1][l+4] 
-                        -tmp1*NLPy[ist][1][l+4]*NLP0[jst][1][l+2])
-                tmpz = (-tmp2*NLPz[ist][1][l  ]*NLP0[jst][1][l+3] 
-                        +tmp2*NLPz[ist][1][l+3]*NLP0[jst][1][l  ]
-                        +tmp1*NLPz[ist][1][l+1]*NLP0[jst][1][l+3] 
-                        -tmp1*NLPz[ist][1][l+3]*NLP0[jst][1][l+1]
-                        +tmp1*NLPz[ist][1][l+2]*NLP0[jst][1][l+4] 
-                        -tmp1*NLPz[ist][1][l+4]*NLP0[jst][1][l+2])
+                tmpx = (-tmp2*NLPx1[ist,l  ]*NLP01[jst,l+3] 
+                        +tmp2*NLPx1[ist,l+3]*NLP01[jst,l  ]
+                        +tmp1*NLPx1[ist,l+1]*NLP01[jst,l+3] 
+                        -tmp1*NLPx1[ist,l+3]*NLP01[jst,l+1]
+                        +tmp1*NLPx1[ist,l+2]*NLP01[jst,l+4] 
+                        -tmp1*NLPx1[ist,l+4]*NLP01[jst,l+2])
+                tmpy = (-tmp2*NLPy1[ist,l  ]*NLP01[jst,l+3] 
+                        +tmp2*NLPy1[ist,l+3]*NLP01[jst,l  ]
+                        +tmp1*NLPy1[ist,l+1]*NLP01[jst,l+3] 
+                        -tmp1*NLPy1[ist,l+3]*NLP01[jst,l+1]
+                        +tmp1*NLPy1[ist,l+2]*NLP01[jst,l+4] 
+                        -tmp1*NLPy1[ist,l+4]*NLP01[jst,l+2])
+                tmpz = (-tmp2*NLPz1[ist,l  ]*NLP01[jst,l+3] 
+                        +tmp2*NLPz1[ist,l+3]*NLP01[jst,l  ]
+                        +tmp1*NLPz1[ist,l+1]*NLP01[jst,l+3] 
+                        -tmp1*NLPz1[ist,l+3]*NLP01[jst,l+1]
+                        +tmp1*NLPz1[ist,l+2]*NLP01[jst,l+4] 
+                        -tmp1*NLPz1[ist,l+4]*NLP01[jst,l+2])
                 
                 Sum2x_re += fugou*tmpx
                 Sum2y_re += fugou*tmpy
                 Sum2z_re += fugou*tmpz
 
                 # imaginary contribution of l+1/2 to off diagonal up-down matrix
-                tmpx = ( tmp2*NLPx[ist][1][l  ]*NLP0[jst][1][l+4] 
-                        -tmp2*NLPx[ist][1][l+4]*NLP0[jst][1][l  ]
-                        +tmp1*NLPx[ist][1][l+1]*NLP0[jst][1][l+4] 
-                        -tmp1*NLPx[ist][1][l+4]*NLP0[jst][1][l+1]
-                        -tmp1*NLPx[ist][1][l+2]*NLP0[jst][1][l+3] 
-                        +tmp1*NLPx[ist][1][l+3]*NLP0[jst][1][l+2])
-                tmpy = ( tmp2*NLPy[ist][1][l  ]*NLP0[jst][1][l+4] 
-                        -tmp2*NLPy[ist][1][l+4]*NLP0[jst][1][l  ]
-                        +tmp1*NLPy[ist][1][l+1]*NLP0[jst][1][l+4] 
-                        -tmp1*NLPy[ist][1][l+4]*NLP0[jst][1][l+1]
-                        -tmp1*NLPy[ist][1][l+2]*NLP0[jst][1][l+3] 
-                        +tmp1*NLPy[ist][1][l+3]*NLP0[jst][1][l+2])
-                tmpz = ( tmp2*NLPz[ist][1][l  ]*NLP0[jst][1][l+4] 
-                        -tmp2*NLPz[ist][1][l+4]*NLP0[jst][1][l  ]
-                        +tmp1*NLPz[ist][1][l+1]*NLP0[jst][1][l+4] 
-                        -tmp1*NLPz[ist][1][l+4]*NLP0[jst][1][l+1]
-                        -tmp1*NLPz[ist][1][l+2]*NLP0[jst][1][l+3] 
-                        +tmp1*NLPz[ist][1][l+3]*NLP0[jst][1][l+2])
+                tmpx = ( tmp2*NLPx1[ist,l  ]*NLP01[jst,l+4] 
+                        -tmp2*NLPx1[ist,l+4]*NLP01[jst,l  ]
+                        +tmp1*NLPx1[ist,l+1]*NLP01[jst,l+4] 
+                        -tmp1*NLPx1[ist,l+4]*NLP01[jst,l+1]
+                        -tmp1*NLPx1[ist,l+2]*NLP01[jst,l+3] 
+                        +tmp1*NLPx1[ist,l+3]*NLP01[jst,l+2])
+                tmpy = ( tmp2*NLPy1[ist,l  ]*NLP01[jst,l+4] 
+                        -tmp2*NLPy1[ist,l+4]*NLP01[jst,l  ]
+                        +tmp1*NLPy1[ist,l+1]*NLP01[jst,l+4] 
+                        -tmp1*NLPy1[ist,l+4]*NLP01[jst,l+1]
+                        -tmp1*NLPy1[ist,l+2]*NLP01[jst,l+3] 
+                        +tmp1*NLPy1[ist,l+3]*NLP01[jst,l+2])
+                tmpz = ( tmp2*NLPz1[ist,l  ]*NLP01[jst,l+4] 
+                        -tmp2*NLPz1[ist,l+4]*NLP01[jst,l  ]
+                        +tmp1*NLPz1[ist,l+1]*NLP01[jst,l+4] 
+                        -tmp1*NLPz1[ist,l+4]*NLP01[jst,l+1]
+                        -tmp1*NLPz1[ist,l+2]*NLP01[jst,l+3] 
+                        +tmp1*NLPz1[ist,l+3]*NLP01[jst,l+2])
                 
                 Sum2x_im += fugou*tmpx
                 Sum2y_im += fugou*tmpy
@@ -2539,48 +2542,48 @@ function dHNL_SO!(
                 tmp2 = tmp0*tmp1
 
                 # real contribution of l-1/2 for to diagonal up-down matrix
-                tmpx = (-tmp2*NLPx[ist][2][l  ]*NLP0[jst][2][l+3] 
-                        +tmp2*NLPx[ist][2][l+3]*NLP0[jst][2][l  ]
-                        +tmp1*NLPx[ist][2][l+1]*NLP0[jst][2][l+3] 
-                        -tmp1*NLPx[ist][2][l+3]*NLP0[jst][2][l+1]
-                        +tmp1*NLPx[ist][2][l+2]*NLP0[jst][2][l+4] 
-                        -tmp1*NLPx[ist][2][l+4]*NLP0[jst][2][l+2])
-                tmpy = (-tmp2*NLPy[ist][2][l  ]*NLP0[jst][2][l+3] 
-                        +tmp2*NLPy[ist][2][l+3]*NLP0[jst][2][l  ]
-                        +tmp1*NLPy[ist][2][l+1]*NLP0[jst][2][l+3] 
-                        -tmp1*NLPy[ist][2][l+3]*NLP0[jst][2][l+1]
-                        +tmp1*NLPy[ist][2][l+2]*NLP0[jst][2][l+4] 
-                        -tmp1*NLPy[ist][2][l+4]*NLP0[jst][2][l+2])
-                tmpz = (-tmp2*NLPz[ist][2][l  ]*NLP0[jst][2][l+3] 
-                        +tmp2*NLPz[ist][2][l+3]*NLP0[jst][2][l  ]
-                        +tmp1*NLPz[ist][2][l+1]*NLP0[jst][2][l+3] 
-                        -tmp1*NLPz[ist][2][l+3]*NLP0[jst][2][l+1]
-                        +tmp1*NLPz[ist][2][l+2]*NLP0[jst][2][l+4] 
-                        -tmp1*NLPz[ist][2][l+4]*NLP0[jst][2][l+2])
+                tmpx = (-tmp2*NLPx2[ist,l  ]*NLP02[jst,l+3] 
+                        +tmp2*NLPx2[ist,l+3]*NLP02[jst,l  ]
+                        +tmp1*NLPx2[ist,l+1]*NLP02[jst,l+3] 
+                        -tmp1*NLPx2[ist,l+3]*NLP02[jst,l+1]
+                        +tmp1*NLPx2[ist,l+2]*NLP02[jst,l+4] 
+                        -tmp1*NLPx2[ist,l+4]*NLP02[jst,l+2])
+                tmpy = (-tmp2*NLPy2[ist,l  ]*NLP02[jst,l+3] 
+                        +tmp2*NLPy2[ist,l+3]*NLP02[jst,l  ]
+                        +tmp1*NLPy2[ist,l+1]*NLP02[jst,l+3] 
+                        -tmp1*NLPy2[ist,l+3]*NLP02[jst,l+1]
+                        +tmp1*NLPy2[ist,l+2]*NLP02[jst,l+4] 
+                        -tmp1*NLPy2[ist,l+4]*NLP02[jst,l+2])
+                tmpz = (-tmp2*NLPz2[ist,l  ]*NLP02[jst,l+3] 
+                        +tmp2*NLPz2[ist,l+3]*NLP02[jst,l  ]
+                        +tmp1*NLPz2[ist,l+1]*NLP02[jst,l+3] 
+                        -tmp1*NLPz2[ist,l+3]*NLP02[jst,l+1]
+                        +tmp1*NLPz2[ist,l+2]*NLP02[jst,l+4] 
+                        -tmp1*NLPz2[ist,l+4]*NLP02[jst,l+2])
                 
                 Sum2x_re -= fugou*tmpx
                 Sum2y_re -= fugou*tmpy
                 Sum2z_re -= fugou*tmpz
 
                 # imaginary contribution of l-1/2 to off diagonal up-down matrix
-                tmpx = ( tmp2*NLPx[ist][2][l  ]*NLP0[jst][2][l+4] 
-                        -tmp2*NLPx[ist][2][l+4]*NLP0[jst][2][l  ]
-                        +tmp1*NLPx[ist][2][l+1]*NLP0[jst][2][l+4] 
-                        -tmp1*NLPx[ist][2][l+4]*NLP0[jst][2][l+1]
-                        -tmp1*NLPx[ist][2][l+2]*NLP0[jst][2][l+3] 
-                        +tmp1*NLPx[ist][2][l+3]*NLP0[jst][2][l+2])
-                tmpy = ( tmp2*NLPy[ist][2][l  ]*NLP0[jst][2][l+4] 
-                        -tmp2*NLPy[ist][2][l+4]*NLP0[jst][2][l  ]
-                        +tmp1*NLPy[ist][2][l+1]*NLP0[jst][2][l+4] 
-                        -tmp1*NLPy[ist][2][l+4]*NLP0[jst][2][l+1]
-                        -tmp1*NLPy[ist][2][l+2]*NLP0[jst][2][l+3] 
-                        +tmp1*NLPy[ist][2][l+3]*NLP0[jst][2][l+2])
-                tmpz = ( tmp2*NLPz[ist][2][l  ]*NLP0[jst][2][l+4] 
-                        -tmp2*NLPz[ist][2][l+4]*NLP0[jst][2][l  ]
-                        +tmp1*NLPz[ist][2][l+1]*NLP0[jst][2][l+4] 
-                        -tmp1*NLPz[ist][2][l+4]*NLP0[jst][2][l+1]
-                        -tmp1*NLPz[ist][2][l+2]*NLP0[jst][2][l+3] 
-                        +tmp1*NLPz[ist][2][l+3]*NLP0[jst][2][l+2])
+                tmpx = ( tmp2*NLPx2[ist,l  ]*NLP02[jst,l+4] 
+                        -tmp2*NLPx2[ist,l+4]*NLP02[jst,l  ]
+                        +tmp1*NLPx2[ist,l+1]*NLP02[jst,l+4] 
+                        -tmp1*NLPx2[ist,l+4]*NLP02[jst,l+1]
+                        -tmp1*NLPx2[ist,l+2]*NLP02[jst,l+3] 
+                        +tmp1*NLPx2[ist,l+3]*NLP02[jst,l+2])
+                tmpy = ( tmp2*NLPy2[ist,l  ]*NLP02[jst,l+4] 
+                        -tmp2*NLPy2[ist,l+4]*NLP02[jst,l  ]
+                        +tmp1*NLPy2[ist,l+1]*NLP02[jst,l+4] 
+                        -tmp1*NLPy2[ist,l+4]*NLP02[jst,l+1]
+                        -tmp1*NLPy2[ist,l+2]*NLP02[jst,l+3] 
+                        +tmp1*NLPy2[ist,l+3]*NLP02[jst,l+2])
+                tmpz = ( tmp2*NLPz2[ist,l  ]*NLP02[jst,l+4] 
+                        -tmp2*NLPz2[ist,l+4]*NLP02[jst,l  ]
+                        +tmp1*NLPz2[ist,l+1]*NLP02[jst,l+4] 
+                        -tmp1*NLPz2[ist,l+4]*NLP02[jst,l+1]
+                        -tmp1*NLPz2[ist,l+2]*NLP02[jst,l+3] 
+                        +tmp1*NLPz2[ist,l+3]*NLP02[jst,l+2])
                 
                 Sum2x_im -= fugou*tmpx
                 Sum2y_im -= fugou*tmpy
@@ -2600,72 +2603,72 @@ function dHNL_SO!(
 
                 # real contribution of l+1/2 to off diagonal up-down matrix
                 
-                tmpx = (-tmp6*NLPx[ist][1][l  ]*NLP0[jst][1][l+1] 
-                        +tmp6*NLPx[ist][1][l+1]*NLP0[jst][1][l  ]
-                        -tmp5*NLPx[ist][1][l+1]*NLP0[jst][1][l+3] 
-                        +tmp5*NLPx[ist][1][l+3]*NLP0[jst][1][l+1]
-                        -tmp5*NLPx[ist][1][l+2]*NLP0[jst][1][l+4] 
-                        +tmp5*NLPx[ist][1][l+4]*NLP0[jst][1][l+2]
-                        -tmp4*NLPx[ist][1][l+3]*NLP0[jst][1][l+5] 
-                        +tmp4*NLPx[ist][1][l+5]*NLP0[jst][1][l+3]
-                        -tmp4*NLPx[ist][1][l+4]*NLP0[jst][1][l+6] 
-                        +tmp4*NLPx[ist][1][l+6]*NLP0[jst][1][l+4])
-                tmpy = (-tmp6*NLPy[ist][1][l  ]*NLP0[jst][1][l+1] 
-                        +tmp6*NLPy[ist][1][l+1]*NLP0[jst][1][l  ]
-                        -tmp5*NLPy[ist][1][l+1]*NLP0[jst][1][l+3] 
-                        +tmp5*NLPy[ist][1][l+3]*NLP0[jst][1][l+1]
-                        -tmp5*NLPy[ist][1][l+2]*NLP0[jst][1][l+4] 
-                        +tmp5*NLPy[ist][1][l+4]*NLP0[jst][1][l+2]
-                        -tmp4*NLPy[ist][1][l+3]*NLP0[jst][1][l+5] 
-                        +tmp4*NLPy[ist][1][l+5]*NLP0[jst][1][l+3]
-                        -tmp4*NLPy[ist][1][l+4]*NLP0[jst][1][l+6] 
-                        +tmp4*NLPy[ist][1][l+6]*NLP0[jst][1][l+4])
-                tmpz = (-tmp6*NLPz[ist][1][l  ]*NLP0[jst][1][l+1] 
-                        +tmp6*NLPz[ist][1][l+1]*NLP0[jst][1][l  ]
-                        -tmp5*NLPz[ist][1][l+1]*NLP0[jst][1][l+3] 
-                        +tmp5*NLPz[ist][1][l+3]*NLP0[jst][1][l+1]
-                        -tmp5*NLPz[ist][1][l+2]*NLP0[jst][1][l+4] 
-                        +tmp5*NLPz[ist][1][l+4]*NLP0[jst][1][l+2]
-                        -tmp4*NLPz[ist][1][l+3]*NLP0[jst][1][l+5] 
-                        +tmp4*NLPz[ist][1][l+5]*NLP0[jst][1][l+3]
-                        -tmp4*NLPz[ist][1][l+4]*NLP0[jst][1][l+6] 
-                        +tmp4*NLPz[ist][1][l+6]*NLP0[jst][1][l+4])
+                tmpx = (-tmp6*NLPx1[ist,l  ]*NLP01[jst,l+1] 
+                        +tmp6*NLPx1[ist,l+1]*NLP01[jst,l  ]
+                        -tmp5*NLPx1[ist,l+1]*NLP01[jst,l+3] 
+                        +tmp5*NLPx1[ist,l+3]*NLP01[jst,l+1]
+                        -tmp5*NLPx1[ist,l+2]*NLP01[jst,l+4] 
+                        +tmp5*NLPx1[ist,l+4]*NLP01[jst,l+2]
+                        -tmp4*NLPx1[ist,l+3]*NLP01[jst,l+5] 
+                        +tmp4*NLPx1[ist,l+5]*NLP01[jst,l+3]
+                        -tmp4*NLPx1[ist,l+4]*NLP01[jst,l+6] 
+                        +tmp4*NLPx1[ist,l+6]*NLP01[jst,l+4])
+                tmpy = (-tmp6*NLPy1[ist,l  ]*NLP01[jst,l+1] 
+                        +tmp6*NLPy1[ist,l+1]*NLP01[jst,l  ]
+                        -tmp5*NLPy1[ist,l+1]*NLP01[jst,l+3] 
+                        +tmp5*NLPy1[ist,l+3]*NLP01[jst,l+1]
+                        -tmp5*NLPy1[ist,l+2]*NLP01[jst,l+4] 
+                        +tmp5*NLPy1[ist,l+4]*NLP01[jst,l+2]
+                        -tmp4*NLPy1[ist,l+3]*NLP01[jst,l+5] 
+                        +tmp4*NLPy1[ist,l+5]*NLP01[jst,l+3]
+                        -tmp4*NLPy1[ist,l+4]*NLP01[jst,l+6] 
+                        +tmp4*NLPy1[ist,l+6]*NLP01[jst,l+4])
+                tmpz = (-tmp6*NLPz1[ist,l  ]*NLP01[jst,l+1] 
+                        +tmp6*NLPz1[ist,l+1]*NLP01[jst,l  ]
+                        -tmp5*NLPz1[ist,l+1]*NLP01[jst,l+3] 
+                        +tmp5*NLPz1[ist,l+3]*NLP01[jst,l+1]
+                        -tmp5*NLPz1[ist,l+2]*NLP01[jst,l+4] 
+                        +tmp5*NLPz1[ist,l+4]*NLP01[jst,l+2]
+                        -tmp4*NLPz1[ist,l+3]*NLP01[jst,l+5] 
+                        +tmp4*NLPz1[ist,l+5]*NLP01[jst,l+3]
+                        -tmp4*NLPz1[ist,l+4]*NLP01[jst,l+6] 
+                        +tmp4*NLPz1[ist,l+6]*NLP01[jst,l+4])
                 
                 Sum2x_re += fugou*tmpx
                 Sum2y_re += fugou*tmpy
                 Sum2z_re += fugou*tmpz
 
                 # imaginary contribution of l+1/2 to off diagonal up-down matrix
-                tmpx = ( tmp6*NLPx[ist][1][l  ]*NLP0[jst][1][l+2] 
-                        -tmp6*NLPx[ist][1][l+2]*NLP0[jst][1][l  ]
-                        +tmp5*NLPx[ist][1][l+1]*NLP0[jst][1][l+4] 
-                        -tmp5*NLPx[ist][1][l+4]*NLP0[jst][1][l+1]
-                        -tmp5*NLPx[ist][1][l+2]*NLP0[jst][1][l+3] 
-                        +tmp5*NLPx[ist][1][l+3]*NLP0[jst][1][l+2]
-                        +tmp4*NLPx[ist][1][l+3]*NLP0[jst][1][l+6] 
-                        -tmp4*NLPx[ist][1][l+6]*NLP0[jst][1][l+3]
-                        -tmp4*NLPx[ist][1][l+4]*NLP0[jst][1][l+5] 
-                        +tmp4*NLPx[ist][1][l+5]*NLP0[jst][1][l+4])
-                tmpy = ( tmp6*NLPy[ist][1][l  ]*NLP0[jst][1][l+2] 
-                        -tmp6*NLPy[ist][1][l+2]*NLP0[jst][1][l  ]
-                        +tmp5*NLPy[ist][1][l+1]*NLP0[jst][1][l+4] 
-                        -tmp5*NLPy[ist][1][l+4]*NLP0[jst][1][l+1]
-                        -tmp5*NLPy[ist][1][l+2]*NLP0[jst][1][l+3] 
-                        +tmp5*NLPy[ist][1][l+3]*NLP0[jst][1][l+2]
-                        +tmp4*NLPy[ist][1][l+3]*NLP0[jst][1][l+6] 
-                        -tmp4*NLPy[ist][1][l+6]*NLP0[jst][1][l+3]
-                        -tmp4*NLPy[ist][1][l+4]*NLP0[jst][1][l+5] 
-                        +tmp4*NLPy[ist][1][l+5]*NLP0[jst][1][l+4])
-                tmpz = ( tmp6*NLPz[ist][1][l  ]*NLP0[jst][1][l+2] 
-                        -tmp6*NLPz[ist][1][l+2]*NLP0[jst][1][l  ]
-                        +tmp5*NLPz[ist][1][l+1]*NLP0[jst][1][l+4] 
-                        -tmp5*NLPz[ist][1][l+4]*NLP0[jst][1][l+1]
-                        -tmp5*NLPz[ist][1][l+2]*NLP0[jst][1][l+3] 
-                        +tmp5*NLPz[ist][1][l+3]*NLP0[jst][1][l+2]
-                        +tmp4*NLPz[ist][1][l+3]*NLP0[jst][1][l+6] 
-                        -tmp4*NLPz[ist][1][l+6]*NLP0[jst][1][l+3]
-                        -tmp4*NLPz[ist][1][l+4]*NLP0[jst][1][l+5] 
-                        +tmp4*NLPz[ist][1][l+5]*NLP0[jst][1][l+4])
+                tmpx = ( tmp6*NLPx1[ist,l  ]*NLP01[jst,l+2] 
+                        -tmp6*NLPx1[ist,l+2]*NLP01[jst,l  ]
+                        +tmp5*NLPx1[ist,l+1]*NLP01[jst,l+4] 
+                        -tmp5*NLPx1[ist,l+4]*NLP01[jst,l+1]
+                        -tmp5*NLPx1[ist,l+2]*NLP01[jst,l+3] 
+                        +tmp5*NLPx1[ist,l+3]*NLP01[jst,l+2]
+                        +tmp4*NLPx1[ist,l+3]*NLP01[jst,l+6] 
+                        -tmp4*NLPx1[ist,l+6]*NLP01[jst,l+3]
+                        -tmp4*NLPx1[ist,l+4]*NLP01[jst,l+5] 
+                        +tmp4*NLPx1[ist,l+5]*NLP01[jst,l+4])
+                tmpy = ( tmp6*NLPy1[ist,l  ]*NLP01[jst,l+2] 
+                        -tmp6*NLPy1[ist,l+2]*NLP01[jst,l  ]
+                        +tmp5*NLPy1[ist,l+1]*NLP01[jst,l+4] 
+                        -tmp5*NLPy1[ist,l+4]*NLP01[jst,l+1]
+                        -tmp5*NLPy1[ist,l+2]*NLP01[jst,l+3] 
+                        +tmp5*NLPy1[ist,l+3]*NLP01[jst,l+2]
+                        +tmp4*NLPy1[ist,l+3]*NLP01[jst,l+6] 
+                        -tmp4*NLPy1[ist,l+6]*NLP01[jst,l+3]
+                        -tmp4*NLPy1[ist,l+4]*NLP01[jst,l+5] 
+                        +tmp4*NLPy1[ist,l+5]*NLP01[jst,l+4])
+                tmpz = ( tmp6*NLPz1[ist,l  ]*NLP01[jst,l+2] 
+                        -tmp6*NLPz1[ist,l+2]*NLP01[jst,l  ]
+                        +tmp5*NLPz1[ist,l+1]*NLP01[jst,l+4] 
+                        -tmp5*NLPz1[ist,l+4]*NLP01[jst,l+1]
+                        -tmp5*NLPz1[ist,l+2]*NLP01[jst,l+3] 
+                        +tmp5*NLPz1[ist,l+3]*NLP01[jst,l+2]
+                        +tmp4*NLPz1[ist,l+3]*NLP01[jst,l+6] 
+                        -tmp4*NLPz1[ist,l+6]*NLP01[jst,l+3]
+                        -tmp4*NLPz1[ist,l+4]*NLP01[jst,l+5] 
+                        +tmp4*NLPz1[ist,l+5]*NLP01[jst,l+4])
                 
                 Sum2x_im += fugou*tmpx
                 Sum2y_im += fugou*tmpy
@@ -2677,72 +2680,72 @@ function dHNL_SO!(
                 tmp5 = tmp2*tmp3
                 tmp6 = tmp0*tmp3
 
-                tmpx = (-tmp6*NLPx[ist][2][l  ]*NLP0[jst][2][l+1] 
-                        +tmp6*NLPx[ist][2][l+1]*NLP0[jst][2][l  ]
-                        -tmp5*NLPx[ist][2][l+1]*NLP0[jst][2][l+3] 
-                        +tmp5*NLPx[ist][2][l+3]*NLP0[jst][2][l+1]
-                        -tmp5*NLPx[ist][2][l+2]*NLP0[jst][2][l+4] 
-                        +tmp5*NLPx[ist][2][l+4]*NLP0[jst][2][l+2]
-                        -tmp4*NLPx[ist][2][l+3]*NLP0[jst][2][l+5] 
-                        +tmp4*NLPx[ist][2][l+5]*NLP0[jst][2][l+3]
-                        -tmp4*NLPx[ist][2][l+4]*NLP0[jst][2][l+6] 
-                        +tmp4*NLPx[ist][2][l+6]*NLP0[jst][2][l+4])
-                tmpy = (-tmp6*NLPy[ist][2][l  ]*NLP0[jst][2][l+1] 
-                        +tmp6*NLPy[ist][2][l+1]*NLP0[jst][2][l  ]
-                        -tmp5*NLPy[ist][2][l+1]*NLP0[jst][2][l+3] 
-                        +tmp5*NLPy[ist][2][l+3]*NLP0[jst][2][l+1]
-                        -tmp5*NLPy[ist][2][l+2]*NLP0[jst][2][l+4] 
-                        +tmp5*NLPy[ist][2][l+4]*NLP0[jst][2][l+2]
-                        -tmp4*NLPy[ist][2][l+3]*NLP0[jst][2][l+5] 
-                        +tmp4*NLPy[ist][2][l+5]*NLP0[jst][2][l+3]
-                        -tmp4*NLPy[ist][2][l+4]*NLP0[jst][2][l+6] 
-                        +tmp4*NLPy[ist][2][l+6]*NLP0[jst][2][l+4])
-                tmpz = (-tmp6*NLPz[ist][2][l  ]*NLP0[jst][2][l+1] 
-                        +tmp6*NLPz[ist][2][l+1]*NLP0[jst][2][l  ]
-                        -tmp5*NLPz[ist][2][l+1]*NLP0[jst][2][l+3] 
-                        +tmp5*NLPz[ist][2][l+3]*NLP0[jst][2][l+1]
-                        -tmp5*NLPz[ist][2][l+2]*NLP0[jst][2][l+4] 
-                        +tmp5*NLPz[ist][2][l+4]*NLP0[jst][2][l+2]
-                        -tmp4*NLPz[ist][2][l+3]*NLP0[jst][2][l+5] 
-                        +tmp4*NLPz[ist][2][l+5]*NLP0[jst][2][l+3]
-                        -tmp4*NLPz[ist][2][l+4]*NLP0[jst][2][l+6] 
-                        +tmp4*NLPz[ist][2][l+6]*NLP0[jst][2][l+4])
+                tmpx = (-tmp6*NLPx2[ist,l  ]*NLP02[jst,l+1] 
+                        +tmp6*NLPx2[ist,l+1]*NLP02[jst,l  ]
+                        -tmp5*NLPx2[ist,l+1]*NLP02[jst,l+3] 
+                        +tmp5*NLPx2[ist,l+3]*NLP02[jst,l+1]
+                        -tmp5*NLPx2[ist,l+2]*NLP02[jst,l+4] 
+                        +tmp5*NLPx2[ist,l+4]*NLP02[jst,l+2]
+                        -tmp4*NLPx2[ist,l+3]*NLP02[jst,l+5] 
+                        +tmp4*NLPx2[ist,l+5]*NLP02[jst,l+3]
+                        -tmp4*NLPx2[ist,l+4]*NLP02[jst,l+6] 
+                        +tmp4*NLPx2[ist,l+6]*NLP02[jst,l+4])
+                tmpy = (-tmp6*NLPy2[ist,l  ]*NLP02[jst,l+1] 
+                        +tmp6*NLPy2[ist,l+1]*NLP02[jst,l  ]
+                        -tmp5*NLPy2[ist,l+1]*NLP02[jst,l+3] 
+                        +tmp5*NLPy2[ist,l+3]*NLP02[jst,l+1]
+                        -tmp5*NLPy2[ist,l+2]*NLP02[jst,l+4] 
+                        +tmp5*NLPy2[ist,l+4]*NLP02[jst,l+2]
+                        -tmp4*NLPy2[ist,l+3]*NLP02[jst,l+5] 
+                        +tmp4*NLPy2[ist,l+5]*NLP02[jst,l+3]
+                        -tmp4*NLPy2[ist,l+4]*NLP02[jst,l+6] 
+                        +tmp4*NLPy2[ist,l+6]*NLP02[jst,l+4])
+                tmpz = (-tmp6*NLPz2[ist,l  ]*NLP02[jst,l+1] 
+                        +tmp6*NLPz2[ist,l+1]*NLP02[jst,l  ]
+                        -tmp5*NLPz2[ist,l+1]*NLP02[jst,l+3] 
+                        +tmp5*NLPz2[ist,l+3]*NLP02[jst,l+1]
+                        -tmp5*NLPz2[ist,l+2]*NLP02[jst,l+4] 
+                        +tmp5*NLPz2[ist,l+4]*NLP02[jst,l+2]
+                        -tmp4*NLPz2[ist,l+3]*NLP02[jst,l+5] 
+                        +tmp4*NLPz2[ist,l+5]*NLP02[jst,l+3]
+                        -tmp4*NLPz2[ist,l+4]*NLP02[jst,l+6] 
+                        +tmp4*NLPz2[ist,l+6]*NLP02[jst,l+4])
                 
                 Sum2x_re -= fugou*tmpx
                 Sum2y_re -= fugou*tmpy
                 Sum2z_re -= fugou*tmpz
 
                 # imaginary contribution of l-1/2 to off diagonal up-down matrix
-                tmpx = ( tmp6*NLPx[ist][2][l  ]*NLP0[jst][2][l+2] 
-                        -tmp6*NLPx[ist][2][l+2]*NLP0[jst][2][l  ]
-                        +tmp5*NLPx[ist][2][l+1]*NLP0[jst][2][l+4] 
-                        -tmp5*NLPx[ist][2][l+4]*NLP0[jst][2][l+1]
-                        -tmp5*NLPx[ist][2][l+2]*NLP0[jst][2][l+3] 
-                        +tmp5*NLPx[ist][2][l+3]*NLP0[jst][2][l+2]
-                        +tmp4*NLPx[ist][2][l+3]*NLP0[jst][2][l+6] 
-                        -tmp4*NLPx[ist][2][l+6]*NLP0[jst][2][l+3]
-                        -tmp4*NLPx[ist][2][l+4]*NLP0[jst][2][l+5] 
-                        +tmp4*NLPx[ist][2][l+5]*NLP0[jst][2][l+4])
-                tmpy = ( tmp6*NLPy[ist][2][l  ]*NLP0[jst][2][l+2] 
-                        -tmp6*NLPy[ist][2][l+2]*NLP0[jst][2][l  ]
-                        +tmp5*NLPy[ist][2][l+1]*NLP0[jst][2][l+4] 
-                        -tmp5*NLPy[ist][2][l+4]*NLP0[jst][2][l+1]
-                        -tmp5*NLPy[ist][2][l+2]*NLP0[jst][2][l+3] 
-                        +tmp5*NLPy[ist][2][l+3]*NLP0[jst][2][l+2]
-                        +tmp4*NLPy[ist][2][l+3]*NLP0[jst][2][l+6] 
-                        -tmp4*NLPy[ist][2][l+6]*NLP0[jst][2][l+3]
-                        -tmp4*NLPy[ist][2][l+4]*NLP0[jst][2][l+5] 
-                        +tmp4*NLPy[ist][2][l+5]*NLP0[jst][2][l+4])
-                tmpz = ( tmp6*NLPz[ist][2][l  ]*NLP0[jst][2][l+2] 
-                        -tmp6*NLPz[ist][2][l+2]*NLP0[jst][2][l  ]
-                        +tmp5*NLPz[ist][2][l+1]*NLP0[jst][2][l+4] 
-                        -tmp5*NLPz[ist][2][l+4]*NLP0[jst][2][l+1]
-                        -tmp5*NLPz[ist][2][l+2]*NLP0[jst][2][l+3] 
-                        +tmp5*NLPz[ist][2][l+3]*NLP0[jst][2][l+2]
-                        +tmp4*NLPz[ist][2][l+3]*NLP0[jst][2][l+6] 
-                        -tmp4*NLPz[ist][2][l+6]*NLP0[jst][2][l+3]
-                        -tmp4*NLPz[ist][2][l+4]*NLP0[jst][2][l+5] 
-                        +tmp4*NLPz[ist][2][l+5]*NLP0[jst][2][l+4])
+                tmpx = ( tmp6*NLPx2[ist,l  ]*NLP02[jst,l+2] 
+                        -tmp6*NLPx2[ist,l+2]*NLP02[jst,l  ]
+                        +tmp5*NLPx2[ist,l+1]*NLP02[jst,l+4] 
+                        -tmp5*NLPx2[ist,l+4]*NLP02[jst,l+1]
+                        -tmp5*NLPx2[ist,l+2]*NLP02[jst,l+3] 
+                        +tmp5*NLPx2[ist,l+3]*NLP02[jst,l+2]
+                        +tmp4*NLPx2[ist,l+3]*NLP02[jst,l+6] 
+                        -tmp4*NLPx2[ist,l+6]*NLP02[jst,l+3]
+                        -tmp4*NLPx2[ist,l+4]*NLP02[jst,l+5] 
+                        +tmp4*NLPx2[ist,l+5]*NLP02[jst,l+4])
+                tmpy = ( tmp6*NLPy2[ist,l  ]*NLP02[jst,l+2] 
+                        -tmp6*NLPy2[ist,l+2]*NLP02[jst,l  ]
+                        +tmp5*NLPy2[ist,l+1]*NLP02[jst,l+4] 
+                        -tmp5*NLPy2[ist,l+4]*NLP02[jst,l+1]
+                        -tmp5*NLPy2[ist,l+2]*NLP02[jst,l+3] 
+                        +tmp5*NLPy2[ist,l+3]*NLP02[jst,l+2]
+                        +tmp4*NLPy2[ist,l+3]*NLP02[jst,l+6] 
+                        -tmp4*NLPy2[ist,l+6]*NLP02[jst,l+3]
+                        -tmp4*NLPy2[ist,l+4]*NLP02[jst,l+5] 
+                        +tmp4*NLPy2[ist,l+5]*NLP02[jst,l+4])
+                tmpz = ( tmp6*NLPz2[ist,l  ]*NLP02[jst,l+2] 
+                        -tmp6*NLPz2[ist,l+2]*NLP02[jst,l  ]
+                        +tmp5*NLPz2[ist,l+1]*NLP02[jst,l+4] 
+                        -tmp5*NLPz2[ist,l+4]*NLP02[jst,l+1]
+                        -tmp5*NLPz2[ist,l+2]*NLP02[jst,l+3] 
+                        +tmp5*NLPz2[ist,l+3]*NLP02[jst,l+2]
+                        +tmp4*NLPz2[ist,l+3]*NLP02[jst,l+6] 
+                        -tmp4*NLPz2[ist,l+6]*NLP02[jst,l+3]
+                        -tmp4*NLPz2[ist,l+4]*NLP02[jst,l+5] 
+                        +tmp4*NLPz2[ist,l+5]*NLP02[jst,l+4])
                 
                 Sum2x_im -= fugou*tmpx
                 Sum2y_im -= fugou*tmpy
@@ -2755,12 +2758,12 @@ function dHNL_SO!(
                 
                 tmp = ene_p/3
 
-                tmpx = (tmp*NLPx[ist][1][l  ]*NLP0[jst][1][l+1] 
-                       -tmp*NLPx[ist][1][l+1]*NLP0[jst][1][l  ])
-                tmpy = (tmp*NLPy[ist][1][l  ]*NLP0[jst][1][l+1] 
-                       -tmp*NLPy[ist][1][l+1]*NLP0[jst][1][l  ])
-                tmpz = (tmp*NLPz[ist][1][l  ]*NLP0[jst][1][l+1] 
-                       -tmp*NLPz[ist][1][l+1]*NLP0[jst][1][l  ])
+                tmpx = (tmp*NLPx1[ist,l  ]*NLP01[jst,l+1] 
+                       -tmp*NLPx1[ist,l+1]*NLP01[jst,l  ])
+                tmpy = (tmp*NLPy1[ist,l  ]*NLP01[jst,l+1] 
+                       -tmp*NLPy1[ist,l+1]*NLP01[jst,l  ])
+                tmpz = (tmp*NLPz1[ist,l  ]*NLP01[jst,l+1] 
+                       -tmp*NLPz1[ist,l+1]*NLP01[jst,l  ])
                 
                 # contribution of l+1/2 for up spin
                 Sum0x_im += -fugou*tmpx
@@ -2775,12 +2778,12 @@ function dHNL_SO!(
 
                 tmp = ene_m/3
 
-                tmpx = (tmp*NLPx[ist][2][l  ]*NLP0[jst][2][l+1] 
-                       -tmp*NLPx[ist][2][l+1]*NLP0[jst][2][l  ])
-                tmpy = (tmp*NLPy[ist][2][l  ]*NLP0[jst][2][l+1] 
-                       -tmp*NLPy[ist][2][l+1]*NLP0[jst][2][l  ])
-                tmpz = (tmp*NLPz[ist][2][l  ]*NLP0[jst][2][l+1] 
-                       -tmp*NLPz[ist][2][l+1]*NLP0[jst][2][l  ])
+                tmpx = (tmp*NLPx2[ist,l  ]*NLP02[jst,l+1] 
+                       -tmp*NLPx2[ist,l+1]*NLP02[jst,l  ])
+                tmpy = (tmp*NLPy2[ist,l  ]*NLP02[jst,l+1] 
+                       -tmp*NLPy2[ist,l+1]*NLP02[jst,l  ])
+                tmpz = (tmp*NLPz2[ist,l  ]*NLP02[jst,l+1] 
+                       -tmp*NLPz2[ist,l+1]*NLP02[jst,l  ])
                 
                 # contribution of l-1/2 for up spin
                 Sum0x_im += fugou*tmpx
@@ -2798,18 +2801,18 @@ function dHNL_SO!(
                 tmp1 = ene_p*1/5
                 tmp2 = ene_p*2/5
 
-                tmpx = ( tmp2*NLPx[ist][1][l+1]*NLP0[jst][1][l+2] 
-                        -tmp2*NLPx[ist][1][l+2]*NLP0[jst][1][l+1]
-                        +tmp1*NLPx[ist][1][l+3]*NLP0[jst][1][l+4] 
-                        -tmp1*NLPx[ist][1][l+4]*NLP0[jst][1][l+3])
-                tmpy = ( tmp2*NLPy[ist][1][l+1]*NLP0[jst][1][l+2] 
-                        -tmp2*NLPy[ist][1][l+2]*NLP0[jst][1][l+1]
-                        +tmp1*NLPy[ist][1][l+3]*NLP0[jst][1][l+4] 
-                        -tmp1*NLPy[ist][1][l+4]*NLP0[jst][1][l+3])
-                tmpz = ( tmp2*NLPz[ist][1][l+1]*NLP0[jst][1][l+2] 
-                        -tmp2*NLPz[ist][1][l+2]*NLP0[jst][1][l+1]
-                        +tmp1*NLPz[ist][1][l+3]*NLP0[jst][1][l+4] 
-                        -tmp1*NLPz[ist][1][l+4]*NLP0[jst][1][l+3])
+                tmpx = ( tmp2*NLPx1[ist,l+1]*NLP01[jst,l+2] 
+                        -tmp2*NLPx1[ist,l+2]*NLP01[jst,l+1]
+                        +tmp1*NLPx1[ist,l+3]*NLP01[jst,l+4] 
+                        -tmp1*NLPx1[ist,l+4]*NLP01[jst,l+3])
+                tmpy = ( tmp2*NLPy1[ist,l+1]*NLP01[jst,l+2] 
+                        -tmp2*NLPy1[ist,l+2]*NLP01[jst,l+1]
+                        +tmp1*NLPy1[ist,l+3]*NLP01[jst,l+4] 
+                        -tmp1*NLPy1[ist,l+4]*NLP01[jst,l+3])
+                tmpz = ( tmp2*NLPz1[ist,l+1]*NLP01[jst,l+2] 
+                        -tmp2*NLPz1[ist,l+2]*NLP01[jst,l+1]
+                        +tmp1*NLPz1[ist,l+3]*NLP01[jst,l+4] 
+                        -tmp1*NLPz1[ist,l+4]*NLP01[jst,l+3])
                 
                 # contribution of l+1/2 for up spin
                 Sum0x_im += -fugou*tmpx
@@ -2825,18 +2828,18 @@ function dHNL_SO!(
                 tmp1 = ene_m*1/5
                 tmp2 = ene_m*2/5
 
-                tmpx = ( tmp2*NLPx[ist][2][l+1]*NLP0[jst][2][l+2] 
-                        -tmp2*NLPx[ist][2][l+2]*NLP0[jst][2][l+1]
-                        +tmp1*NLPx[ist][2][l+3]*NLP0[jst][2][l+4] 
-                        -tmp1*NLPx[ist][2][l+4]*NLP0[jst][2][l+3])
-                tmpy = ( tmp2*NLPy[ist][2][l+1]*NLP0[jst][2][l+2] 
-                        -tmp2*NLPy[ist][2][l+2]*NLP0[jst][2][l+1]
-                        +tmp1*NLPy[ist][2][l+3]*NLP0[jst][2][l+4] 
-                        -tmp1*NLPy[ist][2][l+4]*NLP0[jst][2][l+3])
-                tmpz = ( tmp2*NLPz[ist][2][l+1]*NLP0[jst][2][l+2] 
-                        -tmp2*NLPz[ist][2][l+2]*NLP0[jst][2][l+1]
-                        +tmp1*NLPz[ist][2][l+3]*NLP0[jst][2][l+4] 
-                        -tmp1*NLPz[ist][2][l+4]*NLP0[jst][2][l+3])
+                tmpx = ( tmp2*NLPx2[ist,l+1]*NLP02[jst,l+2] 
+                        -tmp2*NLPx2[ist,l+2]*NLP02[jst,l+1]
+                        +tmp1*NLPx2[ist,l+3]*NLP02[jst,l+4] 
+                        -tmp1*NLPx2[ist,l+4]*NLP02[jst,l+3])
+                tmpy = ( tmp2*NLPy2[ist,l+1]*NLP02[jst,l+2] 
+                        -tmp2*NLPy2[ist,l+2]*NLP02[jst,l+1]
+                        +tmp1*NLPy2[ist,l+3]*NLP02[jst,l+4] 
+                        -tmp1*NLPy2[ist,l+4]*NLP02[jst,l+3])
+                tmpz = ( tmp2*NLPz2[ist,l+1]*NLP02[jst,l+2] 
+                        -tmp2*NLPz2[ist,l+2]*NLP02[jst,l+1]
+                        +tmp1*NLPz2[ist,l+3]*NLP02[jst,l+4] 
+                        -tmp1*NLPz2[ist,l+4]*NLP02[jst,l+3])
                 
                 # contribution of l-1/2 for up spin
                 Sum0x_im += fugou*tmpx
@@ -2855,24 +2858,24 @@ function dHNL_SO!(
                 tmp2 = ene_p*2/7
                 tmp3 = ene_p*3/7
 
-                tmpx = ( tmp1*NLPx[ist][1][l+1]*NLP0[jst][1][l+2] 
-                        -tmp1*NLPx[ist][1][l+2]*NLP0[jst][1][l+1]
-                        +tmp2*NLPx[ist][1][l+3]*NLP0[jst][1][l+4] 
-                        -tmp2*NLPx[ist][1][l+4]*NLP0[jst][1][l+3]
-                        +tmp3*NLPx[ist][1][l+5]*NLP0[jst][1][l+6] 
-                        -tmp3*NLPx[ist][1][l+6]*NLP0[jst][1][l+5])
-                tmpy = ( tmp1*NLPy[ist][1][l+1]*NLP0[jst][1][l+2] 
-                        -tmp1*NLPy[ist][1][l+2]*NLP0[jst][1][l+1]
-                        +tmp2*NLPy[ist][1][l+3]*NLP0[jst][1][l+4] 
-                        -tmp2*NLPy[ist][1][l+4]*NLP0[jst][1][l+3]
-                        +tmp3*NLPy[ist][1][l+5]*NLP0[jst][1][l+6] 
-                        -tmp3*NLPy[ist][1][l+6]*NLP0[jst][1][l+5])
-                tmpz = ( tmp1*NLPz[ist][1][l+1]*NLP0[jst][1][l+2] 
-                        -tmp1*NLPz[ist][1][l+2]*NLP0[jst][1][l+1]
-                        +tmp2*NLPz[ist][1][l+3]*NLP0[jst][1][l+4] 
-                        -tmp2*NLPz[ist][1][l+4]*NLP0[jst][1][l+3]
-                        +tmp3*NLPz[ist][1][l+5]*NLP0[jst][1][l+6] 
-                        -tmp3*NLPz[ist][1][l+6]*NLP0[jst][1][l+5])
+                tmpx = ( tmp1*NLPx1[ist,l+1]*NLP01[jst,l+2] 
+                        -tmp1*NLPx1[ist,l+2]*NLP01[jst,l+1]
+                        +tmp2*NLPx1[ist,l+3]*NLP01[jst,l+4] 
+                        -tmp2*NLPx1[ist,l+4]*NLP01[jst,l+3]
+                        +tmp3*NLPx1[ist,l+5]*NLP01[jst,l+6] 
+                        -tmp3*NLPx1[ist,l+6]*NLP01[jst,l+5])
+                tmpy = ( tmp1*NLPy1[ist,l+1]*NLP01[jst,l+2] 
+                        -tmp1*NLPy1[ist,l+2]*NLP01[jst,l+1]
+                        +tmp2*NLPy1[ist,l+3]*NLP01[jst,l+4] 
+                        -tmp2*NLPy1[ist,l+4]*NLP01[jst,l+3]
+                        +tmp3*NLPy1[ist,l+5]*NLP01[jst,l+6] 
+                        -tmp3*NLPy1[ist,l+6]*NLP01[jst,l+5])
+                tmpz = ( tmp1*NLPz1[ist,l+1]*NLP01[jst,l+2] 
+                        -tmp1*NLPz1[ist,l+2]*NLP01[jst,l+1]
+                        +tmp2*NLPz1[ist,l+3]*NLP01[jst,l+4] 
+                        -tmp2*NLPz1[ist,l+4]*NLP01[jst,l+3]
+                        +tmp3*NLPz1[ist,l+5]*NLP01[jst,l+6] 
+                        -tmp3*NLPz1[ist,l+6]*NLP01[jst,l+5])
                 
                 # contribution of l+1/2 for up spin
                 Sum0x_im += -fugou*tmpx
@@ -2888,24 +2891,24 @@ function dHNL_SO!(
                 tmp2 = ene_m*2/7
                 tmp3 = ene_m*3/7
 
-                tmpx = ( tmp1*NLPx[ist][1][l+1]*NLP0[jst][1][l+2] 
-                        -tmp1*NLPx[ist][1][l+2]*NLP0[jst][1][l+1]
-                        +tmp2*NLPx[ist][1][l+3]*NLP0[jst][1][l+4] 
-                        -tmp2*NLPx[ist][1][l+4]*NLP0[jst][1][l+3]
-                        +tmp3*NLPx[ist][1][l+5]*NLP0[jst][1][l+6] 
-                        -tmp3*NLPx[ist][1][l+6]*NLP0[jst][1][l+5])
-                tmpy = ( tmp1*NLPy[ist][1][l+1]*NLP0[jst][1][l+2] 
-                        -tmp1*NLPy[ist][1][l+2]*NLP0[jst][1][l+1]
-                        +tmp2*NLPy[ist][1][l+3]*NLP0[jst][1][l+4] 
-                        -tmp2*NLPy[ist][1][l+4]*NLP0[jst][1][l+3]
-                        +tmp3*NLPy[ist][1][l+5]*NLP0[jst][1][l+6] 
-                        -tmp3*NLPy[ist][1][l+6]*NLP0[jst][1][l+5])
-                tmpz = ( tmp1*NLPz[ist][1][l+1]*NLP0[jst][1][l+2] 
-                        -tmp1*NLPz[ist][1][l+2]*NLP0[jst][1][l+1]
-                        +tmp2*NLPz[ist][1][l+3]*NLP0[jst][1][l+4] 
-                        -tmp2*NLPz[ist][1][l+4]*NLP0[jst][1][l+3]
-                        +tmp3*NLPz[ist][1][l+5]*NLP0[jst][1][l+6] 
-                        -tmp3*NLPz[ist][1][l+6]*NLP0[jst][1][l+5])
+                tmpx = ( tmp1*NLPx2[ist,l+1]*NLP02[jst,l+2] 
+                        -tmp1*NLPx2[ist,l+2]*NLP02[jst,l+1]
+                        +tmp2*NLPx2[ist,l+3]*NLP02[jst,l+4] 
+                        -tmp2*NLPx2[ist,l+4]*NLP02[jst,l+3]
+                        +tmp3*NLPx2[ist,l+5]*NLP02[jst,l+6] 
+                        -tmp3*NLPx2[ist,l+6]*NLP02[jst,l+5])
+                tmpy = ( tmp1*NLPy2[ist,l+1]*NLP02[jst,l+2] 
+                        -tmp1*NLPy2[ist,l+2]*NLP02[jst,l+1]
+                        +tmp2*NLPy2[ist,l+3]*NLP02[jst,l+4] 
+                        -tmp2*NLPy2[ist,l+4]*NLP02[jst,l+3]
+                        +tmp3*NLPy2[ist,l+5]*NLP02[jst,l+6] 
+                        -tmp3*NLPy2[ist,l+6]*NLP02[jst,l+5])
+                tmpz = ( tmp1*NLPz2[ist,l+1]*NLP02[jst,l+2] 
+                        -tmp1*NLPz2[ist,l+2]*NLP02[jst,l+1]
+                        +tmp2*NLPz2[ist,l+3]*NLP02[jst,l+4] 
+                        -tmp2*NLPz2[ist,l+4]*NLP02[jst,l+3]
+                        +tmp3*NLPz2[ist,l+5]*NLP02[jst,l+6] 
+                        -tmp3*NLPz2[ist,l+6]*NLP02[jst,l+5])
                 
                 # contribution of l-1/2 for up spin
                 Sum0x_im += fugou*tmpx
@@ -2922,9 +2925,9 @@ function dHNL_SO!(
             for lll = 0:l2
 
                 # VNL for j=l+1/2
-                tmpx = PFp*ene_p*NLPx[ist][1][l]*NLP0[jst][1][l]
-                tmpy = PFp*ene_p*NLPy[ist][1][l]*NLP0[jst][1][l]
-                tmpz = PFp*ene_p*NLPz[ist][1][l]*NLP0[jst][1][l]
+                tmpx = PFp*ene_p*NLPx1[ist,l]*NLP01[jst,l]
+                tmpy = PFp*ene_p*NLPy1[ist,l]*NLP01[jst,l]
+                tmpz = PFp*ene_p*NLPz1[ist,l]*NLP01[jst,l]
                 
                 Sum0x_re += tmpx
                 Sum0y_re += tmpy
@@ -2935,9 +2938,9 @@ function dHNL_SO!(
                 Sum1z_re += tmpz
 
                 # VNL for j=l-1/2
-                tmpx = PFm*ene_m*NLPx[ist][2][l]*NLP0[jst][2][l]
-                tmpy = PFm*ene_m*NLPy[ist][2][l]*NLP0[jst][2][l]
-                tmpz = PFm*ene_m*NLPz[ist][2][l]*NLP0[jst][2][l]
+                tmpx = PFm*ene_m*NLPx2[ist,l]*NLP02[jst,l]
+                tmpy = PFm*ene_m*NLPy2[ist,l]*NLP02[jst,l]
+                tmpz = PFm*ene_m*NLPz2[ist,l]*NLP02[jst,l]
                 
                 Sum0x_re += tmpx
                 Sum0y_re += tmpy
@@ -3051,7 +3054,7 @@ function _Calc_Force3_8(NO0, NO1, NumOLG, GridListAtom, GListTAtoms1, GListTAtom
 			Sum5z = temp5 * dOrbs_Gridz[Nc5][ist]
 			Sum6z = temp6 * dOrbs_Gridz[Nc6][ist]
 			Sum7z = temp7 * dOrbs_Gridz[Nc7][ist]
-            
+
 			@inbounds for jst = 1:NO1
                 
                 DM_tmp = DM[ist][jst]

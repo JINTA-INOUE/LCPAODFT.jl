@@ -1,4 +1,4 @@
-function Calc_TDF_decomp(boltz_setup::Boltz_Setup, Enk, EVec, Vnk)
+@timeit timer "Calc_TDF_decomp" function Calc_TDF_decomp(boltz_setup::Boltz_Setup, Enk, EVec, Vnk)
     
     material = boltz_setup.material
     SpinPol = material.SpinPol

@@ -1,82 +1,207 @@
 struct Hamiltonian
 	SpinPol::String
-	Hkin::Vector{Float64}
-	HNL::Vector{Vector{Float64}}
-	iHNL::Union{Vector{Vector{Float64}}, Nothing}
-	HVNA::Vector{Float64}
-    OLP::Vector{Float64}
+	OLP::Vector{Float64}
+	Hkin::Vector{Vector{Vector{Vector{Float64}}}}
+	HNL::Vector{Vector{Vector{Vector{Vector{Float64}}}}}
+	iHNL::Vector{Vector{Vector{Vector{Vector{Float64}}}}}
+	HVNA::Vector{Vector{Vector{Vector{Float64}}}}
+	NLPforce::Vector{Vector{Vector{Vector{Matrix{Float64}}}}}
+	DS_VNAforce::Vector{Vector{Vector{Matrix{Float64}}}}
+	HVNA2force::Vector{Vector{Vector{Vector{Vector{Float64}}}}}
+	HVNA3force::Vector{Vector{Vector{Vector{Vector{Float64}}}}}
 end
 
 
-
-
-"""
-    Ham = Hamiltonian(...)
-
-Create an instance of `Hamiltonian`.
-
-Mandatory arguments:
-
-- `atoms`: an instance of `Atoms`
-- `LatVecs`: Lattice Vectors with unit
-- `system`: System name (`Atom`, `Cluster`, `Crystal`)
-
-The following is the most commonly used optional arguments:
-- `Ecut`: energy cutoff for real space grids with unit (default `Ecut = 100.0(Ry)`)
-"""
 @timeit timer "Hamiltonian" function Hamiltonian(SpinPol::AbstractString, pao::Vector{PAO}, pspot::Vector{Pspot}, system_grid::System_Grid)	
 	
     comm = MPI.COMM_WORLD
     myrank = MPI.Comm_rank(comm)
 
+	if SpinPol ∉ ("off", "on", "nc")
+		error("please check SpinPol.")
+	end
+
+	Natom = system_grid.Natom
+	atom2spe = system_grid.atom2spe
+	FNAN = system_grid.FNAN
+	natn = system_grid.natn
+	Total_NumOrbs = system_grid.Total_NumOrbs
 	Total_Hsize = system_grid.Total_Hsize
 
 	
     # Overlap/Kinetic Matrix
-    OLP = zeros(Float64, Total_Hsize)
-    Hkin = zeros(Float64, Total_Hsize)
+	OLP = zeros(Float64, Total_Hsize)
+    Hkin = Vector{Vector{Vector{Vector{Float64}}}}(undef, Natom)
+	for atom = 1:Natom
+		Hkin[atom] = Vector{Vector{Vector{Float64}}}(undef, FNAN[atom]+1)
+		for Rn = 1:FNAN[atom]+1
+			Hkin[atom][Rn] = Vector{Vector{Float64}}(undef, Total_NumOrbs[atom])
+			for ist = 1:Total_NumOrbs[atom]
+				Hkin[atom][Rn][ist] = zeros(Float64, Total_NumOrbs[natn[atom][Rn]])
+			end
+		end
+	end
 
 	myrank == 0 && println("<Set_OLP_Kin>  Calculation of the overlap matrix")
 	Set_OLP_Kin!(OLP, Hkin, pao, system_grid)
 
 
-	# Neutral Potentials Matrix
-    HVNA = zeros(Float64, Total_Hsize)
 
-	
-	myrank == 0 && println("<Set_ProExpn_VNA>  Calculation of the VNA projector matrix")
-	Set_ProExpn_VNA!(HVNA, pao, pspot, system_grid)
+	Nspecies = length(pao)
+	maxFNAN = maximum(FNAN)
+	maxTotal_NumOrbs = maximum(Total_NumOrbs)
+	maxL = maximum([pao[spe].Spe_MaxL_Basis for spe = 1:Nspecies]) + BufferL_ProVNA
+    VNATotal_Num = (maxL+1)^2 * maxM
 
-
-
-	# Nonlocal Potentials Matrix
-	if SpinPol ∈ ("off", "on")
-		spinmax = 1
-	elseif SpinPol == "nc"
-		spinmax = 3
-	else
-		println("Now SpinPol is $SpinPol")
-		error("please check SpinPol")
-	end
-
-	if SpinPol ∈ ("off", "on")
-		HNL = Vector{Vector{Float64}}(undef, 1)
-		HNL[1] = zeros(Float64, Total_Hsize)
-		iHNL = nothing
-	elseif SpinPol == "nc"
-		HNL = Vector{Vector{Float64}}(undef, 3)
-		iHNL = Vector{Vector{Float64}}(undef, 3)
-		for spin = 1:3
-			HNL[spin] = zeros(Float64, Total_Hsize)
-			iHNL[spin] = zeros(Float64, Total_Hsize)
+	DS_VNAforce = Vector{Vector{Vector{Matrix{Float64}}}}(undef, 4)
+	for xyz = 1:4
+		DS_VNAforce[xyz] = Vector{Vector{Matrix{Float64}}}(undef, Natom+1)
+		for atom = 1:Natom+1
+			if atom == Natom+1
+				fan = maxFNAN+1
+				NO0 = maxTotal_NumOrbs
+			else
+				fan = FNAN[atom]+1
+				NO0 = Total_NumOrbs[atom]
+			end
+			DS_VNAforce[xyz][atom] = Vector{Matrix{Float64}}(undef, fan)
+			for Rn = 1:fan
+				DS_VNAforce[xyz][atom][Rn] = zeros(Float64, NO0, VNATotal_Num)
+			end
 		end
 	end
-    
+
+	HVNA = Vector{Vector{Vector{Vector{Float64}}}}(undef, Natom)
+	for atom = 1:Natom
+		HVNA[atom] = Vector{Vector{Vector{Float64}}}(undef, FNAN[atom]+1)
+		for Rn = 1:FNAN[atom]+1
+			HVNA[atom][Rn] = Vector{Vector{Float64}}(undef, Total_NumOrbs[atom])
+			for ist = 1:Total_NumOrbs[atom]
+				HVNA[atom][Rn][ist] = zeros(Float64, Total_NumOrbs[natn[atom][Rn]])
+			end
+		end
+	end
+
+	HVNA2force = Vector{Vector{Vector{Vector{Vector{Float64}}}}}(undef, 3)
+    HVNA3force = Vector{Vector{Vector{Vector{Vector{Float64}}}}}(undef, 3)
+	for xyz = 1:3
+		HVNA2force[xyz] = Vector{Vector{Vector{Vector{Float64}}}}(undef, Natom)
+		HVNA3force[xyz] = Vector{Vector{Vector{Vector{Float64}}}}(undef, Natom)
+		for atom = 1:Natom
+			HVNA2force[xyz][atom] = Vector{Vector{Vector{Float64}}}(undef, FNAN[atom]+1)
+			HVNA3force[xyz][atom] = Vector{Vector{Vector{Float64}}}(undef, FNAN[atom]+1)
+			for Rn = 1:FNAN[atom]+1
+				NO0 = Total_NumOrbs[atom]
+				HVNA2force[xyz][atom][Rn] = Vector{Vector{Float64}}(undef, NO0)
+				for ist = 1:NO0
+					HVNA2force[xyz][atom][Rn][ist] = zeros(Float64, NO0)
+				end
+
+				NO1 = Total_NumOrbs[natn[atom][Rn]]
+                HVNA3force[xyz][atom][Rn] = Vector{Vector{Float64}}(undef, NO1)
+                for ist = 1:NO1
+					HVNA3force[xyz][atom][Rn][ist] = zeros(Float64, NO1)
+				end
+			end
+		end
+	end
+
+	myrank == 0 && println("<Set_ProExpn_VNA>  Calculation of the VNA projector matrix")
+	Set_ProExpn_VNA!(DS_VNAforce, HVNA, HVNA2force, HVNA3force, pao, pspot, system_grid)
+
+
+
+
+
+	VPS_j_Num = zeros(Int64, Natom)
+    NLTotal_Num = zeros(Int64, Natom)
+    for atom = 1:Natom
+        spe = atom2spe[atom]
+        tot = 0
+        List = pspot[spe].Spe_VPS_List
+        for list in List
+            tot += 2*list + 1
+        end
+
+        VPS_j_Num[atom] = pspot[spe].VPS_j_dependency
+        NLTotal_Num[atom] = tot
+    end
+
+	maxVPS_j_Num = maximum(VPS_j_Num)
+	maxNLTotal_Num = maximum(NLTotal_Num)
+    NLPforce = Vector{Vector{Vector{Vector{Matrix{Float64}}}}}(undef, 4)
+    for xyz = 1:4
+        NLPforce[xyz] = Vector{Vector{Vector{Matrix{Float64}}}}(undef, Natom+1)
+        for atom = 1:Natom+1
+            if atom == Natom+1
+				fan = maxFNAN+1
+				NO0 = maxTotal_NumOrbs
+			else
+				fan = FNAN[atom]+1
+				NO0 = Total_NumOrbs[atom]
+			end
+            
+            NLPforce[xyz][atom] = Vector{Vector{Matrix{Float64}}}(undef, fan)
+            for Rn = 1:fan
+                if atom == Natom+1
+                    VPS_j_dependency = maxVPS_j_Num
+                    NO1 = maxNLTotal_Num
+                else
+                    jatom = natn[atom][Rn]
+                    VPS_j_dependency = VPS_j_Num[jatom]
+                    NO1 = NLTotal_Num[jatom]
+                end
+                
+                NLPforce[xyz][atom][Rn] = Vector{Matrix{Float64}}(undef, VPS_j_dependency+1)
+                for so = 1:VPS_j_dependency+1
+                    NLPforce[xyz][atom][Rn][so] = zeros(Float64, NO0, NO1)
+                end
+            end
+        end
+    end
+
+
+	if SpinPol ∈ ("off", "on")
+		HNL = Vector{Vector{Vector{Vector{Vector{Float64}}}}}(undef, 1)
+		for spin = 1:1
+			HNL[spin] = Vector{Vector{Vector{Vector{Float64}}}}(undef, Natom)
+			for atom = 1:Natom
+				HNL[spin][atom] = Vector{Vector{Vector{Float64}}}(undef, FNAN[atom]+1)
+				for Rn = 1:FNAN[atom]+1
+					HNL[spin][atom][Rn] = Vector{Vector{Float64}}(undef, Total_NumOrbs[atom])
+					for ist = 1:Total_NumOrbs[atom]
+						HNL[spin][atom][Rn][ist] = zeros(Float64, Total_NumOrbs[natn[atom][Rn]])
+					end
+				end
+			end
+		end
+		iHNL = [[[[[1.0]]]]]
+	elseif SpinPol == "nc"
+		HNL = Vector{Vector{Vector{Vector{Vector{Float64}}}}}(undef, 3)
+		iHNL = Vector{Vector{Vector{Vector{Vector{Float64}}}}}(undef, 3)
+		for spin = 1:3
+			HNL[spin] = Vector{Vector{Vector{Vector{Float64}}}}(undef, Natom)
+			iHNL[spin] = Vector{Vector{Vector{Vector{Float64}}}}(undef, Natom)
+			for atom = 1:Natom
+				HNL[spin][atom] = Vector{Vector{Vector{Float64}}}(undef, FNAN[atom]+1)
+				iHNL[spin][atom] = Vector{Vector{Vector{Float64}}}(undef, FNAN[atom]+1)
+				for Rn = 1:FNAN[atom]+1
+					HNL[spin][atom][Rn] = Vector{Vector{Float64}}(undef, Total_NumOrbs[atom])
+					iHNL[spin][atom][Rn] = Vector{Vector{Float64}}(undef, Total_NumOrbs[atom])
+					for ist = 1:Total_NumOrbs[atom]
+						HNL[spin][atom][Rn][ist] = zeros(Float64, Total_NumOrbs[natn[atom][Rn]])
+						iHNL[spin][atom][Rn][ist] = zeros(Float64, Total_NumOrbs[natn[atom][Rn]])
+					end
+				end
+			end
+		end
+	end
+	    
 	myrank == 0 && println("<Set_Nonlocal>  Calculation of the nonlocal matrix")
-	Set_Nonlocal!(SpinPol, HNL, iHNL, pao, pspot, system_grid)
+	Set_Nonlocal!(SpinPol, NLPforce, HNL, iHNL, pao, pspot, system_grid)
+	
 
-
-	return Hamiltonian(SpinPol, Hkin, HNL, iHNL, HVNA, OLP)
+	return Hamiltonian(SpinPol, OLP, Hkin, HNL, iHNL, HVNA, NLPforce, DS_VNAforce, HVNA2force, HVNA3force)
 end
 
 
@@ -97,6 +222,11 @@ Mandatory arguments:
     comm = MPI.COMM_WORLD
 	myrank = MPI.Comm_rank(comm)
 
+	system_grid = ucell.system_grid
+	Natom = system_grid.Natom
+	FNAN = system_grid.FNAN
+	natn = system_grid.natn
+	Total_NumOrbs = system_grid.Total_NumOrbs
 	SpinPol = Ham.SpinPol
 	Hkin = Ham.Hkin
 	HVNA = Ham.HVNA
@@ -121,14 +251,32 @@ Mandatory arguments:
 	
 
 	if SpinPol == "off"
-		@. Hks[1] = Hks[1] + Hkin + HVNA + HNL[1]
+		Add_Hkin_HVNA_HNL!(Hks[1], Hkin, HVNA, HNL[1], Natom, FNAN, natn, Total_NumOrbs)
 	elseif SpinPol == "on"
-		@. Hks[1] = Hks[1] + Hkin + HVNA + HNL[1]
-		@. Hks[2] = Hks[2] + Hkin + HVNA + HNL[1]
+		Add_Hkin_HVNA_HNL!(Hks[1], Hkin, HVNA, HNL[1], Natom, FNAN, natn, Total_NumOrbs)
+		Add_Hkin_HVNA_HNL!(Hks[2], Hkin, HVNA, HNL[1], Natom, FNAN, natn, Total_NumOrbs)
 	elseif SpinPol == "nc"
-		@. Hks[1] = Hks[1] + Hkin + HVNA + HNL[1]
-		@. Hks[2] = Hks[2] + Hkin + HVNA + HNL[2]
-		@. Hks[3] = Hks[3] + HNL[3]
+		Add_Hkin_HVNA_HNL!(Hks[1], Hkin, HVNA, HNL[1], Natom, FNAN, natn, Total_NumOrbs)
+		Add_Hkin_HVNA_HNL!(Hks[2], Hkin, HVNA, HNL[2], Natom, FNAN, natn, Total_NumOrbs)
+		Add_HNL3!(Hks[3], HNL[3], Natom, FNAN, natn, Total_NumOrbs)
+	end
+end
+
+
+@inline function Add_HNL3!(Hks, HNL, Natom, FNAN, natn, Total_NumOrbs)
+	hst = 0
+	@inbounds for atom = 1:Natom, Rn = 1:FNAN[atom]+1, ist = 1:Total_NumOrbs[atom], jst = 1:Total_NumOrbs[natn[atom][Rn]]
+		hst += 1
+		Hks[hst] += HNL[atom][Rn][ist][jst]
+	end
+end
+
+
+@inline function Add_Hkin_HVNA_HNL!(Hks, Hkin, HVNA, HNL, Natom, FNAN, natn, Total_NumOrbs)
+	hst = 0
+	@inbounds for atom = 1:Natom, Rn = 1:FNAN[atom]+1, ist = 1:Total_NumOrbs[atom], jst = 1:Total_NumOrbs[natn[atom][Rn]]
+		hst += 1
+		Hks[hst] += Hkin[atom][Rn][ist][jst] + HVNA[atom][Rn][ist][jst] + HNL[atom][Rn][ist][jst]
 	end
 end
 

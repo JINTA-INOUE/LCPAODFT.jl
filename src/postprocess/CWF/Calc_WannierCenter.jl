@@ -1,5 +1,5 @@
-function check_CWF_norm_Col(CWF_Plot_SuperCells, GridVol, Ngrid, Wannier_Orbs_Grid)
-
+function check_CWF_norm(CWF_Plot_SuperCells, GridVol, Ngrid, Wannier_Orbs_Grid)
+    
     Ngrid1, Ngrid2, Ngrid3 = Ngrid
 
     CWF_norm = 0.0
@@ -10,7 +10,7 @@ function check_CWF_norm_Col(CWF_Plot_SuperCells, GridVol, Ngrid, Wannier_Orbs_Gr
                 GN = l*Ngrid2*(2*CWF_Plot_SuperCells[2]+1)*Ngrid3*(2*CWF_Plot_SuperCells[3]+1) + m*Ngrid3*(2*CWF_Plot_SuperCells[3]+1) + n + 1
 
                 wann = Wannier_Orbs_Grid[GN]
-                CWF_norm += wann^2
+                CWF_norm += abs2(wann)
             end
         end
     end
@@ -19,28 +19,7 @@ function check_CWF_norm_Col(CWF_Plot_SuperCells, GridVol, Ngrid, Wannier_Orbs_Gr
 end
 
 
-function check_CWF_norm_NonCol(CWF_Plot_SuperCells, GridVol, Ngrid, Wannier_Orbs_Grid)
-
-    Ngrid1, Ngrid2, Ngrid3 = Ngrid
-
-    CWF_norm = 0.0
-    for l = 0:(2*CWF_Plot_SuperCells[1]+1)*Ngrid1-1
-        for m = 0:(2*CWF_Plot_SuperCells[2]+1)*Ngrid2-1
-            @inbounds for n = 0:(2*CWF_Plot_SuperCells[3]+1)*Ngrid3-1
-
-                GN = l*Ngrid2*(2*CWF_Plot_SuperCells[2]+1)*Ngrid3*(2*CWF_Plot_SuperCells[3]+1) + m*Ngrid3*(2*CWF_Plot_SuperCells[3]+1) + n + 1
-
-                wann = Wannier_Orbs_Grid[GN]
-                CWF_norm += conj(wann)*wann
-            end
-        end
-    end
-
-    return CWF_norm*GridVol
-end
-
-
-function Calc_Pos_Omega_Col(CWF_Plot_SuperCells, Latvecs, gLatvecs, GridVol, Grid_Origin, Ngrid, Wannier_Orbs_Grid)
+function Calc_Pos_Omega(CWF_Plot_SuperCells, gLatvecs, GridVol, Ngrid, Wannier_Orbs_Grid)
 
     Ngrid1, Ngrid2, Ngrid3 = Ngrid
 
@@ -51,7 +30,7 @@ function Calc_Pos_Omega_Col(CWF_Plot_SuperCells, Latvecs, gLatvecs, GridVol, Gri
 
     for l = 0:(2*CWF_Plot_SuperCells[1]+1)*Ngrid1-1
         for m = 0:(2*CWF_Plot_SuperCells[2]+1)*Ngrid2-1
-            for n = 0:(2*CWF_Plot_SuperCells[3]+1)*Ngrid3-1
+            @inbounds for n = 0:(2*CWF_Plot_SuperCells[3]+1)*Ngrid3-1
                 GN = l*Ngrid2*(2*CWF_Plot_SuperCells[2]+1)*Ngrid3*(2*CWF_Plot_SuperCells[3]+1) + m*Ngrid3*(2*CWF_Plot_SuperCells[3]+1) + n + 1
             
                 GNc = GN - 1
@@ -64,57 +43,12 @@ function Calc_Pos_Omega_Col(CWF_Plot_SuperCells, Latvecs, gLatvecs, GridVol, Gri
                 y = n1*gLatvecs[1,2] + n2*gLatvecs[2,2] + n3*gLatvecs[3,2]
                 z = n1*gLatvecs[1,3] + n2*gLatvecs[2,3] + n3*gLatvecs[3,3]
                 
-                r2 = x^2 + y^2 + z^2
                 wann = Wannier_Orbs_Grid[GN]
-                Sumx += wann^2 * x
-                Sumy += wann^2 * y
-                Sumz += wann^2 * z
-                Sumr2 += wann^2 * r2
-            end
-        end
-    end
-
-    Pos_x = Sumx*GridVol
-    Pos_y = Sumy*GridVol
-    Pos_z = Sumz*GridVol
-    Pos_r2 = Sumr2*GridVol
- 
- 
-    return Pos_r2, Pos_x, Pos_y, Pos_z
-end
-
-
-function Calc_Pos_Omega_NonCol(CWF_Plot_SuperCells, Latvecs, gLatvecs, GridVol, Grid_Origin, Ngrid, Wannier_Orbs_Grid)
-
-    Ngrid1, Ngrid2, Ngrid3 = Ngrid
-
-    Sumx = 0.0
-    Sumy = 0.0
-    Sumz = 0.0
-    Sumr2 = 0.0
-
-    for l = 0:(2*CWF_Plot_SuperCells[1]+1)*Ngrid1-1
-        for m = 0:(2*CWF_Plot_SuperCells[2]+1)*Ngrid2-1
-            for n = 0:(2*CWF_Plot_SuperCells[3]+1)*Ngrid3-1
-                GN = l*Ngrid2*(2*CWF_Plot_SuperCells[2]+1)*Ngrid3*(2*CWF_Plot_SuperCells[3]+1) + m*Ngrid3*(2*CWF_Plot_SuperCells[3]+1) + n + 1
-            
-                GNc = GN - 1
-                temp2 = Ngrid2*(2*CWF_Plot_SuperCells[2]+1)
-                temp3 = Ngrid3*(2*CWF_Plot_SuperCells[3]+1)
-                n1 = div(GNc, temp2*temp3)
-                n2 = div(GNc - n1*temp2*temp3, temp3)
-                n3 = GNc - n1*temp2*temp3 - n2*temp3
-                x = n1*gLatvecs[1,1] + n2*gLatvecs[2,1] + n3*gLatvecs[3,1]
-                y = n1*gLatvecs[1,2] + n2*gLatvecs[2,2] + n3*gLatvecs[3,2]
-                z = n1*gLatvecs[1,3] + n2*gLatvecs[2,3] + n3*gLatvecs[3,3]
-                
-                r2 = x^2 + y^2 + z^2
-                wann = Wannier_Orbs_Grid[GN]
-                wann2 = conj(wann) * wann
+                wann2 = abs2(wann)
                 Sumx += wann2 * x
                 Sumy += wann2 * y
                 Sumz += wann2 * z
-                Sumr2 += wann2 * r2
+                Sumr2 += wann2 * (x^2 + y^2 + z^2)
             end
         end
     end
@@ -123,8 +57,8 @@ function Calc_Pos_Omega_NonCol(CWF_Plot_SuperCells, Latvecs, gLatvecs, GridVol, 
     Pos_y = Sumy*GridVol
     Pos_z = Sumz*GridVol
     Pos_r2 = Sumr2*GridVol
-
-
+ 
+ 
     return Pos_r2, Pos_x, Pos_y, Pos_z
 end
 
@@ -210,14 +144,13 @@ function Calc_WannierCenter(cwf_setup::Union{CWF_Setup,CWF_Setup_MO}, filepath::
                 end
             end
 
-            CWF_norm = check_CWF_norm_Col(CWF_Plot_SuperCells, GridVol, Ngrid, Wannier_Orbs_Grid)
-            CWF_R2, Pos_x, Pos_y, Pos_z = Calc_Pos_Omega_Col(CWF_Plot_SuperCells, Latvecs, gLatvecs, GridVol, Grid_Origin, Ngrid, Wannier_Orbs_Grid)
+            CWF_norm = check_CWF_norm(CWF_Plot_SuperCells, GridVol, Ngrid, Wannier_Orbs_Grid)
+            Pos_r2, Pos_x, Pos_y, Pos_z = Calc_Pos_Omega(CWF_Plot_SuperCells, gLatvecs, GridVol, Ngrid, Wannier_Orbs_Grid)
             
             Originx = CWF_Plot_SuperCells[1]*Latvecs[1,1] + CWF_Plot_SuperCells[2]*Latvecs[2,1] + CWF_Plot_SuperCells[3]*Latvecs[3,1] - Grid_Origin[1]
             Originy = CWF_Plot_SuperCells[1]*Latvecs[1,2] + CWF_Plot_SuperCells[2]*Latvecs[2,2] + CWF_Plot_SuperCells[3]*Latvecs[3,2] - Grid_Origin[2]
             Originz = CWF_Plot_SuperCells[1]*Latvecs[1,3] + CWF_Plot_SuperCells[2]*Latvecs[2,3] + CWF_Plot_SuperCells[3]*Latvecs[3,3] - Grid_Origin[3]
 
-            Pos_r2 = sum(CWF_R2)
             X = Pos_x - Originx
             Y = Pos_y - Originy
             Z = Pos_z - Originz
@@ -255,8 +188,8 @@ function Calc_WannierCenter(cwf_setup::Union{CWF_Setup,CWF_Setup_MO}, filepath::
                     end
                 end
 
-                CWF_norm[spin] = check_CWF_norm_NonCol(CWF_Plot_SuperCells, GridVol, Ngrid, Wannier_Orbs_Grid)
-                CWF_R2[spin], CWF_Pos[spin,1], CWF_Pos[spin,2], CWF_Pos[spin,3] = Calc_Pos_Omega_NonCol(CWF_Plot_SuperCells, Latvecs, gLatvecs, GridVol, Grid_Origin, Ngrid, Wannier_Orbs_Grid)
+                CWF_norm[spin] = check_CWF_norm(CWF_Plot_SuperCells, GridVol, Ngrid, Wannier_Orbs_Grid)
+                CWF_R2[spin], CWF_Pos[spin,1], CWF_Pos[spin,2], CWF_Pos[spin,3] = Calc_Pos_Omega(CWF_Plot_SuperCells, gLatvecs, GridVol, Ngrid, Wannier_Orbs_Grid)
             end
 
             Norm = sum(CWF_norm)            

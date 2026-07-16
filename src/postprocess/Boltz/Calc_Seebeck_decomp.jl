@@ -1,4 +1,4 @@
-function Calc_Seebeck_decomp(boltz_setup::Boltz_Setup, TDF_Energy, TDF_decomp)
+@timeit timer "Calc_Seebeck_decomp" function Calc_Seebeck_decomp(boltz_setup::Boltz_Setup, TDF_Energy, TDF_decomp)
 
     plane_type = boltz_setup.plane_type
     if plane_type

@@ -55,11 +55,12 @@ end
     fill!(Enk, 0.0)
 
     S = zeros(ComplexF64, fsize, fsize)
-    H = zeros(ComplexF64, fsize, fsize)
 
     for ik = 1:MPI_Nkpt
+        H = Cnk[1][ik]
         HS_matrix!(S, H, OLP, Hks, Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, MPI_kpts[ik])
-        Enk[:,knum+ik,1], Cnk[1][ik] = eigen(Hermitian(H), Hermitian(S))
+        decomposition = eigen!(Hermitian(H), Hermitian(S))
+        @views Enk[:,knum+ik,1] .= decomposition.values
     end
     MPI.Allreduce!(Enk, MPI.SUM, comm)
     electron.Enk = Enk
@@ -96,14 +97,21 @@ end
     fill!(Enk, 0.0)
     
 
-    S = zeros(ComplexF64, fsize, fsize)
-    H = zeros(ComplexF64, fsize, fsize)
+    S_base = zeros(ComplexF64, fsize, fsize)
+    S_work = zeros(ComplexF64, fsize, fsize)
 
     for ik = 1:MPI_Nkpt
-        HS_matrix!(S, H, OLP, Hks[1], Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, MPI_kpts[ik])
-        Enk[:,knum+ik,1], Cnk[1][ik] = eigen(Hermitian(H), Hermitian(S))
-        HS_matrix!(H, Hks[2], Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, MPI_kpts[ik])
-        Enk[:,knum+ik,2], Cnk[2][ik] = eigen(Hermitian(H), Hermitian(S))
+        H_up = Cnk[1][ik]
+        HS_matrix!(S_base, H_up, OLP, Hks[1], Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, MPI_kpts[ik])
+        copyto!(S_work, S_base)
+        decomposition_up = eigen!(Hermitian(H_up), Hermitian(S_work))
+        @views Enk[:,knum+ik,1] .= decomposition_up.values
+
+        H_dn = Cnk[2][ik]
+        HS_matrix!(H_dn, Hks[2], Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, MPI_kpts[ik])
+        copyto!(S_work, S_base)
+        decomposition_dn = eigen!(Hermitian(H_dn), Hermitian(S_work))
+        @views Enk[:,knum+ik,2] .= decomposition_dn.values
     end
     MPI.Allreduce!(Enk, MPI.SUM, comm)
     electron.Enk = Enk
@@ -141,14 +149,16 @@ end
 
     tmpH = zeros(ComplexF64, fsize, fsize)
     S = zeros(ComplexF64, 2*fsize, 2*fsize)
-    H = zeros(ComplexF64, 2*fsize, 2*fsize)
     
     for ik = 1:MPI_Nkpt
+        H = Cnk[1][ik]
         HS_matrix_NC!(H, Hks, iHNL, Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, MPI_kpts[ik])
         HS_matrix!(tmpH, OLP, Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, MPI_kpts[ik])
+        fill!(S, 0.0)
         @. @views S[1:fsize, 1:fsize] = tmpH
         @. @views S[fsize+1:end, fsize+1:end] = tmpH
-        Enk[:,knum+ik,1], Cnk[1][ik] = eigen(Hermitian(H), Hermitian(S))
+        decomposition = eigen!(Hermitian(H), Hermitian(S))
+        @views Enk[:,knum+ik,1] .= decomposition.values
     end
     MPI.Allreduce!(Enk, MPI.SUM, comm)
     electron.Enk = Enk
@@ -173,29 +183,21 @@ function Calc_fnkCnk!(electron::CrystalBloch, kpoints::KPoints)
     knum = MPkpts[myrank+1]
     
     if SpinPol == "off"
-        tmpCnk = zeros(ComplexF64, Nfsize)
         @inbounds for ik = 1:MPI_Nkpt, μ = 1:Nfsize
             F = sqrt(FF[μ,ik+knum,1]*MPI_kweight[ik])
-            @views mul!(tmpCnk, F, Cnk[1][ik][:,μ])
-            @. @views Cnk[1][ik][:,μ] = tmpCnk
+            @views rmul!(Cnk[1][ik][:,μ], F)
         end
     elseif SpinPol == "on"
-        tmpCnk_up = zeros(ComplexF64, Nfsize)
-        tmpCnk_dn = zeros(ComplexF64, Nfsize)
         @inbounds for ik = 1:MPI_Nkpt, μ = 1:Nfsize
             F_up = sqrt(FF[μ,ik+knum,1]*MPI_kweight[ik])
             F_dn = sqrt(FF[μ,ik+knum,2]*MPI_kweight[ik])
-            @views mul!(tmpCnk_up, F_up, Cnk[1][ik][:,μ])
-            @views mul!(tmpCnk_dn, F_dn, Cnk[2][ik][:,μ])
-            @. @views Cnk[1][ik][:,μ] = tmpCnk_up
-            @. @views Cnk[2][ik][:,μ] = tmpCnk_dn
+            @views rmul!(Cnk[1][ik][:,μ], F_up)
+            @views rmul!(Cnk[2][ik][:,μ], F_dn)
         end
     elseif SpinPol == "nc"
-        tmpCnk = zeros(ComplexF64, Nfsize)
         @inbounds for ik = 1:MPI_Nkpt, μ = 1:Nfsize
             F = sqrt(FF[μ,ik+knum,1]*MPI_kweight[ik])
-            @views mul!(tmpCnk, F, Cnk[1][ik][:,μ])
-            @. @views Cnk[1][ik][:,μ] = tmpCnk
+            @views rmul!(Cnk[1][ik][:,μ], F)
         end
     else
         error("please check SpinPol")
@@ -232,10 +234,12 @@ end
     Calc_fnkCnk!(electron, kpoints)
 
     fill!(DM[1], 0.0)
+    DM_dense = zeros(ComplexF64, fsize, fsize)
 
     for ik = 1:MPI_Nkpt
         ka, kb, kc = MPI_kpts[ik]
         ctemp = Cnk[1][ik]
+        mul!(DM_dense, ctemp, adjoint(ctemp))
         DMst = 0
         for atom = 1:Natom, Rn = 1:FNAN[atom]+1
 
@@ -246,20 +250,12 @@ end
             Bnum = MP[jatom]
             NO1 = Total_NumOrbs[jatom]
             kRn = ka*atv_ijk[cell][1] + kb*atv_ijk[cell][2] + kc*atv_ijk[cell][3]
-            coskRn = cos(2*pi*kRn)/AllNkpt
-            sinkRn = sin(2*pi*kRn)/AllNkpt
+            ex = cispi(2*kRn)/AllNkpt
 
-            for ist = 1:NO0, jst = 1:NO1
-                tmp_re = 0.0
-                tmp_im = 0.0
-                @inbounds for μ = 1:fsize
-                    a = ctemp[Anum+ist,μ]
-                    b = ctemp[Bnum+jst,μ]
-                    tmp_re += real(a)*real(b) + imag(a)*imag(b)
-                    tmp_im += imag(a)*real(b) - real(a)*imag(b)
-                end
+            @inbounds for ist = 1:NO0, jst = 1:NO1
                 DMst += 1
-                DM[1][DMst] += tmp_re*coskRn + tmp_im*sinkRn
+                matrix_element = DM_dense[Bnum+jst,Anum+ist]
+                DM[1][DMst] += real(matrix_element*ex)
             end
         end
     end
@@ -297,11 +293,15 @@ end
 
     fill!(DM[1], 0.0)
     fill!(DM[2], 0.0)
+    DM_dense_up = zeros(ComplexF64, fsize, fsize)
+    DM_dense_dn = zeros(ComplexF64, fsize, fsize)
 
     for ik = 1:MPI_Nkpt
         ka, kb, kc = MPI_kpts[ik]
         ctemp_up = Cnk[1][ik]
         ctemp_dn = Cnk[2][ik]
+        mul!(DM_dense_up, ctemp_up, adjoint(ctemp_up))
+        mul!(DM_dense_dn, ctemp_dn, adjoint(ctemp_dn))
         DMst = 0
         for atom = 1:Natom, Rn = 1:FNAN[atom]+1
 
@@ -314,16 +314,12 @@ end
             kRn = ka*atv_ijk[cell][1] + kb*atv_ijk[cell][2] + kc*atv_ijk[cell][3]
             ex = cispi(2*kRn)/AllNkpt
 
-            for ist = 1:NO0, jst = 1:NO1
-                tmp_up = ComplexF64(0.0, 0.0)
-                tmp_dn = ComplexF64(0.0, 0.0)
-                @inbounds for μ = 1:fsize
-                    tmp_up += conj(ctemp_up[Anum+ist,μ]) * ctemp_up[Bnum+jst,μ]
-                    tmp_dn += conj(ctemp_dn[Anum+ist,μ]) * ctemp_dn[Bnum+jst,μ]
-                end
+            @inbounds for ist = 1:NO0, jst = 1:NO1
                 DMst += 1
-                DM[1][DMst] += real(tmp_up*ex)
-                DM[2][DMst] += real(tmp_dn*ex)
+                matrix_up = DM_dense_up[Bnum+jst,Anum+ist]
+                matrix_dn = DM_dense_dn[Bnum+jst,Anum+ist]
+                DM[1][DMst] += real(matrix_up*ex)
+                DM[2][DMst] += real(matrix_dn*ex)
             end
         end
     end
@@ -366,11 +362,13 @@ end
     fill!(DM[2], 0.0)
     fill!(DM[3], 0.0)
     fill!(DM[4], 0.0)
+    DM_dense = zeros(ComplexF64, Nfsize, Nfsize)
     
 
     for ik = 1:MPI_Nkpt
         ka, kb, kc = MPI_kpts[ik]
         ctemp = Cnk[1][ik]
+        mul!(DM_dense, ctemp, adjoint(ctemp))
         DMst = 0
         for atom = 1:Natom, Rn = 1:FNAN[atom]+1
 
@@ -383,20 +381,15 @@ end
             kRn = ka*atv_ijk[cell][1] + kb*atv_ijk[cell][2] + kc*atv_ijk[cell][3]
             ex = cispi(2*kRn)/AllNkpt
 
-            for ist = 1:NO0, jst = 1:NO1
-                cc1 = ComplexF64(0.0, 0.0)
-                cc2 = ComplexF64(0.0, 0.0)
-                cc3 = ComplexF64(0.0, 0.0)
-                @inbounds for μ = 1:Nfsize
-                    cc1 += conj(ctemp[Anum+ist,μ]) * ctemp[Bnum+jst,μ]
-                    cc2 += conj(ctemp[fsize+Anum+ist,μ]) * ctemp[fsize+Bnum+jst,μ]
-                    cc3 += conj(ctemp[Anum+ist,μ]) * ctemp[fsize+Bnum+jst,μ]
-                end
+            @inbounds for ist = 1:NO0, jst = 1:NO1
                 DMst += 1
-                DM[1][DMst] += real(cc1*ex)
-                DM[2][DMst] += real(cc2*ex)
-                DM[3][DMst] += real(cc3*ex)
-                DM[4][DMst] += imag(cc3*ex)
+                matrix_uu = DM_dense[Bnum+jst,Anum+ist]
+                matrix_dd = DM_dense[fsize+Bnum+jst,fsize+Anum+ist]
+                matrix_ud = DM_dense[fsize+Bnum+jst,Anum+ist]
+                DM[1][DMst] += real(matrix_uu*ex)
+                DM[2][DMst] += real(matrix_dd*ex)
+                DM[3][DMst] += real(matrix_ud*ex)
+                DM[4][DMst] += imag(matrix_ud*ex)
             end
         end
     end
@@ -437,15 +430,18 @@ end
     MPI_Nkpt = kpoints.MPI_Nkpt
     MPI_kpts = kpoints.MPI_kpts
 
-    
-    fill!(iDM[1], 0.0)
-    fill!(iDM[2], 0.0)
 
-    
+    iDM_dense = zeros(ComplexF64, Nfsize, Nfsize)
+
+    @inbounds for atom = 1:Natom, Rn = 1:FNAN[atom]+1, ist = 1:Total_NumOrbs[atom]
+        fill!(iDM[1][atom][Rn][ist], 0.0)
+        fill!(iDM[2][atom][Rn][ist], 0.0)
+    end
+
     for ik = 1:MPI_Nkpt
         ka, kb, kc = MPI_kpts[ik]
         ctemp = Cnk[1][ik]
-        DMst = 0
+        mul!(iDM_dense, ctemp, adjoint(ctemp))
         for atom = 1:Natom, Rn = 1:FNAN[atom]+1
 
             Anum = MP[atom]
@@ -457,23 +453,21 @@ end
             kRn = ka*atv_ijk[cell][1] + kb*atv_ijk[cell][2] + kc*atv_ijk[cell][3]
             ex = cispi(2*kRn)/AllNkpt
 
-            for ist = 1:NO0, jst = 1:NO1
-                cc1 = ComplexF64(0.0, 0.0)
-                cc2 = ComplexF64(0.0, 0.0)
-                @inbounds for μ = 1:Nfsize
-                    cc1 += conj(ctemp[Anum+ist,μ]) * ctemp[Bnum+jst,μ]
-                    cc2 += conj(ctemp[fsize+Anum+ist,μ]) * ctemp[fsize+Bnum+jst,μ]
-                end
-                DMst += 1
-                iDM[1][DMst] += imag(cc1*ex)
-                iDM[2][DMst] += imag(cc2*ex)
+            iDM1 = iDM[1][atom][Rn]
+            iDM2 = iDM[2][atom][Rn]
+            @inbounds for ist = 1:NO0, jst = 1:NO1
+                matrix_uu = iDM_dense[Bnum+jst,Anum+ist]
+                matrix_dd = iDM_dense[fsize+Bnum+jst,fsize+Anum+ist]
+                iDM1[ist][jst] += imag(matrix_uu*ex)
+                iDM2[ist][jst] += imag(matrix_dd*ex)
             end
         end
     end
 
-
-    MPI.Allreduce!(iDM[1], MPI.SUM, comm)
-    MPI.Allreduce!(iDM[2], MPI.SUM, comm)
+    @inbounds for atom = 1:Natom, Rn = 1:FNAN[atom]+1, ist = 1:Total_NumOrbs[atom]
+        MPI.Allreduce!(iDM[1][atom][Rn][ist], MPI.SUM, comm)
+        MPI.Allreduce!(iDM[2][atom][Rn][ist], MPI.SUM, comm)
+    end
 end
 
 
@@ -530,11 +524,15 @@ function Calc_EDM_Collinear_nonpol!(EDM, electron::CrystalBloch, kpoints::KPoint
     MPI_kpts = kpoints.MPI_kpts
     MPkpts = kpoints.MPkpts
     knum = MPkpts[myrank+1]
+    weighted_C = zeros(ComplexF64, fsize, fsize)
+    EDM_dense = zeros(ComplexF64, fsize, fsize)
 
     
     for ik = 1:MPI_Nkpt
         ka, kb, kc = MPI_kpts[ik]
         ctemp = Cnk[1][ik]
+        @views weighted_C .= ctemp .* transpose(Enk[:,ik+knum,1])
+        mul!(EDM_dense, weighted_C, adjoint(ctemp))
         hst = 0
         for atom = 1:Natom, Rn = 1:FNAN[atom]+1
 
@@ -547,13 +545,10 @@ function Calc_EDM_Collinear_nonpol!(EDM, electron::CrystalBloch, kpoints::KPoint
             kRn = ka*atv_ijk[cell][1] + kb*atv_ijk[cell][2] + kc*atv_ijk[cell][3]
             ex = cispi(2*kRn)/AllNkpt
             
-            for ist = 1:NO0, jst = 1:NO1
-                cc1 = ComplexF64(0.0, 0.0)
-                @inbounds for μ = 1:fsize
-                    cc1 += conj(ctemp[Anum+ist,μ])*ctemp[Bnum+jst,μ]*Enk[μ,ik+knum,1]
-                end
+            @inbounds for ist = 1:NO0, jst = 1:NO1
                 hst += 1
-                EDM[1][hst] += real(cc1*ex)
+                matrix_element = EDM_dense[Bnum+jst,Anum+ist]
+                EDM[1][hst] += real(matrix_element*ex)
             end
         end
     end
@@ -584,11 +579,19 @@ function Calc_EDM_Collinear_pol!(EDM, electron::CrystalBloch, kpoints::KPoints, 
     MPI_kpts = kpoints.MPI_kpts
     MPkpts = kpoints.MPkpts
     knum = MPkpts[myrank+1]
+    weighted_C_up = zeros(ComplexF64, fsize, fsize)
+    weighted_C_dn = zeros(ComplexF64, fsize, fsize)
+    EDM_dense_up = zeros(ComplexF64, fsize, fsize)
+    EDM_dense_dn = zeros(ComplexF64, fsize, fsize)
 
     for ik = 1:MPI_Nkpt
         ka, kb, kc = MPI_kpts[ik]
         ctemp_up = Cnk[1][ik]
         ctemp_dn = Cnk[2][ik]
+        @views weighted_C_up .= ctemp_up .* transpose(Enk[:,ik+knum,1])
+        @views weighted_C_dn .= ctemp_dn .* transpose(Enk[:,ik+knum,2])
+        mul!(EDM_dense_up, weighted_C_up, adjoint(ctemp_up))
+        mul!(EDM_dense_dn, weighted_C_dn, adjoint(ctemp_dn))
         hst = 0
         for atom = 1:Natom, Rn = 1:FNAN[atom]+1
 
@@ -601,16 +604,12 @@ function Calc_EDM_Collinear_pol!(EDM, electron::CrystalBloch, kpoints::KPoints, 
             kRn = ka*atv_ijk[cell][1] + kb*atv_ijk[cell][2] + kc*atv_ijk[cell][3]
             ex = cispi(2*kRn)/AllNkpt
             
-            for ist = 1:NO0, jst = 1:NO1
-                cc_up = ComplexF64(0.0, 0.0)
-                cc_dn = ComplexF64(0.0, 0.0)
-                @inbounds for μ = 1:fsize
-                    cc_up += conj(ctemp_up[Anum+ist,μ])*ctemp_up[Bnum+jst,μ]*Enk[μ,ik+knum,1]
-                    cc_dn += conj(ctemp_dn[Anum+ist,μ])*ctemp_dn[Bnum+jst,μ]*Enk[μ,ik+knum,2]
-                end
+            @inbounds for ist = 1:NO0, jst = 1:NO1
                 hst += 1
-                EDM[1][hst] += real(cc_up*ex)
-                EDM[2][hst] += real(cc_dn*ex)
+                matrix_up = EDM_dense_up[Bnum+jst,Anum+ist]
+                matrix_dn = EDM_dense_dn[Bnum+jst,Anum+ist]
+                EDM[1][hst] += real(matrix_up*ex)
+                EDM[2][hst] += real(matrix_dn*ex)
             end
         end
     end
@@ -643,11 +642,15 @@ function Calc_EDM_NonCollinear!(EDM, electron::CrystalBloch, kpoints::KPoints, s
     MPI_kpts = kpoints.MPI_kpts
     MPkpts = kpoints.MPkpts
     knum = MPkpts[myrank+1]
+    weighted_C = zeros(ComplexF64, Nfsize, Nfsize)
+    EDM_dense = zeros(ComplexF64, Nfsize, Nfsize)
     
     
     for ik = 1:MPI_Nkpt
         ka, kb, kc = MPI_kpts[ik]
         ctemp = Cnk[1][ik]
+        @views weighted_C .= ctemp .* transpose(Enk[:,ik+knum,1])
+        mul!(EDM_dense, weighted_C, adjoint(ctemp))
         hst = 0
         for atom = 1:Natom, Rn = 1:FNAN[atom]+1
 
@@ -660,16 +663,12 @@ function Calc_EDM_NonCollinear!(EDM, electron::CrystalBloch, kpoints::KPoints, s
             kRn = ka*atv_ijk[cell][1] + kb*atv_ijk[cell][2] + kc*atv_ijk[cell][3]
             ex = cispi(2*kRn)/AllNkpt
 
-            for ist = 1:NO0, jst = 1:NO1
-                cc1 = ComplexF64(0.0, 0.0)
-                cc2 = ComplexF64(0.0, 0.0)
-                @inbounds for μ = 1:Nfsize
-                    cc1 += conj(ctemp[Anum+ist,μ]) * ctemp[Bnum+jst,μ] * Enk[μ,ik+knum,1]
-                    cc2 += conj(ctemp[fsize+Anum+ist,μ]) * ctemp[fsize+Bnum+jst,μ] * Enk[μ,ik+knum,1]
-                end
+            @inbounds for ist = 1:NO0, jst = 1:NO1
                 hst += 1
-                EDM[1][hst] += real(cc1*ex)
-                EDM[2][hst] += real(cc2*ex)
+                matrix_uu = EDM_dense[Bnum+jst,Anum+ist]
+                matrix_dd = EDM_dense[fsize+Bnum+jst,fsize+Anum+ist]
+                EDM[1][hst] += real(matrix_uu*ex)
+                EDM[2][hst] += real(matrix_dd*ex)
             end
         end
     end

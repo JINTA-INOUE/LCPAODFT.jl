@@ -10,7 +10,7 @@
     Nfsize = ifelse(SpinPol=="nc", 2*fsize, fsize)
 
     if type == 1
-        Enk = zeros(Float64, spinsize, Nfsize, MPI_Nkpt)
+        Enk = zeros(Float64, Nfsize, MPI_Nkpt, spinsize)
     elseif type == 2
         Enk = Vector{Vector{Vector{Float64}}}(undef, spinsize)
         for spin = 1:spinsize
@@ -77,10 +77,11 @@ function Calc_Enk_Cnk!(
 
     if SpinPol ∈ ("off", "on")
         S = zeros(ComplexF64, fsize, fsize)
-        H = zeros(ComplexF64, fsize, fsize)
         @inbounds for spin = 1:spinsize, ik = 1:MPI_Nkpt
+            H = Cnk[spin][ik]
             HS_matrix!(S, H, OLP, Hks[spin], Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, MPI_kpts[ik])
-            Enk[spin,:,ik], Cnk[spin][ik] = eigen(Hermitian(H), Hermitian(S))
+            decomposition = eigen!(Hermitian(H), Hermitian(S))
+            @views Enk[:,knum+ik,1] .= decomposition.values
         end
     elseif SpinPol == "nc"
         tmpH = zeros(ComplexF64, fsize, fsize)
@@ -259,15 +260,15 @@ function Calc_Enk_Cnk!(
     NCell = material.NCell
     cell_list_ijk = material.cell_list_ijk
     HmnR = material.HmnR
-    Nkpt = kpoints.MPI_Nkpt
-    kpts = kpoints.MPI_kpts
+    MPI_Nkpt = kpoints.MPI_Nkpt
+    MPI_kpts = kpoints.MPI_kpts
     spinsize = ifelse(SpinPol=="on", 2, 1)
 
 
     H = zeros(ComplexF64, Nwann, Nwann)
 
-    for spin = 1:spinsize, ik = 1:Nkpt
-        k1, k2, k3 = kpts[ik]
+    for spin = 1:spinsize, ik = 1:MPI_Nkpt
+        k1, k2, k3 = MPI_kpts[ik]
         fill!(H, 0.0)
         for cell = 1:NCell
             kRn = k1*cell_list_ijk[cell][1] + k2*cell_list_ijk[cell][2] + k3*cell_list_ijk[cell][3]
@@ -278,7 +279,7 @@ function Calc_Enk_Cnk!(
             end
         end
 
-        Enk[1,:,ik], Cnk[spin][ik] = eigen(Hermitian(H))
+        Enk[:,ik,1], Cnk[spin][ik] = eigen(Hermitian(H))
     end
 end
 

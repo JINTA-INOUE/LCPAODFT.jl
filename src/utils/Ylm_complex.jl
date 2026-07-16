@@ -1,3 +1,14 @@
+function Set_SqrtFactorial_Ratio!(ratios::Matrix{Float64})
+    nrow, ncol = size(ratios)
+    nmax = max(nrow, ncol)
+    sqrt_factorials = [sqrt(factorial(big(i))) for i = 0:nmax-1]
+    @inbounds for i = 1:nrow, j = 1:ncol
+        ratios[i,j] = sqrt_factorials[i] / sqrt_factorials[j]
+    end
+    return ratios
+end
+
+
 function Ylm_table(l::Int, m::Int, theta, phi)
 
     if l < abs(m)

@@ -5,12 +5,14 @@ using Bessels: besselj
 using FFTW
 using JLD2
 using TimerOutputs
-using PrecompileTools
-using Printf
+using Spglib
+using StaticArrays
 using JSON
 using SMTPClient
+using Printf
 using Dates
 using MPI
+using PrecompileTools
 
 
 const Ang_to_bohr = 1.8897259886
@@ -99,6 +101,10 @@ export split_evenly
 include("DFT_Options.jl")
 export default_DFT_Options
 export DFT_Options
+
+
+include("Symmetry/Calc_Symmetry.jl")
+export Get_Symmetry_Spglib
 
 
 include("Atoms/Atom_Data.jl")
@@ -206,7 +212,16 @@ include("Poisson.jl")
 export Solve_Poisson!
 
 
+include("Cluster_DFT.jl")
 include("Crystal_DFT.jl")
+export Cluster_DFT!
+export Cluster_DFT_Collinear_nonpol!
+export Cluster_DFT_Collinear_pol!
+export Cluster_DFT_NonCollinear!
+export Calc_DM_Cluster_Collinear_nopol!
+export Calc_DM_Cluster_Collinear_pol!
+export Calc_DM_Cluster_NonCollinear!
+export Calc_iDM_Cluster_NonCollinear!
 export Crystal_DFT!
 export Crystal_DFT_Collinear_nonpol!
 export Crystal_DFT_Collinear_pol!
@@ -260,7 +275,7 @@ include("utils/Calc_ChemP.jl")
 include("utils/Calc_Band_Energy.jl")
 include("utils/Convert_Matrix.jl")
 include("utils/wrappers_fft.jl")
-include("utils/Calc_dipole_memont.jl")
+include("utils/Calc_dipole_moment.jl")
 include("utils/Mulliken_Charge.jl")
 include("utils/Set_Lebedev_Grid.jl")
 include("utils/Read_restartFile.jl")
@@ -335,19 +350,11 @@ export Read_restartFile!
 
 include("Matrix/Set_dOrbitals_Grid.jl")
 include("Matrix/Set_OLP_Kinforce.jl")
-include("Matrix/Set_NLPforce.jl")
-include("Matrix/Set_DS_VNAforce.jl")
 include("Force.jl")
 export Set_dOrbitals_Grid
 export Set_dOrbitals_Grid!
 export Set_OLP_Kinforce
 export Set_OLP_Kinforce!
-export Set_NLPforce
-export Set_NLPforce!
-export Set_DS_VNAforce
-export Set_DS_VNAforce!
-export Set_HVNA2_3force
-export Set_HVNA2_3force!
 export PCC_Force
 export Kinetic_Force
 export Force3_nospin
@@ -433,24 +440,23 @@ include("postprocess/CWF/Generate_Amnk.jl")
 include("postprocess/CWF/Generate_Mmnkb.jl")
 include("postprocess/CWF/Generate_eig.jl")
 include("postprocess/CWF/Write_win.jl")
+include("postprocess/CWF/Write_HmnR_vs_R.jl")
 include("postprocess/CWF/CWF2Wannier90.jl")
 include("postprocess/CWF/Generate_CWF.jl")
 export CWF_Setup
 export Calc_WannierCenter
+export Write_HmnR_vs_R
 export Generate_CWF
 export CWF_model
 
 
 # For Maximally localized Wannier functions
-# include("postprocess/MLWF/MLWF_Setup.jl")
-# include("postprocess/MLWF/MLWF_model.jl")
-# include("postprocess/MLWF/MLWF_utils.jl")
-# include("postprocess/MLWF/Set_MLWF_ExpnCoef.jl")
-# include("postprocess/MLWF/Set_MLWF_Grid.jl")
-# include("postprocess/MLWF/Generate_MLWF.jl")
-# include("postprocess/MLWF/Write_MLWF_Band.jl")
-# export Generate_MLWF
-# export MLWF_model
+include("postprocess/MLWF/MLWF_Setup.jl")
+include("postprocess/MLWF/MLWF_utils.jl")
+include("postprocess/MLWF/Set_OLP_WP.jl")
+include("postprocess/MLWF/Generate_MLWF.jl")
+export MLWF_Setup
+export Generate_MLWF
 
 
 # For Hybrid Wannier functions
@@ -515,6 +521,8 @@ include("utils/sending_mail.jl")
 @setup_workload begin
 
     println("Now Precompilation using PrecompileTools.jl")
+
+    # For DFT
     Latvecs = [4.00  4.00  0.00;
                4.00  0.00  4.00;
                0.00  4.00  4.00]*"Ang"
@@ -525,22 +533,68 @@ include("utils/sending_mail.jl")
     system = "Crystal"
     SCF_max = 3
     xc_type = "GGA-PBE"
-    kmesh = (3,3,3)
+    DFT_kmesh = (3,3,3)
     SpinPol = "nc"
     SO_switch = true
     fileout = false
     verbosity = 1
 
+
+    # For Band
+    jld2_File_path = joinpath(home_path, ".julia", "dev", "LCPAODFT", "")
+    filepath = jld2_File_path*"precompile_jld.jld2"
+    kpath = [[0.0,0.0,0.0], [0.5,0.5,0.0]]
+    kname = ["G", "X"]
+
+    # For Cube
+    Cube_Ecut = 1.0
+    mode = ["rho"]
+
+    # For Dos
+    kmesh = (1,1,1)
+    Erange = [-1.0,1.0]
+    mode = "all"
+
+    # For CWF
+    Guide_index = [[1]]
+    Dis_Energy = [-10.0, -10.0, 10.0, 10.0]
+    kmesh = (1,1,1)
+    Ecut = 1.0
+    weight_type = "Poly"
+    filename = "precompile_AO_Poly"
+    CWF_HmnR = true
+    CWF_Wannier = true
+    CWF2MLWF = true
+    CWF_Plot_Cube = [1]
+    CWF_Plot_SuperCells = [0,0,0]
+
+    # For Boltz
+    TDF_Erange = [-1.0, 1.0]      # eV unit
+    kmesh = (1,1,1)
+    Temp = 300.0
+    decomp = false
+
+
     @compile_workload begin
 
+        println("Precompile DFT ...")
         dft_setup = DFT_Setup(Latvecs, atomorb, atomsymbol, atompos, system; 
-                              Ecut, SCF_max, xc_type, kmesh, fileout, verbosity)
+                              Ecut, SCF_max, xc_type, kmesh=DFT_kmesh, fileout, verbosity)
         DFT(dft_setup)
 
-        #=
-        dft_setup = DFT_Setup(Latvecs, atomorb, atomsymbol, atompos, system; 
-                              Ecut, SpinPol, SO_switch, SCF_max, xc_type, kmesh, fileout, verbosity)
-        DFT(dft_setup) =#    
+        println("Precompile Band_kpath ...")
+        Band_kpath(filepath, kpath, kname)
+
+        println("Precompile Dos ...")
+        DosMain(filepath, kmesh, Erange; mode)
+
+        println("Precompile CWF ...")
+        cwf_setup = CWF_Setup(filepath, Guide_index, Dis_Energy; CWF_HmnR, CWF_Wannier, CWF2MLWF, CWF_Plot_Cube, CWF_Plot_SuperCells, filename, weight_type, Ecut, kmesh)
+        Generate_CWF(cwf_setup)
+        
+        println("Precompile Boltz ...")
+        boltz_setup = Boltz_Setup(filepath, kmesh, TDF_Erange, Temp; decomp)
+        Calc_Boltz(boltz_setup)
     end
 end
 

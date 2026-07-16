@@ -1,4 +1,4 @@
-function Calc_TDF(boltz_setup::Boltz_Setup, Enk, Vnk)
+@timeit timer "Calc_TDF" function Calc_TDF(boltz_setup::Boltz_Setup, Enk, Vnk)
     
     material = boltz_setup.material
     SpinPol = material.SpinPol
@@ -51,20 +51,6 @@ function Calc_TDF(boltz_setup::Boltz_Setup, Enk, Vnk)
 
 
     return TDF_Energy, TDF
-end
-
-
-function Set_Nstate(material::LCPAO_model)
-    SpinPol = material.SpinPol
-    fsize = sum(material.Total_NumOrbs)
-    Nfsize = ifelse(SpinPol=="nc", 2*fsize, fsize)
-    return Nfsize
-end
-
-
-function Set_Nstate(material::CWF_model)
-    Ngsize = material.Ngsize
-    return Ngsize
 end
 
 

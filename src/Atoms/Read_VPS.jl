@@ -18,6 +18,8 @@ struct Pspot
     psfile::String
 end
 
+const PSPOT_CACHE = Dict{Tuple{String,String,String,Bool},Pspot}()
+
 
 function Print_Pspot(pspot::Pspot)
 
@@ -305,14 +307,22 @@ julia> Read_VPS("Fe", "S", "LDA", false)
     nprocs = MPI.Comm_size(comm)
     myrank = MPI.Comm_rank(comm)
 
+    cache_key = (Atom_symbol, Atom_extra, xc_type, SO_switch)
+    if haskey(PSPOT_CACHE, cache_key)
+        pspot = PSPOT_CACHE[cache_key]
+        if myrank == 0 && verbosity >= 1
+            Print_Pspot(pspot)
+        end
+        return pspot
+    end
+
     filename = Atom_symbol*"_"
     if xc_type ∈ ["LDA", "LSDA"]
         filename = filename*"CA19"*Atom_extra*".vps"
-    elseif xc_type ∈ ["GGA_PBE"]
+    elseif xc_type ∈ ["GGA_PBE", "GGA-PBE"]
         filename = filename*"PBE19"*Atom_extra*".vps"
     else
-        println("xc_type is $xc_type")
-        error("please check")
+        error("xc_type is $xc_type. please check")
     end
 
 
@@ -355,5 +365,6 @@ julia> Read_VPS("Fe", "S", "LDA", false)
     end
             
                 
+    PSPOT_CACHE[cache_key] = pspot
     return pspot
 end

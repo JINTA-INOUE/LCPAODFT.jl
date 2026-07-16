@@ -17,6 +17,8 @@ struct PAO
     paofile::String
 end
 
+const PAO_CACHE = Dict{Tuple{Float64,String,Float64,String,String},PAO}()
+
 
 function Print_PAO(pao::PAO)
 
@@ -254,6 +256,15 @@ julia> Read_PAO(4.0, "C", 5.0, "s2p2d1", "")
     comm = MPI.COMM_WORLD
     nprocs = MPI.Comm_size(comm)
     myrank = MPI.Comm_rank(comm)
+
+    cache_key = (Float64(Spe_Core_Charge), Atom_symbol, Atom_cutoff, Atom_orb, Atom_extra)
+    if haskey(PAO_CACHE, cache_key)
+        pao = PAO_CACHE[cache_key]
+        if myrank == 0 && verbosity >= 1
+            Print_PAO(pao)
+        end
+        return pao
+    end
     
 
     PAO_Name = Atom_symbol*string(Atom_cutoff)*Atom_extra
@@ -315,5 +326,6 @@ julia> Read_PAO(4.0, "C", 5.0, "s2p2d1", "")
         Print_PAO(pao)
     end
 
+    PAO_CACHE[cache_key] = pao
     return pao
 end

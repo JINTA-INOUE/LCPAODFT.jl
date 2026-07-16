@@ -1,4 +1,4 @@
-@timeit timer "Set_CWF_Grid" function Set_CWF_Grid(CWF_ExpnCoef, Orbs_Grid, ucell::UCell, cwf_setup::Union{CWF_Setup,CWF_Setup_MO})
+@timeit timer "Set_CWF_Grid" function Set_CWF_Grid(cwf_setup::Union{CWF_Setup,CWF_Setup_MO}, CWF_ExpnCoef)
 
     comm = MPI.COMM_WORLD
     nprocs = MPI.Comm_size(comm)
@@ -6,6 +6,29 @@
 
     material = cwf_setup.material
     SpinPol = material.SpinPol
+    Latvecs = material.Latvecs
+    Natom = material.Natom
+    Nspecies = material.Nspecies
+    atom2spe = material.atom2spe
+    Gxyz = material.Gxyz
+    Atoms_pao = material.Atoms_pao
+    Total_NumOrbs = material.Total_NumOrbs
+    Ecut = cwf_setup.Ecut
+    Ngrid = Calc_Ngrid(Ecut, Latvecs)
+    Atoms_Cut1 = material.Atoms_Cut1
+    Grid_Origin = material.Grid_Origin
+
+    Spe_symbol, Spe_cutoff, Spe_orb, Spe_extra = Get_Atoms_data(Atoms_pao)
+
+
+    pao = Vector{PAO}(undef, Nspecies)
+    for spe = 1:Nspecies
+        pao[spe] = Read_PAO(0.0, Spe_symbol[spe], Spe_cutoff[spe], Spe_orb[spe], Spe_extra[spe])
+    end
+        
+    ucell = UCell(Latvecs, Natom, atom2spe, Gxyz, Atoms_Cut1, Ngrid, Grid_Origin; Total_NumOrbs)
+    Orbs_Grid = Set_Orbitals_Grid(pao, ucell)
+
 
 
     if SpinPol ∈ ("off", "on")
@@ -109,7 +132,8 @@ function Set_CWF_Grid_NonCol(cwf_setup::Union{CWF_Setup,CWF_Setup_MO}, ucell::UC
     Natom = material.Natom
     MP = material.MP
     Total_NumOrbs = material.Total_NumOrbs
-    Nfsize = 2*sum(Total_NumOrbs)
+    fsize = sum(Total_NumOrbs)
+    Nfsize = 2*fsize
     Atoms_symbol = material.Atoms_symbol
     Gxyz_scf = material.Gxyz
     

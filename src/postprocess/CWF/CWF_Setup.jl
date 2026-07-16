@@ -99,9 +99,9 @@ function Print_CWF_Setup(cwf_setup::CWF_Setup)
     println("\tCalc HmnR: $(CWF_HmnR)")
     println("\tWrite CWF Cube: $(CWF_Wannier)")
     if CWF_Wannier
-        println("\tCWF real space energy cutoff[Ry]: $(Ecut)")
-        println("\tCWF_Plot_Cube: $(CWF_Plot_Cube)")
-        println("\tCWF_Plot_SuperCells: $(CWF_Plot_SuperCells)")
+        println("\t\tCWF real space energy cutoff[Ry]: $(Ecut)")
+        println("\t\tCWF_Plot_Cube: $(CWF_Plot_Cube)")
+        println("\t\tCWF_Plot_SuperCells: $(CWF_Plot_SuperCells)")
     end
     println("\tCWF_SOC: $(CWF_SOC)")
     println("\tCWF2MLWF: $(CWF2MLWF)")
@@ -143,9 +143,9 @@ function Print_CWF_Setup(cwf_setup::CWF_Setup_MO)
     println("\tCalc HmnR: $(CWF_HmnR)")
     println("\tWrite CWF Cube: $(CWF_Wannier)")
     if CWF_Wannier
-        println("\tCWF real space energy cutoff[Ry]: $(Ecut)")
-        println("\tCWF_Plot_Cube: $(CWF_Plot_Cube)")
-        println("\tCWF_Plot_SuperCells: $(CWF_Plot_SuperCells)")
+        println("\t\tCWF real space energy cutoff[Ry]: $(Ecut)")
+        println("\t\tCWF_Plot_Cube: $(CWF_Plot_Cube)")
+        println("\t\tCWF_Plot_SuperCells: $(CWF_Plot_SuperCells)")
     end
     println("\tCWF_SOC: $(CWF_SOC)")
     println("\tCWF2MLWF: $(CWF2MLWF)")
@@ -480,6 +480,7 @@ function CWF_Setup(
 
     filepath = pwd()*"/"*filepath
     Natom = material.Natom
+    Latvecs = material.Latvecs
     Total_NumOrbs = material.Total_NumOrbs
     SpinPol = material.SpinPol
 

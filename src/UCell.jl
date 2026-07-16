@@ -54,13 +54,13 @@ function split_system_grid(Natom, FNAN, natn, ncn, Dis, RMI, Total_NumOrbs)
     OneD2natn = zeros(Int32, Nloop)
     OneD2ncn = zeros(Int32, Nloop)
 
-    count = 1
+    counts = 1
     for atom = 1:Natom, Rn = 1:FNAN[atom]+1
-        OneD2atom[count] = atom
-        OneD2FNAN[count] = Rn
-        OneD2natn[count] = natn[atom][Rn]
-        OneD2ncn[count] = ncn[atom][Rn]
-        count += 1
+        OneD2atom[counts] = atom
+        OneD2FNAN[counts] = Rn
+        OneD2natn[counts] = natn[atom][Rn]
+        OneD2ncn[counts] = ncn[atom][Rn]
+        counts += 1
     end
 
 

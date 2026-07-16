@@ -69,33 +69,12 @@ function Generate_CWF(cwf_setup::CWF_Setup)
 
     if CWF_Wannier || write_coef
 
-        Latvecs = material.Latvecs
-        Natom = material.Natom
-        Nspecies = material.Nspecies
-        atom2spe = material.atom2spe
-        Gxyz = material.Gxyz
-        Atoms_pao = material.Atoms_pao
-        Total_NumOrbs = material.Total_NumOrbs
-        Ecut = cwf_setup.Ecut
-        Ngrid = Calc_Ngrid(Ecut, Latvecs)
-        Atoms_Cut1 = material.Atoms_Cut1
-        Grid_Origin = material.Grid_Origin
-
-        Spe_symbol, Spe_cutoff, Spe_orb, Spe_extra = Get_Atoms_data(Atoms_pao)
-
-
-        pao = Vector{PAO}(undef, Nspecies)
-        for spe = 1:Nspecies
-            pao[spe] = Read_PAO(0.0, Spe_symbol[spe], Spe_cutoff[spe], Spe_orb[spe], Spe_extra[spe])
-        end
-        
-        ucell = UCell(Latvecs, Natom, atom2spe, Gxyz, Atoms_Cut1, Ngrid, Grid_Origin; Total_NumOrbs)
-        Orbs_Grid = Set_Orbitals_Grid(pao, ucell)
-
+        myrank == 0 && println("<Set_CWF_ExpnCoef>")
         CWF_ExpnCoef = Set_CWF_ExpnCoef(cwf_setup, kpoints, MinN, MaxN, Cnk, Umnk)
             
         if CWF_Wannier
-            Set_CWF_Grid(CWF_ExpnCoef, Orbs_Grid, ucell, cwf_setup)
+            myrank == 0 && println("<Set_CWF_Grid>")
+            Set_CWF_Grid(cwf_setup, CWF_ExpnCoef)
         end
     end
 
@@ -115,28 +94,12 @@ function Generate_CWF(cwf_setup::CWF_Setup)
     end
 
 
-    if CWF_SOC
-        myrank == 0 && println("<Calc_HmnR>")
-        NCell, cell_list, cell_list_ijk = Get_cell_list(kmesh)
-        HmnR = zeros(ComplexF64, Ngsize, Ngsize, NCell, spinsize)
-        Calc_HmnR!(HmnR, spinsize, MinN, MaxN, NCell, Ngsize, cell_list_ijk, Umnk, Enk, kpoints)
-
-        myrank == 0 && println("<Calc_CWF_SOC_Strength>")
-        Wannier_SOC = Calc_CWF_SOC_Strength(cwf_setup, kpoints, MinN, MaxN, Umnk, Cnk)
-
-        myrank == 0 && println("<Write_CWF_HmnR>")
-        myrank == 0 && Write_CWF_HmnR(cwf_setup, DMfunc, NCell, cell_list, cell_list_ijk, HmnR, Wannier_SOC)
-        MPI.Barrier(comm)
-    end
-    
-
-
 
     if verbose>=1 && myrank==0
         println("")
         @show LCPAODFT.timer
     end
-    MPI.Barrier(comm)
+    MPI.Finalized()
 end
 
 
@@ -255,34 +218,12 @@ function Generate_CWF(cwf_setup::CWF_Setup_MO)
 
     if CWF_Wannier || write_coef
 
-        Latvecs = material.Latvecs
-        Natom = material.Natom
-        Nspecies = material.Nspecies
-        atom2spe = material.atom2spe
-        Gxyz = material.Gxyz
-        Atoms_pao = material.Atoms_pao
-        Total_NumOrbs = material.Total_NumOrbs
-        Ecut = cwf_setup.Ecut
-        Ngrid = Calc_Ngrid(Ecut, Latvecs)
-        Atoms_Cut1 = material.Atoms_Cut1
-        Grid_Origin = material.Grid_Origin
-
-        Spe_symbol, Spe_cutoff, Spe_orb, Spe_extra = Get_Atoms_data(Atoms_pao)
-
-
-        pao = Vector{PAO}(undef, Nspecies)
-        for spe = 1:Nspecies
-            pao[spe] = Read_PAO(0.0, Spe_symbol[spe], Spe_cutoff[spe], Spe_orb[spe], Spe_extra[spe])
-        end
-        
-    
-        ucell = UCell(Latvecs, Natom, atom2spe, Gxyz, Atoms_Cut1, Ngrid, Grid_Origin; Total_NumOrbs)
-        Orbs_Grid = Set_Orbitals_Grid(pao, ucell)
-
+        myrank == 0 && println("<Set_CWF_ExpnCoef>")
         CWF_ExpnCoef = Set_CWF_ExpnCoef(cwf_setup, kpoints, MinN, MaxN, Cnk, Umnk)
-         
+            
         if CWF_Wannier
-            Set_CWF_Grid(CWF_ExpnCoef, Orbs_Grid, ucell, cwf_setup)
+            myrank == 0 && println("<Set_CWF_Grid>")
+            Set_CWF_Grid(cwf_setup, CWF_ExpnCoef)
         end
     end 
 
@@ -307,5 +248,5 @@ function Generate_CWF(cwf_setup::CWF_Setup_MO)
         println("")
         @show LCPAODFT.timer
     end
-    MPI.Barrier(comm)
+    MPI.Finalized()
 end

@@ -24,14 +24,15 @@
     end
 
 
-    cartesian_cell = zeros(Float64, 3, NCell)
+    cartesian_cell = Vector{Vector{Float64}}(undef, NCell)
     for cell = 1:NCell
-        cartesian_cell[1,cell] = Latvecs[1,1]*cell_list_ijk[cell][1] + Latvecs[2,1]*cell_list_ijk[cell][2] + Latvecs[3,1]*cell_list_ijk[cell][3]
-        cartesian_cell[2,cell] = Latvecs[1,2]*cell_list_ijk[cell][1] + Latvecs[2,2]*cell_list_ijk[cell][2] + Latvecs[3,2]*cell_list_ijk[cell][3]
-        cartesian_cell[3,cell] = Latvecs[1,3]*cell_list_ijk[cell][1] + Latvecs[2,3]*cell_list_ijk[cell][2] + Latvecs[3,3]*cell_list_ijk[cell][3]
-        cartesian_cell[1,cell] = cartesian_cell[1,cell]/Ang_to_bohr
-        cartesian_cell[2,cell] = cartesian_cell[2,cell]/Ang_to_bohr
-        cartesian_cell[3,cell] = cartesian_cell[3,cell]/Ang_to_bohr
+        cartesian_cell[cell] = zeros(Float64, 3)
+        cartesian_cell[cell][1] = Latvecs[1,1]*cell_list_ijk[cell][1] + Latvecs[2,1]*cell_list_ijk[cell][2] + Latvecs[3,1]*cell_list_ijk[cell][3]
+        cartesian_cell[cell][2] = Latvecs[1,2]*cell_list_ijk[cell][1] + Latvecs[2,2]*cell_list_ijk[cell][2] + Latvecs[3,2]*cell_list_ijk[cell][3]
+        cartesian_cell[cell][3] = Latvecs[1,3]*cell_list_ijk[cell][1] + Latvecs[2,3]*cell_list_ijk[cell][2] + Latvecs[3,3]*cell_list_ijk[cell][3]
+        cartesian_cell[cell][1] = cartesian_cell[cell][1]/Ang_to_bohr
+        cartesian_cell[cell][2] = cartesian_cell[cell][2]/Ang_to_bohr
+        cartesian_cell[cell][3] = cartesian_cell[cell][3]/Ang_to_bohr
     end
 
 
@@ -84,9 +85,9 @@
             kRn = dot(kpts[k], cell_list_ijk[cell])
             phase = cispi(2*kRn)
 
-            tmpx = -im*cartesian_cell[1,cell]
-            tmpy = -im*cartesian_cell[2,cell]
-            tmpz = -im*cartesian_cell[3,cell]
+            tmpx = -im*cartesian_cell[cell][1]
+            tmpy = -im*cartesian_cell[cell][2]
+            tmpz = -im*cartesian_cell[cell][3]
 
             @inbounds for ist = 1:Nwann, jst = 1:Nwann
                 Hmnk_x[ist,jst] += HmnR[jst,ist,cell,spin] * phase * tmpx
@@ -119,7 +120,7 @@
 end
 
 
-@inline @timeit timer "HS_matrix_iR!" function HS_matrix_iR!(Sx, Sy, Sz, Hx, Hy, Hz, OLP, Hks, Natom, FNAN, natn, ncn, atv_ijk, Total_NumOrbs, MP, kpts::Vector{Float64}, Rvec)
+@inline @timeit timer "HS_matrix_iR!" function HS_matrix_iR_Vnk!(Sx, Sy, Sz, Hx, Hy, Hz, OLP, Hks, Natom, FNAN, natn, ncn, atv_ijk, Total_NumOrbs, MP, kpts::Vector{Float64}, Rvec)
     ka, kb, kc = kpts
     fill!(Sx, 0.0)
     fill!(Hx, 0.0)
@@ -135,9 +136,9 @@ end
         Anum = MP[atom]
         Bnum = MP[jatom]
         kRn = ka*atv_ijk[cell][1] + kb*atv_ijk[cell][2] + kc*atv_ijk[cell][3]
-        phase_x = cispi(2*kRn)*Rvec[1,cell]*im
-        phase_y = cispi(2*kRn)*Rvec[2,cell]*im
-        phase_z = cispi(2*kRn)*Rvec[3,cell]*im
+        phase_x = cispi(2*kRn)*Rvec[cell][1]*im
+        phase_y = cispi(2*kRn)*Rvec[cell][2]*im
+        phase_z = cispi(2*kRn)*Rvec[cell][3]*im
         @inbounds for ist = 1:NO0, jst = 1:NO1
             Sx[Anum+ist, Bnum+jst] += OLP[atom][Rn][ist][jst]*phase_x
             Hx[Anum+ist, Bnum+jst] += Hks[atom][Rn][ist][jst]*phase_x
@@ -150,7 +151,7 @@ end
 end
 
 
-@inline @timeit timer "HS_matrix_iR!" function HS_matrix_iR!(Sx, Sy, Sz, OLP, Natom, FNAN, natn, ncn, atv_ijk, Total_NumOrbs, MP, kpts::Vector{Float64}, Rvec)
+@inline @timeit timer "HS_matrix_iR!" function HS_matrix_iR_Vnk!(Sx, Sy, Sz, OLP, Natom, FNAN, natn, ncn, atv_ijk, Total_NumOrbs, MP, kpts::Vector{Float64}, Rvec)
     ka, kb, kc = kpts
     fill!(Sx, 0.0)
     fill!(Sy, 0.0)
@@ -163,9 +164,9 @@ end
         Anum = MP[atom]
         Bnum = MP[jatom]
         kRn = ka*atv_ijk[cell][1] + kb*atv_ijk[cell][2] + kc*atv_ijk[cell][3]
-        phase_x = cispi(2*kRn)*Rvec[1,cell]*im
-        phase_y = cispi(2*kRn)*Rvec[2,cell]*im
-        phase_z = cispi(2*kRn)*Rvec[3,cell]*im
+        phase_x = cispi(2*kRn)*Rvec[cell][1]*im
+        phase_y = cispi(2*kRn)*Rvec[cell][2]*im
+        phase_z = cispi(2*kRn)*Rvec[cell][3]*im
         @inbounds for ist = 1:NO0, jst = 1:NO1
             Sx[Anum+ist,Bnum+jst] += OLP[atom][Rn][ist][jst]*phase_x
             Sy[Anum+ist,Bnum+jst] += OLP[atom][Rn][ist][jst]*phase_y
@@ -175,7 +176,7 @@ end
 end
 
 
-@inline @timeit timer "HS_matrix_iR!" function HS_matrix_NC_iR!(
+@inline @timeit timer "HS_matrix_iR!" function HS_matrix_NC_iR_Vnk!(
     Hx_uu, Hx_dd, Hx_ud, Hx_du,
     Hy_uu, Hy_dd, Hy_ud, Hy_du,
     Hz_uu, Hz_dd, Hz_ud, Hz_du, 
@@ -213,9 +214,9 @@ end
         Anum = MP[atom]
         Bnum = MP[jatom]
         kRn = ka*atv_ijk[cell][1] + kb*atv_ijk[cell][2] + kc*atv_ijk[cell][3]
-        phase_x = cispi(2*kRn)*Rvec[1,cell]*im
-        phase_y = cispi(2*kRn)*Rvec[2,cell]*im
-        phase_z = cispi(2*kRn)*Rvec[3,cell]*im
+        phase_x = cispi(2*kRn)*Rvec[cell][1]*im
+        phase_y = cispi(2*kRn)*Rvec[cell][2]*im
+        phase_z = cispi(2*kRn)*Rvec[cell][3]*im
         _Hks_uu = Hks1[atom][Rn]
         _Hks_dd = Hks2[atom][Rn]
         _Hks_ud = Hks3[atom][Rn]
@@ -251,61 +252,6 @@ end
 end
 
 
-@inline @timeit timer "HS_matrix_iR!" function temp_HS_matrix_NC_iR!(Hx, Hy, Hz, Hks, iHks, Natom, FNAN, natn, ncn, atv_ijk, Total_NumOrbs, MP, kpts::Vector{Float64}, Rvec)
-    
-    ka, kb, kc = kpts
-    fsize = sum(Total_NumOrbs)
-    
-    fill!(Hx, 0.0)
-    fill!(Hy, 0.0)
-    fill!(Hz, 0.0)
-    _Hks_uu = Hks[1]
-    _Hks_dd = Hks[2]
-    _Hks_ud = Hks[3]
-    _iHks_ud1 = Hks[4]
-    _iHks_uu = iHks[1]
-    _iHks_dd = iHks[2]
-    _iHks_ud2 = iHks[3]
-    
-    for atom = 1:Natom, Rn = 1:FNAN[atom]+1
-        jatom = natn[atom][Rn]
-        cell = ncn[atom][Rn]+1
-        NO0 = Total_NumOrbs[atom]
-        NO1 = Total_NumOrbs[jatom]
-        Anum = MP[atom]
-        Bnum = MP[jatom]
-        kRn = ka*atv_ijk[cell][1] + kb*atv_ijk[cell][2] + kc*atv_ijk[cell][3]
-        phase_x = cispi(2*kRn)*Rvec[1,cell]*im
-        phase_y = cispi(2*kRn)*Rvec[2,cell]*im
-        phase_z = cispi(2*kRn)*Rvec[3,cell]*im
-        @inbounds for ist = 1:NO0, jst = 1:NO1
-            Hks_uu = _Hks_uu[atom][jatom][ist][jst]
-            Hks_dd = _Hks_dd[atom][jatom][ist][jst]
-            Hks_ud = _Hks_ud[atom][jatom][ist][jst]
-            iHks_ud1 = _iHks_ud1[atom][jatom][ist][jst]
-            iHks_uu = _iHks_uu[atom][jatom][ist][jst]
-            iHks_dd = _iHks_dd[atom][jatom][ist][jst]
-            iHks_ud2 = _iHks_ud2[atom][jatom][ist][jst]
-            Hx[Anum+ist,Bnum+jst]             += (Hks_uu + im*iHks_uu)*phase_x
-            Hx[fsize+Anum+ist,fsize+Bnum+jst] += (Hks_dd + im*iHks_dd)*phase_x
-            Hx[Anum+ist,fsize+Bnum+jst]       += (Hks_ud + im*(iHks_ud1 + iHks_ud2))*phase_x
-            # Hx[fsize+Anum+ist,Bnum+jst]       += (Hks_ud - im*(iHks_ud1 + iHks_ud2))*phase_x
-            # Hx[fsize+Bnum+jst,Anum+ist]       += (Hks_ud - im*(iHks_ud1 + iHks_ud2))*phase_x
-            Hy[Anum+ist,Bnum+jst]             += (Hks_uu + im*iHks_uu)*phase_y
-            Hy[fsize+Anum+ist,fsize+Bnum+jst] += (Hks_dd + im*iHks_dd)*phase_y
-            Hy[Anum+ist,fsize+Bnum+jst]       += (Hks_ud + im*(iHks_ud1 + iHks_ud2))*phase_y
-            # Hy[fsize+Anum+ist,Bnum+jst]       += (Hks_ud - im*(iHks_ud1 + iHks_ud2))*phase_y
-            # Hy[fsize+Bnum+jst,Anum+ist]       += (Hks_ud - im*(iHks_ud1 + iHks_ud2))*phase_y
-            Hz[Anum+ist,Bnum+jst]             += (Hks_uu + im*iHks_uu)*phase_z
-            Hz[fsize+Anum+ist,fsize+Bnum+jst] += (Hks_dd + im*iHks_dd)*phase_z
-            Hz[Anum+ist,fsize+Bnum+jst]       += (Hks_ud + im*(iHks_ud1 + iHks_ud2))*phase_z
-            # Hz[fsize+Anum+ist,Bnum+jst]       += (Hks_ud - im*(iHks_ud1 + iHks_ud2))*phase_z
-            # Hz[fsize+Bnum+jst,Anum+ist]       += (Hks_ud - im*(iHks_ud1 + iHks_ud2))*phase_z
-        end
-    end
-end
-
-
 @timeit timer "Calc_Vnk!" function Calc_Vnk!(material::LCPAO_model, kpoints::KPoints, Enk, Cnk)
 
     TCpyCell = material.TCpyCell
@@ -323,14 +269,15 @@ end
     kmesh1, kmesh2, kmesh3 = kmesh
 
 
-    cartesian_cell = zeros(Float64, 3, TCpyCell)
+    cartesian_cell = Vector{Vector{Float64}}(undef, TCpyCell)
     for cell = 1:TCpyCell
-        cartesian_cell[1,cell] = Latvecs[1,1]*atv_ijk[cell][1] + Latvecs[2,1]*atv_ijk[cell][2] + Latvecs[3,1]*atv_ijk[cell][3]
-        cartesian_cell[2,cell] = Latvecs[1,2]*atv_ijk[cell][1] + Latvecs[2,2]*atv_ijk[cell][2] + Latvecs[3,2]*atv_ijk[cell][3]
-        cartesian_cell[3,cell] = Latvecs[1,3]*atv_ijk[cell][1] + Latvecs[2,3]*atv_ijk[cell][2] + Latvecs[3,3]*atv_ijk[cell][3]
-        cartesian_cell[1,cell] = cartesian_cell[1,cell]/Ang_to_bohr
-        cartesian_cell[2,cell] = cartesian_cell[2,cell]/Ang_to_bohr
-        cartesian_cell[3,cell] = cartesian_cell[3,cell]/Ang_to_bohr
+        cartesian_cell[cell] = zeros(Float64, 3)
+        cartesian_cell[cell][1] = Latvecs[1,1]*atv_ijk[cell][1] + Latvecs[2,1]*atv_ijk[cell][2] + Latvecs[3,1]*atv_ijk[cell][3]
+        cartesian_cell[cell][2] = Latvecs[1,2]*atv_ijk[cell][1] + Latvecs[2,2]*atv_ijk[cell][2] + Latvecs[3,2]*atv_ijk[cell][3]
+        cartesian_cell[cell][3] = Latvecs[1,3]*atv_ijk[cell][1] + Latvecs[2,3]*atv_ijk[cell][2] + Latvecs[3,3]*atv_ijk[cell][3]
+        cartesian_cell[cell][1] = cartesian_cell[cell][1]/Ang_to_bohr
+        cartesian_cell[cell][2] = cartesian_cell[cell][2]/Ang_to_bohr
+        cartesian_cell[cell][3] = cartesian_cell[cell][3]/Ang_to_bohr
     end
 
 
@@ -389,7 +336,6 @@ function Calc_Vnk_Col!(material::LCPAO_model, kpoints::KPoints, cartesian_cell, 
     Total_NumOrbs = material.Total_NumOrbs
     fsize = sum(Total_NumOrbs)
     MP = material.MP
-    ChemP = material.ChemP
     OLP = material.OLP
     Hks = material.Hks
 
@@ -418,7 +364,7 @@ function Calc_Vnk_Col!(material::LCPAO_model, kpoints::KPoints, cartesian_cell, 
         k = 0
         for ik = 1:kmesh1, jk = 1:kmesh2, kk = 1:kmesh3
             k += 1
-            HS_matrix_iR!(Sx, Sy, Sz, Hx, Hy, Hz, OLP, Hks[spin], Natom, FNAN, natn, ncn, atv_ijk, Total_NumOrbs, MP, kpts[k], cartesian_cell) 
+            HS_matrix_iR_Vnk!(Sx, Sy, Sz, Hx, Hy, Hz, OLP, Hks[spin], Natom, FNAN, natn, ncn, atv_ijk, Total_NumOrbs, MP, kpts[k], cartesian_cell) 
             
             @. Cnk_temp1 = Cnk[spin][k]'
             @. Cnk_temp2 = Cnk[spin][k]
@@ -510,11 +456,11 @@ function Calc_Vnk_NonCol!(material::LCPAO_model, kpoints::KPoints, cartesian_cel
     k = 0
     for ik = 1:kmesh1, jk = 1:kmesh2, kk = 1:kmesh3
         k += 1
-        HS_matrix_NC_iR!(Hx_uu, Hx_dd, Hx_ud, Hx_du, Hy_uu, Hy_dd, Hy_ud, Hy_du, Hz_uu, Hz_dd, Hz_ud, Hz_du, 
-                         Hks, iHks, 
-                         Natom, FNAN, natn, ncn, atv_ijk, Total_NumOrbs, MP, 
-                         kpts[k], cartesian_cell) 
-        HS_matrix_iR!(Sx, Sy, Sz, OLP, Natom, FNAN, natn, ncn, atv_ijk, Total_NumOrbs, MP, kpts[k], cartesian_cell) 
+        HS_matrix_NC_iR_Vnk!(Hx_uu, Hx_dd, Hx_ud, Hx_du, Hy_uu, Hy_dd, Hy_ud, Hy_du, Hz_uu, Hz_dd, Hz_ud, Hz_du, 
+                             Hks, iHks, 
+                             Natom, FNAN, natn, ncn, atv_ijk, Total_NumOrbs, MP, 
+                             kpts[k], cartesian_cell) 
+        HS_matrix_iR_Vnk!(Sx, Sy, Sz, OLP, Natom, FNAN, natn, ncn, atv_ijk, Total_NumOrbs, MP, kpts[k], cartesian_cell) 
 
         @. Cnk_up_temp1 = @views(Cnk[1][k][1:fsize,:]')
         @. Cnk_dn_temp1 = @views(Cnk[1][k][fsize+1:Nfsize,:]')
@@ -596,95 +542,5 @@ function Calc_Vnk_NonCol!(material::LCPAO_model, kpoints::KPoints, cartesian_cel
         mul!(Htemp1, Cnk_dn_temp1, Hz_du)
         mul!(Htemp2, Htemp1, Cnk_up_temp2)
         Vnk[1][ik][jk][kk][3] += real(diag(Htemp2))
-    end
-end
-
-
-function temp_Calc_Vnk_NonCol!(material::LCPAO_model, kpoints::KPoints, cartesian_cell, Enk, Cnk, Vnk)
-
-    Natom = material.Natom
-    FNAN = material.FNAN
-    natn = material.natn
-    ncn = material.ncn
-    atv_ijk = material.atv_ijk
-    Total_NumOrbs = material.Total_NumOrbs
-    MP = material.MP
-    ChemP = material.ChemP
-    fsize = sum(Total_NumOrbs)
-    Nfsize = 2*fsize
-    ChemP = material.ChemP
-    OLP = material.OLP
-    Hks = material.Hks
-    iHks = material.iHks
-
-    kmesh = kpoints.kmesh
-    kmesh1, kmesh2, kmesh3 = kmesh
-    kpts = kpoints.MPI_kpts
-    
-
-    for spin = 1:4, atom = 1:Natom, Rn = 1:FNAN[atom]+1, ist = 1:Total_NumOrbs[atom], jst = 1:Total_NumOrbs[natn[atom][Rn]]
-        Hks[spin][atom][Rn][ist][jst] = Hks[spin][atom][Rn][ist][jst]*eV2Hartree
-    end
-
-    for spin = 1:3, atom = 1:Natom, Rn = 1:FNAN[atom]+1, ist = 1:Total_NumOrbs[atom], jst = 1:Total_NumOrbs[natn[atom][Rn]]
-        iHks[spin][atom][Rn][ist][jst] = iHks[spin][atom][Rn][ist][jst]*eV2Hartree
-    end
-
-
-    Hx = zeros(ComplexF64, Nfsize, Nfsize)
-    Hy = zeros(ComplexF64, Nfsize, Nfsize)
-    Hz = zeros(ComplexF64, Nfsize, Nfsize)
-    Sx = zeros(ComplexF64, Nfsize, Nfsize)
-    Sy = zeros(ComplexF64, Nfsize, Nfsize)
-    Sz = zeros(ComplexF64, Nfsize, Nfsize)
-    Cnk_temp1 = zeros(ComplexF64, Nfsize, Nfsize)
-    Cnk_temp2 = zeros(ComplexF64, Nfsize, Nfsize)
-    Htemp1 = zeros(ComplexF64, Nfsize, Nfsize)
-    Htemp2 = zeros(ComplexF64, Nfsize, Nfsize)
-    tmpHx = zeros(ComplexF64, fsize, fsize)
-    tmpHy = zeros(ComplexF64, fsize, fsize)
-    tmpHz = zeros(ComplexF64, fsize, fsize)
-
-    
-    k = 0
-    for ik = 1:kmesh1, jk = 1:kmesh2, kk = 1:kmesh3
-        k += 1
-        HS_matrix_NC_iR!(Hx, Hy, Hz, Hks, iHks, Natom, FNAN, natn, ncn, atv_ijk, Total_NumOrbs, MP, kpts[k], cartesian_cell) 
-        HS_matrix_iR!(tmpHx, tmpHy, tmpHz, OLP, Natom, FNAN, natn, ncn, atv_ijk, Total_NumOrbs, MP, kpts[k], cartesian_cell) 
-        @. Sx[1:fsize, 1:fsize] = tmpHx
-        @. Sx[fsize+1:end, fsize+1:end] = tmpHx
-        @. Sy[1:fsize, 1:fsize] = tmpHy
-        @. Sy[fsize+1:end, fsize+1:end] = tmpHy
-        @. Sz[1:fsize, 1:fsize] = tmpHz
-        @. Sz[fsize+1:end, fsize+1:end] = tmpHz
-
-        @. Cnk_temp1 = Cnk[1][k]'
-        @. Cnk_temp2 = Cnk[1][k]
-                
-        mul!(Htemp1, Cnk_temp1, Hx)
-        mul!(Htemp2, Htemp1, Cnk_temp2)
-        Vnk[1][ik][jk][kk][1] = real(diag(Htemp2))
-        mul!(Htemp1, Cnk_temp1, Hy)
-        mul!(Htemp2, Htemp1, Cnk_temp2)
-        Vnk[1][ik][jk][kk][2] = real(diag(Htemp2))
-        mul!(Htemp1, Cnk_temp1, Hz)
-        mul!(Htemp2, Htemp1, Cnk_temp2)
-        Vnk[1][ik][jk][kk][3] = real(diag(Htemp2))
-
-        mul!(Htemp1, Cnk_temp1, Sx)
-        mul!(Htemp2, Htemp1, Cnk_temp2)
-        @inbounds for μ = 1:Nfsize
-            Vnk[1][ik][jk][kk][1][μ] -= real(Htemp2[μ,μ])*Enk[1][ik][jk][kk][μ]
-        end
-        mul!(Htemp1, Cnk_temp1, Sy)
-        mul!(Htemp2, Htemp1, Cnk_temp2)
-        @inbounds for μ = 1:Nfsize
-            Vnk[1][ik][jk][kk][2][μ] -= real(Htemp2[μ,μ])*Enk[1][ik][jk][kk][μ]
-        end
-        mul!(Htemp1, Cnk_temp1, Sz)
-        mul!(Htemp2, Htemp1, Cnk_temp2)
-        @inbounds for μ = 1:Nfsize
-            Vnk[1][ik][jk][kk][3][μ] -= real(Htemp2[μ,μ])*Enk[1][ik][jk][kk][μ]
-        end
     end
 end
