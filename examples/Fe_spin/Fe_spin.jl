@@ -24,7 +24,6 @@ end
 
 Fe_spin()
 
-filepath = "Fe_spin.jld2"
 kpath = [[0.0,0.0,0.0], [-0.5,0.5,0.5], [0.0,0.0,0.5], [0.0,0.0,0.0], [0.25,0.25,0.25]]
 kname = ["G", "H", "N", "G", "P"]
-# Band_kpath(filepath, kpath, kname; Nk=50)
+# Band_kpath("Fe_spin.jld2", kpath, kname)

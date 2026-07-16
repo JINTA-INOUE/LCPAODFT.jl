@@ -22,7 +22,6 @@ end
 
 Graphene()
 
-filepath = "Graphene.jld2"
 kpath = [[0.0,0.0,0.0], [0.5,0.0,0.0], [2/3,1/3,0.0], [0.0,0.0,0.0]]
 kname = ["G", "M", "K", "G"]
-# Band_kpath(filepath, kpath, kname)
+# Band_kpath("Graphene.jld2", kpath, kname)

@@ -22,7 +22,6 @@ end
 
 Al()
 
-filepath = "Al.jld2"
 kpath = [[0.5,0.75,0.25], [0.5,0.5,0.5], [0.0,0.0,0.0], [0.5,0.5,0.0], [0.5,0.75,0.25], [0.375,0.75,0.375]]
 kname = ["W", "L", "G", "X", "W", "K"]
-# Band_kpath(filepath, kpath, kname)
+# Band_kpath("Al.jld2", kpath, kname)

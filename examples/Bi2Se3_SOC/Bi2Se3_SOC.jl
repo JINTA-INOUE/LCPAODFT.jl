@@ -28,7 +28,6 @@ end
 
 Bi2Se3_SOC()
 
-filepath = "Bi2Se3_SOC.jld2"
 kpath = [[0.0,0.0,0.0],[0.5,0.5,0.5],[0.5,0.5,0.0],[0.0,0.0,0.0],[0.5,0.0,0.0]]
 kname = ["G", "Z", "F", "G", "L"]
-# Band_kpath(filepath, kpath, kname)
+# Band_kpath("Bi2Se3_SOC.jld2", kpath, kname)

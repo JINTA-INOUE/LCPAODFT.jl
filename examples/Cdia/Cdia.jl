@@ -24,5 +24,4 @@ Cdia()
 
 kpath = [[0.0,0.0,0.0], [0.5,0.5,0.0], [0.5,0.75,0.25], [0.5,0.5,0.5], [0.0,0.0,0.0], [0.5,0.5,0.0]]
 kname = ["G", "X", "W", "L", "G", "X"]
-filepath = "Cdia.jld2"
-# Band_kpath(filepath, kpath, kname; Nk = 100)
+# Band_kpath("Cdia.jld2", kpath, kname)
