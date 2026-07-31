@@ -17,7 +17,7 @@
     DM = MPI.Allreduce(DM, MPI.SUM, comm)
     DM = DM/Nkpt/Ngsize/spinsize
 
-    myrank == 0 && println("DM per CWF is $(DM)")
+    myrank == 0 && println("\tDM per CWF is $(DM)")
 
 
     return DM

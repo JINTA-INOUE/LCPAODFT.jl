@@ -98,7 +98,7 @@ function KSsolve_SCF!(
 			end
 		end
     else
-        iDM = nothing
+        iDM = [[[[[1.0]]]]]
     end
 
 
@@ -353,10 +353,12 @@ function KSsolve_SCF!(
     myrank == 0 && println("\n")
     myrank == 0 && println("<Energy> Energy calculation ...")
     
-    if system == "Cluster"
-        Calc_iDM_Cluster_NonCollinear!(electron, system_grid, iDM)
-    elseif system == "Crystal"
-        Calc_iDM_Crystal_NonCollinear!(electron, kpoints, system_grid, iDM)
+    if SpinPol == "nc"
+        if system == "Cluster"
+            Calc_iDM_Cluster_NonCollinear!(electron, system_grid, iDM)
+        elseif system == "Crystal"
+            Calc_iDM_Crystal_NonCollinear!(electron, kpoints, system_grid, iDM)
+        end
     end
 
     DM_Vec = Set_DM2DM_Vec(DM, system_grid)

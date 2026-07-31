@@ -79,15 +79,15 @@ const hbar_SI = 1.054571726e-34
 
 
 # For Read_PAO.jl / Read_VPS.jl
-const home_path = homedir()
-const PAO_File_path = joinpath(home_path, ".julia", "dev", "LCPAODFT", "DFT_DATA19", "PAO", "")
-const VPS_File_path = joinpath(home_path, ".julia", "dev", "LCPAODFT", "DFT_DATA19", "VPS", "")
+const PACKAGE_ROOT = pkgdir(@__MODULE__)
+const PAO_File_path = joinpath(PACKAGE_ROOT, "DFT_DATA19", "PAO", "")
+const VPS_File_path = joinpath(PACKAGE_ROOT, "DFT_DATA19", "VPS", "")
 export PAO_File_path
 export VPS_File_path
 
 
 # For sending_emails
-const EmailPass_File_path = joinpath(home_path, ".julia", "dev", "LCPAODFT", "smtp.json")
+const EmailPass_File_path = joinpath(PACKAGE_ROOT, "smtp.json")
 export EmailPass_File_path
 
 
@@ -523,53 +523,46 @@ include("utils/sending_mail.jl")
     println("Now Precompilation using PrecompileTools.jl")
 
     # For DFT
-    Latvecs = [4.00  4.00  0.00;
-               4.00  0.00  4.00;
-               0.00  4.00  4.00]*"Ang"
-    atomorb = ["C5.0-s2p2d1"]
-    atomsymbol = ["C", "C"]
-    atompos = [[0.0,0.0,0.0], [0.25,0.25,0.25]]*"Frac"
-    Ecut = 10.0
+    Latvecs = [1.78  1.78  0.00;
+               1.78  0.00  1.78;
+               0.00  1.78  1.78]*"Ang"
+    Atoms_orb = ["C5.0-s2p2d1"]
+    Atoms_symbol = ["C", "C"]
+    Atoms_pos = [[0.0,0.0,0.0], [0.25,0.25,0.25]]*"Frac"
     system = "Crystal"
+    Ecut = 150.0
     SCF_max = 3
     xc_type = "GGA-PBE"
     DFT_kmesh = (3,3,3)
-    SpinPol = "nc"
-    SO_switch = true
-    fileout = false
+    scf_filename = "Cdia_precompile"
+    fileout = true
     verbosity = 1
 
 
     # For Band
-    jld2_File_path = joinpath(home_path, ".julia", "dev", "LCPAODFT", "")
-    filepath = jld2_File_path*"precompile_jld.jld2"
-    kpath = [[0.0,0.0,0.0], [0.5,0.5,0.0]]
-    kname = ["G", "X"]
-
-    # For Cube
-    Cube_Ecut = 1.0
-    mode = ["rho"]
+    filepath = joinpath(PACKAGE_ROOT, "$scf_filename.jld2")
+    kpath = [[0.5,0.75,0.25], [0.5,0.5,0.5], [0.0,0.0,0.0], [0.5,0.5,0.0], [0.5,0.75,0.25], [0.375,0.75,0.375]]
+    kname = ["W", "L", "G", "X", "W", "K"]
 
     # For Dos
     kmesh = (1,1,1)
-    Erange = [-1.0,1.0]
+    Erange = [-25.0,0.0]
     mode = "all"
 
     # For CWF
-    Guide_index = [[1]]
-    Dis_Energy = [-10.0, -10.0, 10.0, 10.0]
-    kmesh = (1,1,1)
-    Ecut = 1.0
+    Guide_index = [[1,3,4,5], [1,3,4,5]]
+    Dis_Energy = [-26.0, -25.0, 0.0, 16.0]
+    kmesh = (3,3,3)
     weight_type = "Poly"
-    filename = "precompile_AO_Poly"
+    cwf_filename = "Cdia_AO_Poly"
     CWF_HmnR = true
     CWF_Wannier = true
     CWF2MLWF = true
     CWF_Plot_Cube = [1]
-    CWF_Plot_SuperCells = [0,0,0]
+    CWF_Plot_SuperCells = [1,1,1]
 
     # For Boltz
-    TDF_Erange = [-1.0, 1.0]      # eV unit
+    TDF_Erange = [-25.0, 0.0]      # eV unit
     kmesh = (1,1,1)
     Temp = 300.0
     decomp = false
@@ -578,8 +571,8 @@ include("utils/sending_mail.jl")
     @compile_workload begin
 
         println("Precompile DFT ...")
-        dft_setup = DFT_Setup(Latvecs, atomorb, atomsymbol, atompos, system; 
-                              Ecut, SCF_max, xc_type, kmesh=DFT_kmesh, fileout, verbosity)
+        dft_setup = DFT_Setup(Latvecs, Atoms_orb, Atoms_symbol, Atoms_pos, system; 
+                              Ecut, SCF_max, xc_type, kmesh=DFT_kmesh, filename=scf_filename, fileout, verbosity)
         DFT(dft_setup)
 
         println("Precompile Band_kpath ...")
@@ -589,7 +582,7 @@ include("utils/sending_mail.jl")
         DosMain(filepath, kmesh, Erange; mode)
 
         println("Precompile CWF ...")
-        cwf_setup = CWF_Setup(filepath, Guide_index, Dis_Energy; CWF_HmnR, CWF_Wannier, CWF2MLWF, CWF_Plot_Cube, CWF_Plot_SuperCells, filename, weight_type, Ecut, kmesh)
+        cwf_setup = CWF_Setup(filepath, Guide_index, Dis_Energy; CWF_HmnR, CWF_Wannier, CWF2MLWF, CWF_Plot_Cube, CWF_Plot_SuperCells, filename=cwf_filename, weight_type, Ecut, kmesh)
         Generate_CWF(cwf_setup)
         
         println("Precompile Boltz ...")

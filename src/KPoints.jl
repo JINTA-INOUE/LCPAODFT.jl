@@ -3,14 +3,55 @@ struct KPoints
     Nkpt::Int32
     MPI_Nkpt::Int32
     kmesh::Tuple{Int32,Int32,Int32}
+    All_kpts::Vector{Vector{Float64}}
     MPI_kpts::Vector{Vector{Float64}}
-    MPI_kweight::Vector{Int32}
     All_kweight::Vector{Int32}
+    MPI_kweight::Vector{Int32}
     MPI_krange::Vector{UnitRange{Int32}}
     MPkpts::Vector{Int32}
     KP_flag::String
+    Shift_K_Point::Float64
     crystal_sym::Bool
     time_rev::Bool
+end
+
+
+function Print_KPoints(kpoints::KPoints)
+
+    comm = MPI.COMM_WORLD
+    nprocs = MPI.Comm_size(comm)
+    myrank = MPI.Comm_rank(comm)
+
+    crystal_sym = kpoints.crystal_sym
+    time_rev = kpoints.time_rev
+    kmesh = kpoints.kmesh
+    kmesh1, kmesh2, kmesh3 = kmesh
+    Nkpt = kpoints.Nkpt
+    Shift_K_Point = kpoints.Shift_K_Point
+
+    println("")
+    println("<Print_KPoints>")
+    println("\tcrystal_sym : $crystal_sym")
+    println("\ttime_rev : $time_rev")
+    println("\tNkpt : $Nkpt")
+    println("\tkmesh : ($(kmesh[1]), $(kmesh[2]), $(kmesh[3]))")
+    print("\tkgrid_a_axis : ")
+    for i = 0:kmesh1-1
+        k1 = i/kmesh1 + Shift_K_Point
+        @printf("%9.5f ", k1)
+    end
+    println("")
+    print("\tkgrid_b_axis : ")
+    for i = 0:kmesh2-1
+        k1 = i/kmesh2 - Shift_K_Point
+        @printf("%9.5f ", k1)
+    end
+    println("")
+    print("\tkgrid_c_axis : ")
+    for i = 0:kmesh3-1
+        k1 = i/kmesh3 + 2*Shift_K_Point
+        @printf("%9.5f ", k1)
+    end
 end
 
 
@@ -43,11 +84,11 @@ function KPoints(kmesh::Tuple{Signed,Signed,Signed}, time_rev::Bool, Shift_K_Poi
     end
    
 
-    return KPoints(AllNkpt, Nkpt, MPI_Nkpt, 
-                   kmesh, MPI_kpts, 
-                   MPI_kweight, kweight, 
+    return KPoints(AllNkpt, Nkpt, MPI_Nkpt, kmesh,
+                   kpts, MPI_kpts, 
+                   kweight, MPI_kweight, 
                    MPI_krange, MPkpts,
-                   KP_flag, false, time_rev)
+                   KP_flag, Shift_K_Point, false, time_rev)
 end
 
 
@@ -57,13 +98,13 @@ function Gen_KPoints(kmesh::Tuple{Signed,Signed,Signed}, time_rev::Bool, Shift_K
         if time_rev
             return _Gen_KPoints_Gcenter_TRS(kmesh, Shift_K_Point)
         else
-            return _Gen_KPoints_Gcenter_noTRS(kmesh, Shift_K_Point)
+            return _Gen_KPoints_Gcenter(kmesh, Shift_K_Point)
         end
     elseif lowercase(KP_flag) == "mp"
         if time_rev
             return _Gen_KPoints_MP_TRS(kmesh, Shift_K_Point)
         else
-            return _Gen_KPoints_MP_noTRS(kmesh, Shift_K_Point)
+            return _Gen_KPoints_MP(kmesh, Shift_K_Point)
         end
     else
         error("please check KP_flag")
@@ -127,7 +168,7 @@ function _Gen_KPoints_Gcenter_TRS(kmesh::Tuple{Signed,Signed,Signed}, Shift_K_Po
 end
 
 
-function _Gen_KPoints_Gcenter_noTRS(kmesh::Tuple{Signed,Signed,Signed}, Shift_K_Point)
+function _Gen_KPoints_Gcenter(kmesh::Tuple{Signed,Signed,Signed}, Shift_K_Point)
 
     kmesh1, kmesh2, kmesh3 = kmesh
     Nkpt = prod(kmesh)
@@ -210,7 +251,7 @@ function _Gen_KPoints_MP_TRS(kmesh::Tuple{Signed,Signed,Signed}, Shift_K_Point)
 end
 
 
-function _Gen_KPoints_MP_noTRS(kmesh::Tuple{Signed,Signed,Signed}, Shift_K_Point)
+function _Gen_KPoints_MP(kmesh::Tuple{Signed,Signed,Signed}, Shift_K_Point)
 
     kmesh1, kmesh2, kmesh3 = kmesh
     Nkpt = prod(kmesh)

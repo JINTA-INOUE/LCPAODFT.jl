@@ -323,13 +323,18 @@ function WriteFile!(
     ForceAll = force.ForceAll
     filename = dft_setup.filename
 
-    if isnothing(iDM)
-        iDM = [[[[[1.0]]]]]
+    scf_inputfile = try
+        if isempty(PROGRAM_FILE) || PROGRAM_FILE == "-"
+            [""]
+        else
+            filepath = abspath(PROGRAM_FILE)
+            open(filepath, "r") do io
+                readlines(io)
+            end
+        end
+    catch
+        [""]
     end
-
-    data = open(pwd()*"/"*PROGRAM_FILE, "r")
-    scf_inputfile = readlines(data)
-    close(data)
     
     println("Write $filename.jld2 LCPAO_model")
     jldopen("$filename.jld2", "w") do file

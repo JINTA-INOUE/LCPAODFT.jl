@@ -35,9 +35,9 @@ struct LCPAO_model
     pspot_file::Vector{String}
     OLP::Vector{Vector{Vector{Vector{Float64}}}}
     Hks::Vector{Vector{Vector{Vector{Vector{Float64}}}}}
-    iHks::Union{Vector{Vector{Vector{Vector{Vector{Float64}}}}}, Nothing}
+    iHks::Vector{Vector{Vector{Vector{Vector{Float64}}}}}
     DM::Vector{Vector{Vector{Vector{Vector{Float64}}}}}
-    iDM::Union{Vector{Vector{Vector{Vector{Vector{Float64}}}}}, Nothing}
+    iDM::Vector{Vector{Vector{Vector{Vector{Float64}}}}}
     ChemP::Float64
     Eele::Float64
     Etot::Float64

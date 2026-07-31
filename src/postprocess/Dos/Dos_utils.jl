@@ -95,7 +95,7 @@ function Calc_Band_size(material::LCPAO_model, Dos_Erange)
             HS_matrix!(S, H, OLP, Hks[spin], Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, kpts_zeros)
             EΓ = eigvals(Hermitian(H), Hermitian(S))
         elseif SpinPol == "nc"
-            HS_matrix_NC!(tmpH, H, Hks, iHks, Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, kpts_zeros)
+            HS_matrix_NC!(H, Hks, iHks, Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, kpts_zeros)
             HS_matrix!(tmpH, OLP, Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, kpts_zeros)
             @. S[1:fsize, 1:fsize] = tmpH
             @. S[fsize+1:end, fsize+1:end] = tmpH
