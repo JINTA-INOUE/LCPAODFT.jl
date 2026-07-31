@@ -535,6 +535,7 @@ include("utils/sending_mail.jl")
     xc_type = "GGA-PBE"
     DFT_kmesh = (3,3,3)
     scf_filename = "Cdia_precompile"
+    scf_filename2 = joinpath(PACKAGE_ROOT, scf_filename)
     fileout = true
     verbosity = 1
 
@@ -572,7 +573,7 @@ include("utils/sending_mail.jl")
 
         println("Precompile DFT ...")
         dft_setup = DFT_Setup(Latvecs, Atoms_orb, Atoms_symbol, Atoms_pos, system; 
-                              Ecut, SCF_max, xc_type, kmesh=DFT_kmesh, filename=scf_filename, fileout, verbosity)
+                              Ecut, SCF_max, xc_type, kmesh=DFT_kmesh, filename=scf_filename2, fileout, verbosity)
         DFT(dft_setup)
 
         println("Precompile Band_kpath ...")
