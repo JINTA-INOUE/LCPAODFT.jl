@@ -13,6 +13,7 @@ using Printf
 using Dates
 using MPI
 using PrecompileTools
+using MKL
 
 
 const Ang_to_bohr = 1.8897259886
