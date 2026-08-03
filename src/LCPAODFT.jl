@@ -348,27 +348,27 @@ export Set_Lebedev_Grid
 export Read_restartFile!
 
 
-# include("Matrix/Set_dOrbitals_Grid.jl")
-# include("Matrix/Set_OLP_Kinforce.jl")
-# include("Force.jl")
-# export Set_dOrbitals_Grid
-# export Set_dOrbitals_Grid!
-# export Set_OLP_Kinforce
-# export Set_OLP_Kinforce!
-# export PCC_Force
-# export Kinetic_Force
-# export Force3_nospin
-# export Force3_spin
-# export Force3_nc
-# export HVNA_Force
-# export OLP_Force
-# export HNL_Force
-# export Core_Force
-# export EH0_Force
-# export Exc_Force
-# export Init_Force
-# export Force
-# export Force!
+include("Matrix/Set_dOrbitals_Grid.jl")
+include("Matrix/Set_OLP_Kinforce.jl")
+include("Force.jl")
+export Set_dOrbitals_Grid
+export Set_dOrbitals_Grid!
+export Set_OLP_Kinforce
+export Set_OLP_Kinforce!
+export PCC_Force
+export Kinetic_Force
+export Force3_nospin
+export Force3_spin
+export Force3_nc
+export HVNA_Force
+export OLP_Force
+export HNL_Force
+export Core_Force
+export EH0_Force
+export Exc_Force
+export Init_Force
+export Force
+export Force!
 
 
 include("Energy.jl")
@@ -448,7 +448,6 @@ export Calc_WannierCenter
 export Write_HmnR_vs_R
 export Generate_CWF
 export CWF_model
-
 
 
 # For Hybrid Wannier functions

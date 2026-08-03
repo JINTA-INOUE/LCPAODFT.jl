@@ -375,7 +375,7 @@ function KSsolve_SCF!(
 
 
 
-
+    #=
     myrank == 0 && println("\n")
     myrank == 0 && println("<Force> Force calculation ...")
 
@@ -384,6 +384,7 @@ function KSsolve_SCF!(
            ADensity_Grid, PCCDensity_Grid, 
            dVHart_Grid, xc_func.Vxc_Grid, Vpot_Grid,
            Ham, ucell, pao, pspot)
+    =#
     
 
 
