@@ -2,7 +2,7 @@
 
 julia_version = "1.12.6"
 manifest_format = "2.0"
-project_hash = "819e32997eb22cf8783c55768a781b7edf3efae8"
+project_hash = "828c59f4c46b14433d79079219bbf656a1419409"
 
 [[deps.AbstractFFTs]]
 deps = ["LinearAlgebra"]
@@ -179,7 +179,7 @@ uuid = "ac6e5ff7-fb65-4e79-a425-ec3bc9c03011"
 version = "1.12.0"
 
 [[deps.LCPAODFT]]
-deps = ["Bessels", "Dates", "FFTW", "JLD2", "JSON", "LinearAlgebra", "MPI", "PrecompileTools", "Printf", "SMTPClient", "StaticArrays", "TimerOutputs"]
+deps = ["Bessels", "Dates", "FFTW", "JLD2", "JSON", "LinearAlgebra", "MPI", "PrecompileTools", "Printf", "SMTPClient", "Spglib", "StaticArrays", "TimerOutputs"]
 path = "."
 uuid = "4f340965-e4ea-4fcf-8f31-8c71246d43fb"
 version = "1.0.0-DEV"
@@ -232,6 +232,12 @@ version = "1.12.0"
 [[deps.Logging]]
 uuid = "56ddb016-857b-54e1-b83d-db4d58db5568"
 version = "1.11.0"
+
+[[deps.MKL]]
+deps = ["Artifacts", "Libdl", "LinearAlgebra", "Logging", "MKL_jll"]
+git-tree-sha1 = "7babad0b8cb353d15ed85090342d3c63af5f6819"
+uuid = "33e6dc65-8f57-5167-99aa-e5a354878fb2"
+version = "0.9.1"
 
 [[deps.MKL_jll]]
 deps = ["Artifacts", "IntelOpenMP_jll", "JLLWrappers", "LazyArtifacts", "Libdl", "oneTBB_jll"]
