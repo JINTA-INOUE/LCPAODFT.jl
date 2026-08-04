@@ -80,9 +80,9 @@
     fsize = maximum(Total_NumOrbs)
     NLfsize = maximum(NLTotal_Num)
     NLPiαjβ = zeros(ComplexF64, fsize, NLfsize)
-    NLPriαjβ = zeros(ComplexF64, fsize, NLfsize)
-    NLPtiαjβ = zeros(ComplexF64, fsize, NLfsize)
-    NLPpiαjβ = zeros(ComplexF64, fsize, NLfsize)
+    # NLPriαjβ = zeros(ComplexF64, fsize, NLfsize)
+    # NLPtiαjβ = zeros(ComplexF64, fsize, NLfsize)
+    # NLPpiαjβ = zeros(ComplexF64, fsize, NLfsize)
     Ciα = Vector{Matrix{ComplexF64}}(undef, Nspecies)
     Cjβ = Vector{Matrix{ComplexF64}}(undef, Nspecies)
     for spe = 1:Nspecies
@@ -113,7 +113,7 @@
     SphB2 = zeros(Float64, NkGrid+1)
     dSphB3 = zeros(Float64, NkGrid+1)
     SumNL0 = zeros(Float64, 15, 4, 4)
-    SumNLr0 = zeros(Float64, 15, 4, 4)
+    # SumNLr0 = zeros(Float64, 15, 4, 4)
     tmpL = zeros(Float64, NkGrid+1)
     tmpH1 = zeros(ComplexF64, fsize)
     tmpH2 = zeros(ComplexF64, NLfsize)
@@ -148,10 +148,10 @@
 
         R, theta, phi = xyz_to_spherical(x, y, z)
         R = ifelse(R < 1.0e-10, 1.0e-10, R)
-        siT = sin(theta)
-        coT = cos(theta)
-        siP = sin(phi)
-        coP = cos(phi)
+        # siT = sin(theta)
+        # coT = cos(theta)
+        # siP = sin(phi)
+        # coP = cos(phi)
             
 
         jNum_RVPS = pspot[jspe].Spe_Num_RVPS
@@ -165,7 +165,7 @@
             Calc_SphericalBesselj!(Lmax_Four_Int, R*k1[ik], tsb, SphB_l, dSphB_l)
             for l = 1:Lmax_Four_Int+1
                 SphB[l][ik] = SphB_l[l]
-                dSphB[l][ik] = dSphB_l[l]
+                # dSphB[l][ik] = dSphB_l[l]
             end
         end
         
@@ -173,9 +173,9 @@
         for so = 1:VPS_j_dependency+1
 
             fill!(NLPiαjβ, 0.0)
-            fill!(NLPriαjβ, 0.0)
-            fill!(NLPtiαjβ, 0.0)
-            fill!(NLPpiαjβ, 0.0)
+            # fill!(NLPriαjβ, 0.0)
+            # fill!(NLPtiαjβ, 0.0)
+            # fill!(NLPpiαjβ, 0.0)
 
             # Σ_{L=0}^{Lmax_Four_Int}Sum_{M=-L}^{L}
             for L = 0:Lmax_Four_Int
@@ -186,7 +186,7 @@
                 for l = 0:iMaxL_Basis, p = 1:iNum_Basis[l+1], lnum = 1:jNum_RVPS
                     @. tmpL = iRF_Bessel[l+1][p]*NLRF_Bessel[jspe][so][lnum]
                     SumNL0[lnum,p,l+1] = dot(SphB2, tmpL)*dk
-                    SumNLr0[lnum,p,l+1] = dot(dSphB3, tmpL)*dk
+                    # SumNLr0[lnum,p,l+1] = dot(dSphB3, tmpL)*dk
                 end
 
 
@@ -209,17 +209,17 @@
                                 tmp = (-im)^Ls
                                     
                                 Ylm = ComplexF64(SH[1], SH[2])
-                                dYlmdtheta = ComplexF64(dSHt[1], dSHt[2])
-                                dYlmdphi = ComplexF64(dSHp[1], dSHp[2])
+                                # dYlmdtheta = ComplexF64(dSHt[1], dSHt[2])
+                                # dYlmdphi = ComplexF64(dSHp[1], dSHp[2])
                                     
                                 iYC = conj(Ylm) * tmp * gaunt
-                                iYCt = conj(dYlmdtheta) * tmp * gaunt
-                                iYCp = conj(dYlmdphi) * tmp * gaunt
+                                # iYCt = conj(dYlmdtheta) * tmp * gaunt
+                                # iYCp = conj(dYlmdphi) * tmp * gaunt
 
                                 NLPiαjβ[ist,jst] += iYC*SumNL0[lnum,p,l+1]
-                                NLPriαjβ[ist,jst] += iYC*SumNLr0[lnum,p,l+1]
-                                NLPtiαjβ[ist,jst] += iYCt*SumNL0[lnum,p,l+1]
-                                NLPpiαjβ[ist,jst] += iYCp*SumNL0[lnum,p,l+1]
+                                # NLPriαjβ[ist,jst] += iYC*SumNLr0[lnum,p,l+1]
+                                # NLPtiαjβ[ist,jst] += iYCt*SumNL0[lnum,p,l+1]
+                                # NLPpiαjβ[ist,jst] += iYCp*SumNL0[lnum,p,l+1]
                             end
                         end
                     end
@@ -231,36 +231,37 @@
             @inbounds for ist = 1:NO0
                 @views mul!(tmpH2, Cjβ[jspe], NLPiαjβ[ist,:])
                 @views NLPiαjβ[ist,:] = tmpH2
-                @views mul!(tmpH2, Cjβ[jspe], NLPriαjβ[ist,:])
-                @views NLPriαjβ[ist,:] = tmpH2
-                @views mul!(tmpH2, Cjβ[jspe], NLPtiαjβ[ist,:])
-                @views NLPtiαjβ[ist,:] = tmpH2
-                @views mul!(tmpH2, Cjβ[jspe], NLPpiαjβ[ist,:])
-                @views NLPpiαjβ[ist,:] = tmpH2
+                # @views mul!(tmpH2, Cjβ[jspe], NLPriαjβ[ist,:])
+                # @views NLPriαjβ[ist,:] = tmpH2
+                # @views mul!(tmpH2, Cjβ[jspe], NLPtiαjβ[ist,:])
+                # @views NLPtiαjβ[ist,:] = tmpH2
+                # @views mul!(tmpH2, Cjβ[jspe], NLPpiαjβ[ist,:])
+                # @views NLPpiαjβ[ist,:] = tmpH2
             end
 
             @inbounds for jst = 1:NO1
                 @views mul!(tmpH1, Ciα[ispe], NLPiαjβ[:,jst])
                 @views NLPiαjβ[:,jst] = tmpH1
-                @views mul!(tmpH1, Ciα[ispe], NLPriαjβ[:,jst])
-                @views NLPriαjβ[:,jst] = tmpH1
-                @views mul!(tmpH1, Ciα[ispe], NLPtiαjβ[:,jst])
-                @views NLPtiαjβ[:,jst] = tmpH1
-                @views mul!(tmpH1, Ciα[ispe], NLPpiαjβ[:,jst])
-                @views NLPpiαjβ[:,jst] = tmpH1
+                # @views mul!(tmpH1, Ciα[ispe], NLPriαjβ[:,jst])
+                # @views NLPriαjβ[:,jst] = tmpH1
+                # @views mul!(tmpH1, Ciα[ispe], NLPtiαjβ[:,jst])
+                # @views NLPtiαjβ[:,jst] = tmpH1
+                # @views mul!(tmpH1, Ciα[ispe], NLPpiαjβ[:,jst])
+                # @views NLPpiαjβ[:,jst] = tmpH1
             end
             
 
             
             NLPforce1 = NLPforce[1][atom][Rn][so]
-            NLPforce2 = NLPforce[2][atom][Rn][so]
-            NLPforce3 = NLPforce[3][atom][Rn][so]
-            NLPforce4 = NLPforce[4][atom][Rn][so]
+            # NLPforce2 = NLPforce[2][atom][Rn][so]
+            # NLPforce3 = NLPforce[3][atom][Rn][so]
+            # NLPforce4 = NLPforce[4][atom][Rn][so]
 
             @inbounds for ist = 1:NO0, jst = 1:NO1
                 NLPforce1[ist,jst] = 8*real(NLPiαjβ[ist,jst])
             end
 
+            #=
             if Rn ≠ 1
                 if abs(siT) < 1.0e-13
                     @inbounds for ist = 1:NO0, jst = 1:NO1
@@ -281,7 +282,7 @@
                     NLPforce3[ist,jst] = 0.0
                     NLPforce4[ist,jst] = 0.0
                 end
-            end
+            end=#
         end
     end
 
@@ -292,9 +293,9 @@
         VPS_j_dependency = pspot[jspe].VPS_j_dependency
         @inbounds for so = 1:VPS_j_dependency+1
             MPI.Allreduce!(NLPforce[1][atom][Rn][so], MPI.SUM, comm)
-            MPI.Allreduce!(NLPforce[2][atom][Rn][so], MPI.SUM, comm)
-            MPI.Allreduce!(NLPforce[3][atom][Rn][so], MPI.SUM, comm)
-            MPI.Allreduce!(NLPforce[4][atom][Rn][so], MPI.SUM, comm)
+            # MPI.Allreduce!(NLPforce[2][atom][Rn][so], MPI.SUM, comm)
+            # MPI.Allreduce!(NLPforce[3][atom][Rn][so], MPI.SUM, comm)
+            # MPI.Allreduce!(NLPforce[4][atom][Rn][so], MPI.SUM, comm)
         end
     end
     
