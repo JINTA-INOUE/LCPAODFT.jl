@@ -105,13 +105,13 @@
     SphB_l = zeros(Float64, 2*Lmax_Four_Int+3)
     dSphB_l = zeros(Float64, 2*Lmax_Four_Int+3)
     SphB = Vector{Vector{Float64}}(undef, 2*Lmax_Four_Int+3)
-    dSphB = Vector{Vector{Float64}}(undef, 2*Lmax_Four_Int+3)
+    # dSphB = Vector{Vector{Float64}}(undef, 2*Lmax_Four_Int+3)
     for l = 1:2*Lmax_Four_Int+3
         SphB[l] = zeros(Float64, NkGrid+1)
-        dSphB[l] = zeros(Float64, NkGrid+1)
+        # dSphB[l] = zeros(Float64, NkGrid+1)
     end
     SphB2 = zeros(Float64, NkGrid+1)
-    dSphB3 = zeros(Float64, NkGrid+1)
+    # dSphB3 = zeros(Float64, NkGrid+1)
     SumNL0 = zeros(Float64, 15, 4, 4)
     # SumNLr0 = zeros(Float64, 15, 4, 4)
     tmpL = zeros(Float64, NkGrid+1)
@@ -181,7 +181,7 @@
             for L = 0:Lmax_Four_Int
 
                 @. SphB2 = SphB[L+1]*k2
-                @. dSphB3 = dSphB[L+1]*k3
+                # @. dSphB3 = dSphB[L+1]*k3
 
                 for l = 0:iMaxL_Basis, p = 1:iNum_Basis[l+1], lnum = 1:jNum_RVPS
                     @. tmpL = iRF_Bessel[l+1][p]*NLRF_Bessel[jspe][so][lnum]

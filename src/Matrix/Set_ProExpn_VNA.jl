@@ -5,7 +5,7 @@
     FNAN = system_grid.FNAN
     Total_NumOrbs = system_grid.Total_NumOrbs
 
-    Set_ProExpn_VNA!(DS_VNA, HVNA, pao, pspot, system_grid)
+    Set_ProExpn!(DS_VNA, HVNA, pao, pspot, system_grid)
 
     HVNA2 = Vector{Vector{Vector{Vector{Float64}}}}(undef, Natom)
 	for atom = 1:Natom
@@ -33,7 +33,7 @@
 end
 
 
-function Set_ProExpn_VNA!(DS_VNA, HVNA, pao::Vector{PAO}, pspot::Vector{Pspot}, system_grid::System_Grid)
+function Set_ProExpn!(DS_VNA, HVNA, pao::Vector{PAO}, pspot::Vector{Pspot}, system_grid::System_Grid)
     
     comm = MPI.COMM_WORLD
     nprocs = MPI.Comm_size(comm)
@@ -144,7 +144,7 @@ function Set_ProExpn_VNA!(DS_VNA, HVNA, pao::Vector{PAO}, pspot::Vector{Pspot}, 
     asize_lmax = 30
     tsb = zeros(Float64, asize_lmax+10)
     SphB_l = zeros(Float64, 30)
-    # dSphB_l = zeros(Float64, 30)
+    dSphB_l = zeros(Float64, 30)
     SphB = Vector{Vector{Float64}}(undef, Lmax_Four_Int+1)
     # dSphB = Vector{Vector{Float64}}(undef, Lmax_Four_Int+1)
     for l = 1:Lmax_Four_Int+1
@@ -160,8 +160,8 @@ function Set_ProExpn_VNA!(DS_VNA, HVNA, pao::Vector{PAO}, pspot::Vector{Pspot}, 
 
 
     SH = zeros(Float64, 2)
-    # dSHt = zeros(Float64, 2)
-    # dSHp = zeros(Float64, 2)
+    dSHt = zeros(Float64, 2)
+    dSHp = zeros(Float64, 2)
 
 
     for loop = 1:MPI_size
@@ -555,7 +555,7 @@ function Set_HVNA2_3!(HVNA2, pao::Vector{PAO}, pspot::Vector{Pspot}, system_grid
     asize_lmax = 30
     tsb = zeros(Float64, asize_lmax+10)
     SphB_l = zeros(Float64, 2*Lmax_Four_Int+3)
-    # dSphB_l = zeros(Float64, 2*Lmax_Four_Int+3)
+    dSphB_l = zeros(Float64, 2*Lmax_Four_Int+3)
     SphB = Vector{Vector{Float64}}(undef, 2*Lmax_Four_Int+3)
     # dSphB = Vector{Vector{Float64}}(undef, 2*Lmax_Four_Int+3)
     for l = 1:2*Lmax_Four_Int+3
@@ -567,8 +567,8 @@ function Set_HVNA2_3!(HVNA2, pao::Vector{PAO}, pspot::Vector{Pspot}, system_grid
 
 
     SH = zeros(Float64, 2)
-    # dSHt = zeros(Float64, 2)
-    # dSHp = zeros(Float64, 2)
+    dSHt = zeros(Float64, 2)
+    dSHp = zeros(Float64, 2)
 
 
 

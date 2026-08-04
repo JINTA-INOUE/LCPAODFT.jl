@@ -5,10 +5,10 @@ struct Hamiltonian
 	HNL::Vector{Vector{Vector{Vector{Vector{Float64}}}}}
 	iHNL::Vector{Vector{Vector{Vector{Vector{Float64}}}}}
 	HVNA::Vector{Vector{Vector{Vector{Float64}}}}
-	NLPforce::Vector{Vector{Vector{Vector{Matrix{Float64}}}}}
-	DS_VNAforce::Vector{Vector{Vector{Matrix{Float64}}}}
-	HVNA2force::Vector{Vector{Vector{Vector{Vector{Float64}}}}}
-	HVNA3force::Vector{Vector{Vector{Vector{Vector{Float64}}}}}
+	# NLPforce::Vector{Vector{Vector{Vector{Matrix{Float64}}}}}
+	# DS_VNAforce::Vector{Vector{Vector{Matrix{Float64}}}}
+	# HVNA2force::Vector{Vector{Vector{Vector{Vector{Float64}}}}}
+	# HVNA3force::Vector{Vector{Vector{Vector{Vector{Float64}}}}}
 end
 
 
@@ -44,7 +44,7 @@ end
 
 	myrank == 0 && println("<Set_OLP_Kin>  Calculation of the overlap matrix")
 	Set_OLP_Kin!(OLP, Hkin, pao, system_grid)
-
+	GC.gc()
 
 
 	Nspecies = length(pao)
@@ -53,8 +53,8 @@ end
 	maxL = maximum([pao[spe].Spe_MaxL_Basis for spe = 1:Nspecies]) + BufferL_ProVNA
     VNATotal_Num = (maxL+1)^2 * maxM
 
-	DS_VNAforce = Vector{Vector{Vector{Matrix{Float64}}}}(undef, 4)
-	for xyz = 1:4
+	DS_VNAforce = Vector{Vector{Vector{Matrix{Float64}}}}(undef, 1)
+	for xyz = 1:1
 		DS_VNAforce[xyz] = Vector{Vector{Matrix{Float64}}}(undef, Natom+1)
 		for atom = 1:Natom+1
 			if atom == Natom+1
@@ -82,6 +82,7 @@ end
 		end
 	end
 
+	#=
 	HVNA2force = Vector{Vector{Vector{Vector{Vector{Float64}}}}}(undef, 3)
     HVNA3force = Vector{Vector{Vector{Vector{Vector{Float64}}}}}(undef, 3)
 	for xyz = 1:3
@@ -104,11 +105,12 @@ end
 				end
 			end
 		end
-	end
+	end=#
 
 	myrank == 0 && println("<Set_ProExpn_VNA>  Calculation of the VNA projector matrix")
-	Set_ProExpn_VNA!(DS_VNAforce, HVNA, HVNA2force, HVNA3force, pao, pspot, system_grid)
-
+	# Set_ProExpn_VNA!(DS_VNAforce, HVNA, HVNA2force, HVNA3force, pao, pspot, system_grid)
+	Set_ProExpn_VNA!(DS_VNAforce, HVNA, pao, pspot, system_grid)
+	GC.gc()
 
 
 
@@ -129,8 +131,8 @@ end
 
 	maxVPS_j_Num = maximum(VPS_j_Num)
 	maxNLTotal_Num = maximum(NLTotal_Num)
-    NLPforce = Vector{Vector{Vector{Vector{Matrix{Float64}}}}}(undef, 4)
-    for xyz = 1:4
+    NLPforce = Vector{Vector{Vector{Vector{Matrix{Float64}}}}}(undef, 1)
+    for xyz = 1:1
         NLPforce[xyz] = Vector{Vector{Vector{Matrix{Float64}}}}(undef, Natom+1)
         for atom = 1:Natom+1
             if atom == Natom+1
@@ -199,9 +201,10 @@ end
 	    
 	myrank == 0 && println("<Set_Nonlocal>  Calculation of the nonlocal matrix")
 	Set_Nonlocal!(SpinPol, NLPforce, HNL, iHNL, pao, pspot, system_grid)
-	
+	GC.gc()
 
-	return Hamiltonian(SpinPol, OLP, Hkin, HNL, iHNL, HVNA, NLPforce, DS_VNAforce, HVNA2force, HVNA3force)
+	# return Hamiltonian(SpinPol, OLP, Hkin, HNL, iHNL, HVNA, NLPforce, DS_VNAforce, HVNA2force, HVNA3force)
+	return Hamiltonian(SpinPol, OLP, Hkin, HNL, iHNL, HVNA)
 end
 
 

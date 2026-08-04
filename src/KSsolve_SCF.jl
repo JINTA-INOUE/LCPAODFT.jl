@@ -411,7 +411,7 @@ function KSsolve_SCF!(
     if verbosity>=1 && myrank==0
         println("")
         println("")
-        @show LCPAODFT.timer
+        Print_TimerOutput(LCPAODFT.timer, comm)
     end
 
 

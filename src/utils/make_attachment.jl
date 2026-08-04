@@ -24,7 +24,7 @@ function make_attachments(dft_mixing::Mixing)
     close(attachments)
 end
 
-
+#=
 function make_attachments(geo_optim::Geo_Optim)
 
     Natom = geo_optim.Natom
@@ -65,3 +65,4 @@ function make_attachments(geo_optim::Geo_Optim)
 
     close(attachments)
 end
+=#

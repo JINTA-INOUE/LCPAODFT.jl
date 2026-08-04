@@ -88,7 +88,7 @@ function DFT(dft_setup::DFT_Setup)
     MPI.Finalized()
 end
 
-
+#=
 function DFT(geoopt_setup::GeoOpt_Setup)
 
     comm = MPI.COMM_WORLD
@@ -294,3 +294,4 @@ function DFT(geoopt_setup::GeoOpt_Setup)
 
     MPI.Finalized()
 end
+=#
