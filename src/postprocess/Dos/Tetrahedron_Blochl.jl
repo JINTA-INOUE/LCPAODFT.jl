@@ -42,6 +42,7 @@ function ATM_Dos(et, e)
     e41 = et[4] - et[1]
     e42 = et[4] - et[2]
     e43 = et[4] - et[3]
+    dos = 0.0
     if e < et[1]
         dos = 0.0
     elseif e > et[1] && e < et[2]

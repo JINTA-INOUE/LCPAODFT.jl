@@ -1,29 +1,41 @@
 function Write_BANDDAT(filename::String, spin, kpath_start, kpath_end, kpath_Nk, Nkpath, Nfsize, Enk, ChemP, Recvecs)
 
-    k1 = 0.0
-    k2 = 0.0
-    k3 = 0.0
-    klen = 0.0
-    Band_file = open("$filename.BANDDAT$(spin)", "w")
-    for μ = 1:Nfsize
-        Sum = 0.0
-        for ik = 1:Nkpath
-            k1_tmp = kpath_start[ik][1]
-            k2_tmp = kpath_start[ik][2]
-            k3_tmp = kpath_start[ik][3]
-            for ipath = 1:kpath_Nk[ik]
-                k1 = kpath_start[ik][1] + (kpath_end[ik][1]-kpath_start[ik][1])*(ipath-1)/(kpath_Nk[ik]-1)
-                k2 = kpath_start[ik][2] + (kpath_end[ik][2]-kpath_start[ik][2])*(ipath-1)/(kpath_Nk[ik]-1)
-                k3 = kpath_start[ik][3] + (kpath_end[ik][3]-kpath_start[ik][3])*(ipath-1)/(kpath_Nk[ik]-1)
-            
-                klen = norm((k1-k1_tmp)*Recvecs[1,:] + (k2-k2_tmp)*Recvecs[2,:] + (k3-k3_tmp)*Recvecs[3,:])
-                @printf(Band_file, "%5.12f %5.12f\n", klen+Sum, (Enk[ik][ipath][μ]-ChemP)*eV2Hartree)
+    size(Enk, 1) == Nfsize || error("unexpected number of band energies")
+    size(Enk, 2) >= spin || error("requested spin channel is unavailable")
+    size(Enk, 3) == sum(kpath_Nk) || error("unexpected number of k points")
+
+    open("$filename.BANDDAT$(spin)", "w") do Band_file
+        for μ = 1:Nfsize
+            Sum = 0.0
+            global_k = 0
+            for ik = 1:Nkpath
+                k1_tmp = kpath_start[ik][1]
+                k2_tmp = kpath_start[ik][2]
+                k3_tmp = kpath_start[ik][3]
+                klen = 0.0
+                for ipath = 1:kpath_Nk[ik]
+                    global_k += 1
+                    fraction = (ipath - 1) / (kpath_Nk[ik] - 1)
+                    k1 = kpath_start[ik][1] +
+                         (kpath_end[ik][1] - kpath_start[ik][1]) * fraction
+                    k2 = kpath_start[ik][2] +
+                         (kpath_end[ik][2] - kpath_start[ik][2]) * fraction
+                    k3 = kpath_start[ik][3] +
+                         (kpath_end[ik][3] - kpath_start[ik][3]) * fraction
+
+                    klen = norm(
+                        (k1 - k1_tmp) * Recvecs[1, :] +
+                        (k2 - k2_tmp) * Recvecs[2, :] +
+                        (k3 - k3_tmp) * Recvecs[3, :],
+                    )
+                    energy = (Enk[μ, spin, global_k] - ChemP) * eV2Hartree
+                    @printf(Band_file, "%5.12f %5.12f\n", klen + Sum, energy)
+                end
+                Sum += klen
+                print(Band_file, "\n\n")
             end
-            Sum += klen
-            print(Band_file, "\n\n")
         end
     end
-    close(Band_file)
 end
 
 

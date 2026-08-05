@@ -1,478 +1,132 @@
-@timeit timer "Calc_TDF_decomp" function Calc_TDF_decomp(boltz_setup::Boltz_Setup, Enk, EVec, Vnk)
-    
+@timeit timer "Calc_TDF_decomp" function Calc_TDF_decomp(
+    boltz_setup::Boltz_Setup, Enk::BoltzHaloData,
+    EVec::BoltzHaloData, Vnk::BoltzHaloData,
+    halo_plan::BoltzHaloPlan)
+
     material = boltz_setup.material
     SpinPol = material.SpinPol
-    Nwann = material.Ngsize
-    filename = boltz_setup.filename
-    filepath = boltz_setup.filepath
-    kmesh = boltz_setup.kmesh
-    decomp = boltz_setup.decomp
+    spinsize = SpinPol == "on" ? 2 : 1
+    Nwann = Int(material.Ngsize)
     plane_type = boltz_setup.plane_type
-    Write_TDF = boltz_setup.Write_TDF
-    tau = boltz_setup.tau
-    TDF_Erange = boltz_setup.TDF_Erange
-    TDF_dE = boltz_setup.TDF_dE
+    ncomponents = plane_type ? 3 : 6
+    velocity_pairs = plane_type ?
+        ((1, 1), (1, 2), (2, 2)) :
+        ((1, 1), (1, 2), (2, 2), (1, 3), (2, 3), (3, 3))
 
-    if SpinPol ∈ ("off", "nc")
-        spinsize = 1
-    else
-        spinsize = 2
-    end
-
-    if plane_type
-        TDF_Energy, TDFdecomp = Calc_TDF_decomp_3element(boltz_setup, Enk, EVec, Vnk)
-    else
-        TDF_Energy, TDFdecomp = Calc_TDF_decomp_6element(boltz_setup, Enk, EVec, Vnk)
-    end
-
-
-    if Write_TDF
-        println("Write $(filename).TDFdecomp.jld2")
-        jldopen("$(filename).TDFdecomp.jld2", "w") do file
-            file["Dates"] = now()
-            file["filepath"] = filepath
-            file["SpinPol"] = SpinPol
-            file["spinsize"] = spinsize
-            file["Nwann"] = Nwann
-            file["kmesh"] = kmesh
-            file["decomp"] = decomp
-            file["plane_type"] = plane_type
-            file["tau"] = tau
-            file["TDF_Erange"] = TDF_Erange
-            file["TDF_dE"] = TDF_dE
-            file["TDF_Energy"] = TDF_Energy
-            file["TDFdecomp"] = TDFdecomp
-        end
-    end
-
-    
-    return TDF_Energy, TDFdecomp
-end
-
-
-function Calc_TDF_decomp_3element(boltz_setup::Boltz_Setup, Enk, EVec, Vnk)
-
-    material = boltz_setup.material
-    Latvecs = material.Latvecs
-    SpinPol = material.SpinPol
-    Nwann = material.Ngsize
-    kmesh = boltz_setup.kmesh
-    knum_i, knum_j, knum_k = kmesh
-    Nkpt = prod(kmesh)
-    tau = boltz_setup.tau
-    TDF_Erange = boltz_setup.TDF_Erange
-    TDF_dE = boltz_setup.TDF_dE
-    cell_volume_AU = abs(det(Latvecs))
-    cell_volume_Ang = cell_volume_AU/Ang_to_bohr^3
-
-    if SpinPol ∈ ("off", "nc")
-        spinsize = 1
-    else SpinPol == "on"
-        spinsize = 2
-    end
-
-
-    TDF_Emin, TDF_Emax = TDF_Erange
-    TDF_EneNum = floor(Int, (TDF_Emax-TDF_Emin)/TDF_dE)  # length of TDF
-
+    TDF_Emin, TDF_Emax = boltz_setup.TDF_Erange
+    TDF_EneNum = floor(Int, (TDF_Emax - TDF_Emin) / boltz_setup.TDF_dE)
+    TDF_EneNum >= 2 || error("the TDF energy grid must contain at least two points")
     TDF_Energy = zeros(Float64, TDF_EneNum)
-    TDF = Vector{Array{Float64,3}}(undef, Nwann)
-    for μ = 1:Nwann
-        TDF[μ] = zeros(Float64, TDF_EneNum, spinsize, 3)
-    end
-
     for ie = 1:TDF_EneNum
-        TDF_Energy[ie] = TDF_Emin + (TDF_Emax-TDF_Emin)*(ie-1)/(TDF_EneNum-1)
+        TDF_Energy[ie] = TDF_Emin +
+            (TDF_Emax - TDF_Emin) * (ie - 1) / (TDF_EneNum - 1)
     end
 
-
-    Nkpt = prod(kmesh)
-    kindex = zeros(Int64, Nkpt, 3)
-    kindex2 = zeros(Int64, knum_i, knum_j, knum_k)
-    kp = 0
-    for ik = 1:knum_i, jk = 1:knum_j, kk = 1:knum_k
-        kp += 1
-        kindex[kp,1] = ik
-        kindex[kp,2] = jk
-        kindex[kp,3] = kk
-        kindex2[ik,jk,kk] = kp
-    end
-
+    comm = MPI.COMM_WORLD
+    myrank = MPI.Comm_rank(comm)
+    local_TDF = zeros(Float64, TDF_EneNum, spinsize, ncomponents)
+    TDF_decomp = myrank == 0 ?
+        [similar(local_TDF) for _ = 1:Nwann] : nothing
 
     cell_e = zeros(Float64, 8)
-    cell_axx = zeros(Float64, 8)
-    cell_axy = zeros(Float64, 8)
-    cell_ayy = zeros(Float64, 8)
-    tetra_exx = zeros(Float64, 4)
-    tetra_exy = zeros(Float64, 4)
-    tetra_eyy = zeros(Float64, 4)
-    tetra_axx = zeros(Float64, 4)
-    tetra_axy = zeros(Float64, 4)
-    tetra_ayy = zeros(Float64, 4)
-    tetra_id = [1 2 3 6; 2 3 4 6; 3 4 6 8; 1 3 5 6; 3 5 6 7; 3 6 7 8]
+    cell_a = zeros(Float64, 8, ncomponents)
+    tetra_e = zeros(Float64, 4)
+    tetra_a = zeros(Float64, 4)
+    tetra_id = ((1, 2, 3, 6), (2, 3, 4, 6), (3, 4, 6, 8),
+                (1, 3, 5, 6), (3, 5, 6, 7), (3, 6, 7, 8))
 
-
-    # tetrahedron
-    for spin = 1:spinsize, ieg = 1:Nwann
-        for ik = 1:Nkpt, ist = 1:Nwann
-            i = kindex[ik,1]-1
-            j = kindex[ik,2]-1
-            k = kindex[ik,3]-1
-
-            for i_in = 0:1, j_in = 0:1, k_in = 0:1
-                ii = mod(i+i_in,knum_i)+1
-                jj = mod(j+j_in,knum_j)+1
-                kk = mod(k+k_in,knum_k)+1
-                cell_e[4*i_in+2*j_in+k_in+1] = Enk[spin][ii][jj][kk][ieg]
-
-                kp = kindex2[ii,jj,kk]
-                wval = EVec[spin][kp][ist][ieg]
-                vvalx = Vnk[spin][ii][jj][kk][1][ieg]
-                vvaly = Vnk[spin][ii][jj][kk][2][ieg]
-                cell_axx[4*i_in+2*j_in+k_in+1] = wval*vvalx^2
-                cell_axy[4*i_in+2*j_in+k_in+1] = wval*vvalx*vvaly
-                cell_ayy[4*i_in+2*j_in+k_in+1] = wval*vvaly^2
-            end
-
-            for itetra = 1:6
-                for ic = 1:4
-                    tetra_exx[ic] = cell_e[tetra_id[itetra,ic]]
-                    tetra_exy[ic] = cell_e[tetra_id[itetra,ic]]
-                    tetra_eyy[ic] = cell_e[tetra_id[itetra,ic]]
-                    tetra_axx[ic] = cell_axx[tetra_id[itetra,ic]]
-                    tetra_axy[ic] = cell_axy[tetra_id[itetra,ic]]
-                    tetra_ayy[ic] = cell_ayy[tetra_id[itetra,ic]]
-                end
-                
-
-                OrderE!(tetra_exx, tetra_axx, 4)
-                OrderE!(tetra_exy, tetra_axy, 4)
-                OrderE!(tetra_eyy, tetra_ayy, 4)
-                
-                xx = (tetra_exx[1]-TDF_Emin)/(TDF_Emax-TDF_Emin)*(TDF_EneNum-1)-1
-                iemin_xx = floor(Int,xx)
-                xx = (tetra_exx[4]-TDF_Emin)/(TDF_Emax-TDF_Emin)*(TDF_EneNum-1)+1
-                iemax_xx = floor(Int,xx)
-
-                xy = (tetra_exy[1]-TDF_Emin)/(TDF_Emax-TDF_Emin)*(TDF_EneNum-1)-1
-                iemin_xy = floor(Int,xy)
-                xy = (tetra_exy[4]-TDF_Emin)/(TDF_Emax-TDF_Emin)*(TDF_EneNum-1)+1
-                iemax_xy = floor(Int,xy)
-
-                yy = (tetra_eyy[1]-TDF_Emin)/(TDF_Emax-TDF_Emin)*(TDF_EneNum-1)-1
-                iemin_yy = floor(Int,yy)
-                yy = (tetra_eyy[4]-TDF_Emin)/(TDF_Emax-TDF_Emin)*(TDF_EneNum-1)+1
-                iemax_yy = floor(Int,yy)
-
-                # xx elements
-                if iemin_xx < 0
-                    iemin_xx = 0
-                end
-                if iemax_xx >= TDF_EneNum
-                    iemax_xx = TDF_EneNum - 1
-                end
-                if 0 < iemin_xx < TDF_EneNum && 0 <= iemax_xx < TDF_EneNum
-                    for ie = iemin_xx:iemax_xx
-                        resultxx = ATM_Spectrum(tetra_exx, tetra_axx, TDF_Energy[ie+1])
-                        TDF[ist][ie,spin,1] += resultxx
+    # Reduce one orbital at a time so non-root ranks never hold the complete
+    # decomposed output array.
+    for orbital = 1:Nwann
+        fill!(local_TDF, 0.0)
+        for spin = 1:spinsize, band = 1:Nwann
+            for cell_position = 1:halo_plan.nlocal
+                @inbounds for vertex = 1:8
+                    k_position =
+                        halo_plan.vertex_positions[vertex, cell_position]
+                    cell_e[vertex] =
+                        _boltz_halo_get(Enk, band, spin, k_position)
+                    weight = _boltz_halo_get(
+                        EVec, orbital, band, spin, k_position)
+                    for component = 1:ncomponents
+                        xyz1, xyz2 = velocity_pairs[component]
+                        velocity1 = _boltz_halo_get(
+                            Vnk, band, xyz1, spin, k_position)
+                        velocity2 = _boltz_halo_get(
+                            Vnk, band, xyz2, spin, k_position)
+                        cell_a[vertex, component] =
+                            weight * velocity1 * velocity2
                     end
                 end
 
-                # xy elements
-                if iemin_xy < 0
-                    iemin_xy = 0
-                end
-                if iemax_xy >= TDF_EneNum
-                    iemax_xy = TDF_EneNum - 1
-                end
-                if 0 < iemin_xy < TDF_EneNum && 0 <= iemax_xy < TDF_EneNum
-                    for ie = iemin_xy:iemax_xy
-                        resultxy = ATM_Spectrum(tetra_exy, tetra_axy, TDF_Energy[ie+1])
-                        TDF[ist][ie,spin,2] += resultxy
+                for vertices in tetra_id, component = 1:ncomponents
+                    @inbounds for ic = 1:4
+                        tetra_e[ic] = cell_e[vertices[ic]]
+                        tetra_a[ic] = cell_a[vertices[ic], component]
                     end
-                end
+                    OrderE!(tetra_e, tetra_a, 4)
 
-                # yy elements
-                if iemin_yy < 0
-                    iemin_yy = 0
-                end
-                if iemax_yy >= TDF_EneNum
-                    iemax_yy = TDF_EneNum - 1
-                end
-                if 0 < iemin_yy < TDF_EneNum && 0 <= iemax_yy < TDF_EneNum
-                    for ie = iemin_yy:iemax_yy
-                        resultyy = ATM_Spectrum(tetra_eyy, tetra_ayy, TDF_Energy[ie+1])
-                        TDF[ist][ie,spin,3] += resultyy
+                    # Keep the established decomposition indexing convention.
+                    first_energy = floor(Int,
+                        (tetra_e[1] - TDF_Emin) /
+                        (TDF_Emax - TDF_Emin) * (TDF_EneNum - 1) - 1)
+                    last_energy = floor(Int,
+                        (tetra_e[4] - TDF_Emin) /
+                        (TDF_Emax - TDF_Emin) * (TDF_EneNum - 1) + 1)
+                    first_energy = max(first_energy, 0)
+                    last_energy = min(last_energy, TDF_EneNum - 1)
+
+                    if 0 < first_energy < TDF_EneNum &&
+                       0 <= last_energy < TDF_EneNum &&
+                       first_energy <= last_energy
+                        for ie = first_energy:last_energy
+                            local_TDF[ie, spin, component] +=
+                                ATM_Spectrum(tetra_e, tetra_a,
+                                             TDF_Energy[ie + 1])
+                        end
                     end
                 end
             end
         end
+
+        if myrank == 0
+            MPI.Reduce!(local_TDF, TDF_decomp[orbital],
+                        MPI.SUM, comm; root=0)
+        else
+            MPI.Reduce!(local_TDF, nothing, MPI.SUM, comm; root=0)
+        end
     end
 
-    
-    factor = 1/knum_i/knum_j/knum_k/6
-    for ist = 1:Nwann, spin = 1:spinsize, ie = 1:TDF_EneNum
-        TDF[ist][ie,spin,1] = TDF[ist][ie,spin,1]*factor*tau/cell_volume_Ang   # xx elements
-        TDF[ist][ie,spin,2] = TDF[ist][ie,spin,2]*factor*tau/cell_volume_Ang   # xy elements
-        TDF[ist][ie,spin,3] = TDF[ist][ie,spin,3]*factor*tau/cell_volume_Ang   # yy elements
-    end
+    if myrank == 0
+        cell_volume_Ang = abs(det(material.Latvecs)) / Ang_to_bohr^3
+        factor = boltz_setup.tau /
+                 (prod(boltz_setup.kmesh) * 6 * cell_volume_Ang)
+        for orbital = 1:Nwann
+            TDF_decomp[orbital] .*= factor
+        end
 
-
-    return TDF_Energy, TDF
-end
-
-
-function Calc_TDF_decomp_6element(boltz_setup::Boltz_Setup, Enk, EVec, Vnk)
-
-    material = boltz_setup.material
-    Latvecs = material.Latvecs
-    SpinPol = material.SpinPol
-    Nwann = material.Ngsize
-    kmesh = boltz_setup.kmesh
-    knum_i, knum_j, knum_k = kmesh
-    Nkpt = prod(kmesh)
-    tau = boltz_setup.tau
-    TDF_Erange = boltz_setup.TDF_Erange
-    TDF_dE = boltz_setup.TDF_dE
-    cell_volume_AU = abs(det(Latvecs))
-    cell_volume_Ang = cell_volume_AU/Ang_to_bohr^3
-
-    if SpinPol ∈ ("off", "nc")
-        spinsize = 1
-    else SpinPol == "on"
-        spinsize = 2
-    end
-
-
-    TDF_Emin, TDF_Emax = TDF_Erange
-    TDF_EneNum = floor(Int, (TDF_Emax-TDF_Emin)/TDF_dE)  # length of TDF
-
-    TDF_Energy = zeros(Float64, TDF_EneNum)
-    TDF = Vector{Array{Float64,3}}(undef, Nwann)
-    for μ = 1:Nwann
-        TDF[μ] = zeros(Float64, TDF_EneNum, spinsize, 6)
-    end
-
-    for ie = 1:TDF_EneNum
-        TDF_Energy[ie] = TDF_Emin + (TDF_Emax-TDF_Emin)*(ie-1)/(TDF_EneNum-1)
-    end
-
-
-    Nkpt = prod(kmesh)
-    kindex = zeros(Int64, Nkpt, 3)
-    kindex2 = zeros(Int64, knum_i, knum_j, knum_k)
-    kp = 0
-    for ik = 1:knum_i, jk = 1:knum_j, kk = 1:knum_k
-        kp += 1
-        kindex[kp,1] = ik
-        kindex[kp,2] = jk
-        kindex[kp,3] = kk
-        kindex2[ik,jk,kk] = kp
-    end
-
-
-    cell_e = zeros(Float64, 8)
-    cell_axx = zeros(Float64, 8)
-    cell_axy = zeros(Float64, 8)
-    cell_axz = zeros(Float64, 8)
-    cell_ayy = zeros(Float64, 8)
-    cell_ayz = zeros(Float64, 8)
-    cell_azz = zeros(Float64, 8)
-    tetra_exx = zeros(Float64, 4)
-    tetra_exy = zeros(Float64, 4)
-    tetra_exz = zeros(Float64, 4)
-    tetra_eyy = zeros(Float64, 4)
-    tetra_eyz = zeros(Float64, 4)
-    tetra_ezz = zeros(Float64, 4)
-    tetra_axx = zeros(Float64, 4)
-    tetra_axy = zeros(Float64, 4)
-    tetra_axz = zeros(Float64, 4)
-    tetra_ayy = zeros(Float64, 4)
-    tetra_ayz = zeros(Float64, 4)
-    tetra_azz = zeros(Float64, 4)
-    tetra_id = [1 2 3 6; 2 3 4 6; 3 4 6 8; 1 3 5 6; 3 5 6 7; 3 6 7 8]
-
-
-    # tetrahedron
-    for spin = 1:spinsize, ieg = 1:Nwann
-        for ik = 1:Nkpt, ist = 1:Nwann
-
-            i = kindex[ik,1]-1
-            j = kindex[ik,2]-1
-            k = kindex[ik,3]-1
-
-            for i_in = 0:1, j_in = 0:1, k_in = 0:1
-                ii = mod(i+i_in,knum_i)+1
-                jj = mod(j+j_in,knum_j)+1
-                kk = mod(k+k_in,knum_k)+1
-                cell_e[4*i_in+2*j_in+k_in+1] = Enk[spin][ii][jj][kk][ieg]
-
-                kp = kindex2[ii,jj,kk]
-                wval = EVec[spin][kp][ist][ieg]
-                vvalx = Vnk[spin][ii][jj][kk][1][ieg]
-                vvaly = Vnk[spin][ii][jj][kk][2][ieg]
-                vvalz = Vnk[spin][ii][jj][kk][3][ieg]
-                cell_axx[4*i_in+2*j_in+k_in+1] = wval*vvalx^2
-                cell_axy[4*i_in+2*j_in+k_in+1] = wval*vvalx*vvaly
-                cell_axz[4*i_in+2*j_in+k_in+1] = wval*vvalx*vvalz
-                cell_ayy[4*i_in+2*j_in+k_in+1] = wval*vvaly^2
-                cell_ayz[4*i_in+2*j_in+k_in+1] = wval*vvaly*vvalz
-                cell_azz[4*i_in+2*j_in+k_in+1] = wval*vvalz^2
-            end
-
-            for itetra = 1:6
-                for ic = 1:4
-                    tetra_exx[ic] = cell_e[tetra_id[itetra,ic]]
-                    tetra_exy[ic] = cell_e[tetra_id[itetra,ic]]
-                    tetra_exz[ic] = cell_e[tetra_id[itetra,ic]]
-                    tetra_eyy[ic] = cell_e[tetra_id[itetra,ic]]
-                    tetra_eyz[ic] = cell_e[tetra_id[itetra,ic]]
-                    tetra_ezz[ic] = cell_e[tetra_id[itetra,ic]]
-                    tetra_axx[ic] = cell_axx[tetra_id[itetra,ic]]
-                    tetra_axy[ic] = cell_axy[tetra_id[itetra,ic]]
-                    tetra_axz[ic] = cell_axz[tetra_id[itetra,ic]]
-                    tetra_ayy[ic] = cell_ayy[tetra_id[itetra,ic]]
-                    tetra_ayz[ic] = cell_ayz[tetra_id[itetra,ic]]
-                    tetra_azz[ic] = cell_azz[tetra_id[itetra,ic]]
-                end
-                
-
-                OrderE!(tetra_exx, tetra_axx, 4)
-                OrderE!(tetra_exy, tetra_axy, 4)
-                OrderE!(tetra_exz, tetra_axz, 4)
-                OrderE!(tetra_eyy, tetra_ayy, 4)
-                OrderE!(tetra_eyz, tetra_ayz, 4)
-                OrderE!(tetra_ezz, tetra_azz, 4)
-                
-                xx = (tetra_exx[1]-TDF_Emin)/(TDF_Emax-TDF_Emin)*(TDF_EneNum-1)-1
-                iemin_xx = floor(Int,xx)
-                xx = (tetra_exx[4]-TDF_Emin)/(TDF_Emax-TDF_Emin)*(TDF_EneNum-1)+1
-                iemax_xx = floor(Int,xx)
-
-                xy = (tetra_exy[1]-TDF_Emin)/(TDF_Emax-TDF_Emin)*(TDF_EneNum-1)-1
-                iemin_xy = floor(Int,xy)
-                xy = (tetra_exy[4]-TDF_Emin)/(TDF_Emax-TDF_Emin)*(TDF_EneNum-1)+1
-                iemax_xy = floor(Int,xy)
-
-                xz = (tetra_exz[1]-TDF_Emin)/(TDF_Emax-TDF_Emin)*(TDF_EneNum-1)-1
-                iemin_xz = floor(Int,xz)
-                xz = (tetra_exz[4]-TDF_Emin)/(TDF_Emax-TDF_Emin)*(TDF_EneNum-1)+1
-                iemax_xz = floor(Int,xz)
-
-                yy = (tetra_eyy[1]-TDF_Emin)/(TDF_Emax-TDF_Emin)*(TDF_EneNum-1)-1
-                iemin_yy = floor(Int,yy)
-                yy = (tetra_eyy[4]-TDF_Emin)/(TDF_Emax-TDF_Emin)*(TDF_EneNum-1)+1
-                iemax_yy = floor(Int,yy)
-
-                yz = (tetra_eyz[1]-TDF_Emin)/(TDF_Emax-TDF_Emin)*(TDF_EneNum-1)-1
-                iemin_yz = floor(Int,yz)
-                yz = (tetra_eyz[4]-TDF_Emin)/(TDF_Emax-TDF_Emin)*(TDF_EneNum-1)+1
-                iemax_yz = floor(Int,yz)
-
-                zz = (tetra_ezz[1]-TDF_Emin)/(TDF_Emax-TDF_Emin)*(TDF_EneNum-1)-1
-                iemin_zz = floor(Int,zz)
-                zz = (tetra_ezz[4]-TDF_Emin)/(TDF_Emax-TDF_Emin)*(TDF_EneNum-1)+1
-                iemax_zz = floor(Int,zz)
-
-                # xx elements
-                if iemin_xx < 0
-                    iemin_xx = 0
-                end
-                if iemax_xx >= TDF_EneNum
-                    iemax_xx = TDF_EneNum - 1
-                end
-                if 0 < iemin_xx < TDF_EneNum && 0 <= iemax_xx < TDF_EneNum
-                    for ie = iemin_xx:iemax_xx
-                        resultxx = ATM_Spectrum(tetra_exx, tetra_axx, TDF_Energy[ie+1])
-                        TDF[ist][ie,spin,1] += resultxx
-                    end
-                end
-
-                # xy elements
-                if iemin_xy < 0
-                    iemin_xy = 0
-                end
-                if iemax_xy >= TDF_EneNum
-                    iemax_xy = TDF_EneNum - 1
-                end
-                if 0 < iemin_xy < TDF_EneNum && 0 <= iemax_xy < TDF_EneNum
-                    for ie = iemin_xy:iemax_xy
-                        resultxy = ATM_Spectrum(tetra_exy, tetra_axy, TDF_Energy[ie+1])
-                        TDF[ist][ie,spin,2] += resultxy
-                    end
-                end
-
-                # xz elements
-                if iemin_xz < 0
-                    iemin_xz = 0
-                end
-                if iemax_xz >= TDF_EneNum
-                    iemax_xz = TDF_EneNum - 1
-                end
-                if 0 < iemin_xz < TDF_EneNum && 0 <= iemax_xz < TDF_EneNum
-                    for ie = iemin_xz:iemax_xz
-                        resultxz = ATM_Spectrum(tetra_exz, tetra_axz, TDF_Energy[ie+1])
-                        TDF[ist][ie,spin,4] += resultxz
-                    end
-                end
-
-                # yy elements
-                if iemin_yy < 0
-                    iemin_yy = 0
-                end
-                if iemax_yy >= TDF_EneNum
-                    iemax_yy = TDF_EneNum - 1
-                end
-                if 0 < iemin_yy < TDF_EneNum && 0 <= iemax_yy < TDF_EneNum
-                    for ie = iemin_yy:iemax_yy
-                        resultyy = ATM_Spectrum(tetra_eyy, tetra_ayy, TDF_Energy[ie+1])
-                        TDF[ist][ie,spin,3] += resultyy
-                    end
-                end
-
-                # yz elements
-                if iemin_yz < 0
-                    iemin_yz = 0
-                end
-                if iemax_yz >= TDF_EneNum
-                    iemax_yz = TDF_EneNum - 1
-                end
-                if 0 < iemin_yz < TDF_EneNum && 0 <= iemax_yz < TDF_EneNum
-                    for ie = iemin_yz:iemax_yz
-                        resultyz = ATM_Spectrum(tetra_eyz, tetra_ayz, TDF_Energy[ie+1])
-                        TDF[ist][ie,spin,5] += resultyz
-                    end
-                end
-
-                # zz elements
-                if iemin_zz < 0
-                    iemin_zz = 0
-                end
-                if iemax_zz >= TDF_EneNum
-                    iemax_zz = TDF_EneNum - 1
-                end
-                if 0 < iemin_zz < TDF_EneNum && 0 <= iemax_zz < TDF_EneNum
-                    for ie = iemin_zz:iemax_zz
-                        resultzz = ATM_Spectrum(tetra_ezz, tetra_azz, TDF_Energy[ie+1])
-                        TDF[ist][ie,spin,6] += resultzz
-                    end
-                end
+        if boltz_setup.Write_TDF
+            println("Write $(boltz_setup.filename).TDFdecomp.jld2")
+            jldopen("$(boltz_setup.filename).TDFdecomp.jld2", "w") do file
+                file["Dates"] = now()
+                file["filepath"] = boltz_setup.filepath
+                file["SpinPol"] = SpinPol
+                file["spinsize"] = spinsize
+                file["Nwann"] = Nwann
+                file["kmesh"] = boltz_setup.kmesh
+                file["decomp"] = boltz_setup.decomp
+                file["plane_type"] = plane_type
+                file["tau"] = boltz_setup.tau
+                file["TDF_Erange"] = boltz_setup.TDF_Erange
+                file["TDF_dE"] = boltz_setup.TDF_dE
+                file["TDF_Energy"] = TDF_Energy
+                file["TDFdecomp"] = TDF_decomp
             end
         end
     end
 
-    
-    factor = 1/knum_i/knum_j/knum_k/6
-
-    for ist = 1:Nwann, spin = 1:spinsize, ie = 1:TDF_EneNum
-        TDF[ist][ie,spin,1] = TDF[ist][ie,spin,1]*factor*tau/cell_volume_Ang   # xx elements
-        TDF[ist][ie,spin,2] = TDF[ist][ie,spin,2]*factor*tau/cell_volume_Ang   # xy elements
-        TDF[ist][ie,spin,3] = TDF[ist][ie,spin,3]*factor*tau/cell_volume_Ang   # yy elements
-        TDF[ist][ie,spin,4] = TDF[ist][ie,spin,4]*factor*tau/cell_volume_Ang   # xz elements
-        TDF[ist][ie,spin,5] = TDF[ist][ie,spin,5]*factor*tau/cell_volume_Ang   # yz elements
-        TDF[ist][ie,spin,6] = TDF[ist][ie,spin,6]*factor*tau/cell_volume_Ang   # zz elements
-    end
+    MPI.Barrier(comm)
 
 
-    return TDF_Energy, TDF
+    return TDF_Energy, TDF_decomp
 end
