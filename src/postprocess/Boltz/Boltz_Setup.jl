@@ -10,37 +10,24 @@ struct Boltz_Setup
     decomp::Bool
     muE::Vector{Float64}
     TDF_Erange::Vector{Float64}
-    TDF_dE::Float64         # TDF Enegry size
+    TDF_dE::Float64
     Write_TDF::Bool
 end
 
 
 function Print_Boltz_Setup(boltz_setup::Boltz_Setup)
-
-    filename = boltz_setup.filename    
-    kmesh = boltz_setup.kmesh
-    mat_type = boltz_setup.mat_type
-    tau = boltz_setup.tau
-    plane_type = boltz_setup.plane_type
-    Temp = boltz_setup.Temp
-    decomp = boltz_setup.decomp
-    muE = boltz_setup.muE
-    TDF_Erange = boltz_setup.TDF_Erange
-    TDF_dE = boltz_setup.TDF_dE
-    Write_TDF = boltz_setup.Write_TDF
-
     println("<Print_Boltz_Setup>")
-    println("\tkmesh : $(kmesh)")
-    println("\tmat_type : $(mat_type)")
-    println("\ttau : $(tau)")
-    println("\tplane_type : $(plane_type)")
-    println("\tTemperature : $(Temp)")
-    println("\tdecomp : $(decomp)")
-    println("\tmuE : $(muE)")
-    println("\tTDF_Erange : $(TDF_Erange)")
-    println("\tTDF_dE : $(TDF_dE)")
-    println("\tWrite_TDF : $(Write_TDF)")
-    println("\tfilename : $(filename)")
+    println("\tkmesh : $(boltz_setup.kmesh)")
+    println("\tmat_type : $(boltz_setup.mat_type)")
+    println("\ttau : $(boltz_setup.tau)")
+    println("\tplane_type : $(boltz_setup.plane_type)")
+    println("\tTemperature : $(boltz_setup.Temp)")
+    println("\tdecomp : $(boltz_setup.decomp)")
+    println("\tmuE : $(boltz_setup.muE)")
+    println("\tTDF_Erange : $(boltz_setup.TDF_Erange)")
+    println("\tTDF_dE : $(boltz_setup.TDF_dE)")
+    println("\tWrite_TDF : $(boltz_setup.Write_TDF)")
+    println("\tfilename : $(boltz_setup.filename)")
 end
 
 
@@ -48,98 +35,74 @@ function Boltz_Setup(
     filepath::String,
     kmesh::Tuple{Signed,Signed,Signed},
     TDF_Erange::Vector{Float64},
-    _Temp::Union{AbstractFloat,Vector{AbstractFloat}};
-    TDF_dE = 0.01,
-    tau = 10.0,
-    plane_type::Bool = false,
-    decomp::Bool = false,
-    muE::Union{Float64,Vector{Float64}} = [1000.0],
-    Write_TDF::Bool = true,
-    filename = nothing)
-    
+    _Temp::Union{Real,AbstractVector{<:Real}};
+    TDF_dE=0.01,
+    tau=10.0,
+    plane_type::Bool=false,
+    decomp::Bool=false,
+    muE::Union{Real,AbstractVector{<:Real}}=[1000.0],
+    Write_TDF::Bool=false,
+    filename=nothing)
 
-    MPI.Init()
+    Threads.nthreads() == 1 || error(
+        "MPI-flat Boltz requires exactly one Julia thread per MPI process; " *
+        "start Julia with --threads=1",
+    )
+    provided_thread_level = MPI.Init(; threadlevel=:single)
     comm = MPI.COMM_WORLD
     nprocs = MPI.Comm_size(comm)
     myrank = MPI.Comm_rank(comm)
-
-
-    nthreads = Threads.nthreads()
-    # BLAS.set_num_threads(1)
-    nblas = BLAS.get_num_threads()
-    # println("\t$nthreads threads and $nblas BLAS threads")
-    # println("\t$(now())")
-    # println("")
-
-
+    BLAS.set_num_threads(1)
     LCPAODFT.reset_timer!(LCPAODFT.timer)
 
+    all(>(0), kmesh) || error("all kmesh dimensions must be positive")
+    length(TDF_Erange) == 2 || error("TDF_Erange must contain its lower and upper limits")
+    TDF_Erange[1] < TDF_Erange[2] || error("TDF_Erange must be strictly increasing")
+    TDF_dE > 0 || error("TDF_dE must be positive")
+    tau > 0 || error("tau must be positive")
+    plane_type && kmesh[3] != 1 && error("plane_type=true requires kmesh[3] == 1")
 
-    model = select_model(filepath)
-
-
-    if nprocs > 1
-        error("please run serial.")
-    end
-
-    NTemp = length(_Temp)
-    Temp = zeros(Float64, NTemp)
-    for i = 1:NTemp
-        Temp[i] = _Temp[i]
-    end
-
+    Temp = _Temp isa AbstractVector ? Float64.(_Temp) : [Float64(_Temp)]
+    isempty(Temp) && error("at least one temperature is required")
+    all(>(0), Temp) || error("all temperatures must be positive")
+    mu_values = muE isa AbstractVector ? Float64.(muE) : [Float64(muE)]
 
     if decomp
-        if muE[1] == 1000.0
-            error("please check muE")
-        end
-
-        for mu in muE
-            if !(TDF_Erange[1] < mu < TDF_Erange[2])
-                error("please check muE.")
-            end
+        mu_values[1] == 1000.0 && error("please check muE")
+        for mu in mu_values
+            TDF_Erange[1] < mu < TDF_Erange[2] || error("each muE value must lie inside TDF_Erange")
         end
     end
 
+    model = select_model(filepath)
+    model == 1 && error("transport is not supported for LCPAO models")
 
-    if model == 1 && decomp
-        error("not support PAO decomp")
+    if myrank == 0
+        println("<Boltz MPI-flat configuration>")
+        println("\t$nprocs MPI processes × 1 Julia thread")
+        println("\t$(BLAS.get_num_threads()) BLAS thread per process")
+        println("\tMPI thread level: $provided_thread_level")
     end
 
-
-
-    if model == 1
-        mat_type = "LCPAO"
-        material = Load_LCPAODFT_model(filepath)
-        myrank == 0 && Print_LCPAO_model(filepath, material)
-    elseif model == 2
+    if model == 2
         mat_type = "CWF"
         material = Load_CWF_model(filepath)
         myrank == 0 && Print_CWF_model(filepath, material)
     else
-        error("please check filepath.")
+        error("unsupported model file: $filepath")
     end
     MPI.Barrier(comm)
 
-
-    if isnothing(filename)
-        filename = split(filepath, ".")[begin]
-    end
-
-
+    output_filename = isnothing(filename) ? splitext(filepath)[1] : String(filename)
     boltz_setup = Boltz_Setup(
-        filepath, filename, 
-        material, mat_type, 
-        kmesh, tau, plane_type, Temp, decomp,
-        muE, TDF_Erange, TDF_dE, Write_TDF
-    ) 
+        filepath, output_filename, material, mat_type,
+        Tuple(Int32.(kmesh)), Float64(tau), plane_type, Temp, decomp,
+        mu_values, TDF_Erange, Float64(TDF_dE), Write_TDF,
+    )
 
-
-    if myrank == 0
-        Print_Boltz_Setup(boltz_setup)
-    end
+    myrank == 0 && Print_Boltz_Setup(boltz_setup)
     MPI.Barrier(comm)
-    
 
+    
     return boltz_setup
 end
