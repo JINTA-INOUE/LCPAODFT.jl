@@ -95,10 +95,8 @@ function Generate_CWF(cwf_setup::CWF_Setup)
 
 
 
-    if verbose>=1 && myrank==0
-        println("")
-        @show LCPAODFT.timer
-    end
+    myrank == 0 && println("")
+    Print_TimerOutput(LCPAODFT.timer, comm)
     MPI.Finalized()
 end
 
@@ -214,9 +212,7 @@ function Generate_CWF(cwf_setup::CWF_Setup_MO)
 
 
 
-    if verbose>=1 && myrank==0
-        println("")
-        @show LCPAODFT.timer
-    end
+    myrank == 0 && println("")
+    Print_TimerOutput(LCPAODFT.timer, comm)
     MPI.Finalized()
 end

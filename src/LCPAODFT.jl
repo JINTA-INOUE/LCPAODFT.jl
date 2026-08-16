@@ -13,6 +13,7 @@ using Printf
 using Dates
 using MPI
 using PrecompileTools
+using MKL
 
 
 const Ang_to_bohr = 1.8897259886
@@ -51,8 +52,8 @@ export Radial_kmin
 
 
 # For Set_Density_Grid, Set_Hamiltonian
-const density_block_size = 512
-const ham_block_size = 512
+const density_block_size = 64
+const ham_block_size = 64
 
 
 # For VNA

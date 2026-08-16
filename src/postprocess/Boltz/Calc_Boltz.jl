@@ -55,10 +55,6 @@ function Calc_Boltz(boltz_setup::Boltz_Setup)
         end
     end
 
-    MPI.Barrier(comm)
-    if myrank == 0
-        println()
-        println("Boltz MPI-flat completed with $nprocs MPI processes")
-        @show LCPAODFT.timer
-    end
+    myrank == 0 && println("")
+    Print_TimerOutput(LCPAODFT.timer, comm)
 end
