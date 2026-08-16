@@ -1,5 +1,9 @@
 @timeit timer "Set_AdenPCC_Grid" function Set_AdenPCC_Grid(SpinPol::AbstractString, Init_Atoms_Nspin, Init_Atoms_Angle, pao::Vector{PAO}, pspot::Vector{Pspot}, ucell::UCell)
 
+    comm = MPI.COMM_WORLD
+    nprocs = MPI.Comm_size(comm)
+    myrank = MPI.Comm_rank(comm)
+    
     system_grid = ucell.system_grid
     Latvecs = system_grid.Latvecs
     Natom = system_grid.Natom
@@ -31,17 +35,26 @@
 	gLatvecs[3,:] = Latvecs[3,:]/Ngrid3
          
 
+    Allatom = zeros(Int64, Natom)
+    for atom = 1:Natom
+        Allatom[atom] = atom
+    end
+
+    myrange = split_evenly(1:Natom, nprocs)
+    MPI_atom = Allatom[myrange[myrank+1]]
+    Nloop = length(MPI_atom)
+
     ADensity_Grid = zeros(Float64, NN)
     PCCDensity_Grid = zeros(Float64, NN)
-
     Density_Grid = Vector{Vector{Float64}}(undef, Nspin)
     for spin = 1:Nspin
         Density_Grid[spin] = zeros(Float64, NN)
     end
 
 
-    for atom = 1:Natom
+    for loop = 1:Nloop
 
+        atom = MPI_atom[loop]
         spe = atom2spe[atom]
         Spe_Num_Mesh_PAO = pao[spe].Spe_Num_Mesh_PAO
         Spe_PAO_RV = pao[spe].Spe_PAO_RV
@@ -102,6 +115,13 @@
     end
 
 
+    MPI.Allreduce!(ADensity_Grid, MPI.SUM, comm)
+    MPI.Allreduce!(PCCDensity_Grid, MPI.SUM, comm)
+    for spin = 1:Nspin
+        MPI.Allreduce!(Density_Grid[spin], MPI.SUM, comm)
+    end
+
+
     if SpinPol == "nc"
         @inbounds for i = 1:NN
             rho  = Density_Grid[1][i]
@@ -115,6 +135,7 @@
             Density_Grid[4][i] = -0.5*magy
         end
     end
+
 
 
     return ADensity_Grid, PCCDensity_Grid, Density_Grid

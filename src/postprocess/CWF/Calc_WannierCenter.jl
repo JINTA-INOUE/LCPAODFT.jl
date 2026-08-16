@@ -75,11 +75,13 @@ function Calc_WannierCenter(cwf_setup::Union{CWF_Setup,CWF_Setup_MO}, filepath::
 
 
     material = cwf_setup.material
+    Nspin = material.Nspin
     Latvecs = material.Latvecs
     Natom = material.Natom
     Nspecies = material.Nspecies
     atom2spe = material.atom2spe
     Gxyz = material.Gxyz
+    TCpyCell = material.TCpyCell
     Atoms_pao = material.Atoms_pao
     Total_NumOrbs = material.Total_NumOrbs
     fsize = sum(Total_NumOrbs)
@@ -99,7 +101,7 @@ function Calc_WannierCenter(cwf_setup::Union{CWF_Setup,CWF_Setup_MO}, filepath::
         pao[spe] = Read_PAO(0.0, Spe_symbol[spe], Spe_cutoff[spe], Spe_orb[spe], Spe_extra[spe])
     end
         
-    ucell = UCell(Latvecs, Natom, atom2spe, Gxyz, Atoms_Cut1, Ngrid, Grid_Origin; Total_NumOrbs)
+    ucell = UCell(Nspin, TCpyCell, Latvecs, Natom, atom2spe, Gxyz, Atoms_Cut1, Ngrid, Grid_Origin, Total_NumOrbs)
     Orbs_Grid = Set_Orbitals_Grid(pao, ucell)
 
     GridVol = ucell.system_grid.GridVol

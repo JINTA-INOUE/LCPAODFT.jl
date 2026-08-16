@@ -42,6 +42,8 @@ struct DFT_Setup
     Hub_Type::String
     dc_Type::String
     time_rev::Bool
+    cal_force::Bool
+    cal_mode::Int32
     fileout::Bool
     filename::String
     restart::Bool
@@ -118,6 +120,8 @@ function Print_DFT_Setup(dft_setup::DFT_Setup)
     E_Temp = dft_setup.E_Temp
     kmesh = dft_setup.kmesh
     time_rev = dft_setup.time_rev
+    cal_force = dft_setup.cal_force
+    cal_mode = dft_setup.cal_mode
     println("")
     println("<SCF Setup>")
     println("\tSystem : $(system)")
@@ -127,6 +131,8 @@ function Print_DFT_Setup(dft_setup::DFT_Setup)
     println("\tElectron Temperatue : $(E_Temp)")
     println("\tBrillouin zone sampling : $(kmesh)")
     println("\ttime reversal symmetry : $(time_rev)")
+    println("\tcal_force : $(cal_force)")
+    println("\tcal_mode : $(cal_mode)")
 
 
 
@@ -304,6 +310,7 @@ function DFT_Setup(
     Start_Pulay_SCF::Signed = 6,
     E_Temp::Union{AbstractFloat,Signed} = 300.0,
     kmesh::Tuple{Signed,Signed,Signed} = (1,1,1),
+    cal_mode::Singed = 1,
     Hub_U::Bool = false,
     Hub_U_atom::Union{Nothing,Vector{Vector{Float64}}} = nothing,
     Hub_U_occ::AbstractString = "dual",
@@ -338,6 +345,8 @@ function DFT_Setup(
     Start_Pulay_SCF::Signed = 6,
     E_Temp::Union{AbstractFloat,Signed} = 300.0,
     kmesh::Tuple{Signed,Signed,Signed} = (1,1,1),
+    cal_force::Bool = false,
+    cal_mode::Signed = 1,
     Hub_U::Bool = false,
     Hub_U_atom::Union{Nothing,Vector{Vector{Float64}}} = nothing,
     Hub_U_orbpol::Union{Nothing,Vector{Bool}} = nothing,
@@ -359,15 +368,13 @@ function DFT_Setup(
     BLAS.set_num_threads(1)
     nthreads = Threads.nthreads()
     nblas = BLAS.get_num_threads()
-    MKL.set_num_threads(1)
 
     if myrank == 0 && verbosity >= 1
-        cpu_info = Sys.cpu_info()[1]
-        println("\t$cpu_info")
-        println("")
+        # cpu_info = Sys.cpu_info()[1]
+        # println("\t$cpu_info")
+        # println("")
         println("<DFT MPI process/BLAS>")
         println("\t$nprocs MPI processes and $nthreads threads, $nblas BLAS threads")
-        println("$(BLAS.get_config())")
         println("\t$(now())")
         println("")
     end
@@ -490,6 +497,10 @@ function DFT_Setup(
 
     if kmesh[1] <= 0 || kmesh[2] <= 0 || kmesh[3] <= 0
         error("please check kmesh")
+    end
+
+    if cal_mode ∉ (1, 2)
+        throw(ArgumentError("cal_mode must be either 1 or 2 (got $cal_mode)"))
     end
 
     if SpinPol ∈ ("off", "on") && system == "Crystal" && nprocs > div(prod(kmesh),2)
@@ -763,7 +774,7 @@ function DFT_Setup(
         Init_Mixing_weight, Min_Mixing_weight, Max_Mixing_weight, Num_Mixing_Pulay,
         Start_Pulay_SCF, E_Temp, kmesh, symmetry,
         Hub_U, Hub_U_atom, Hub_U_orbpol, Hub_U_occ, Hub_Type, dc_Type,
-        time_rev, fileout, filename2, restart, filepath2, send_email, verbosity
+        time_rev, cal_force, cal_mode, fileout, filename2, restart, filepath2, send_email, verbosity
     )
 
 

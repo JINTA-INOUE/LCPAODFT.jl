@@ -1,3 +1,28 @@
+struct PackedOrbitalsGrid
+    data::Vector{Matrix{Float64}}
+end
+
+struct _PackedAtomOrbitals{M<:AbstractMatrix{Float64}}
+    data::M
+end
+
+struct _PackedOrbitalColumn{M<:AbstractMatrix{Float64}}
+    data::M
+    column::Int
+end
+
+Base.length(grid::PackedOrbitalsGrid) = length(grid.data)
+@inline Base.getindex(grid::PackedOrbitalsGrid, atom::Integer) = _PackedAtomOrbitals(@inbounds grid.data[Int(atom)])
+Base.length(atom::_PackedAtomOrbitals) = size(atom.data, 2)
+@inline Base.getindex(atom::_PackedAtomOrbitals, column::Integer) = _PackedOrbitalColumn(atom.data, Int(column))
+Base.length(column::_PackedOrbitalColumn) = size(column.data, 1)
+@inline Base.getindex(column::_PackedOrbitalColumn, orbital::Integer) = @inbounds column.data[Int(orbital), column.column]
+@inline function Base.setindex!(column::_PackedOrbitalColumn, value, orbital::Integer)
+    @inbounds column.data[Int(orbital), column.column] = value
+    return value
+end
+
+
 @timeit timer "Set_Orbitals_Grid" function Set_Orbitals_Grid(pao::Vector{PAO}, ucell::UCell)
     
     system_grid = ucell.system_grid
@@ -5,13 +30,11 @@
     Total_NumOrbs = system_grid.Total_NumOrbs
     GridN_Atom = ucell.GridN_Atom
     
-    Orbs_Grid = Vector{Vector{Vector{Float64}}}(undef, Natom)
+    packed = Vector{Matrix{Float64}}(undef, Natom)
     for atom = 1:Natom
-        Orbs_Grid[atom] = Vector{Vector{Float64}}(undef, GridN_Atom[atom])
-        for Nc = 1:GridN_Atom[atom]
-            Orbs_Grid[atom][Nc] = zeros(Float64, Total_NumOrbs[atom])
-        end
+        packed[atom] = zeros(Float64, Total_NumOrbs[atom], GridN_Atom[atom])
     end
+    Orbs_Grid = PackedOrbitalsGrid(packed)
     Set_Orbitals_Grid!(Orbs_Grid, pao, ucell)
 
     
@@ -21,6 +44,10 @@ end
 
 function Set_Orbitals_Grid!(Orbs_Grid, pao::Vector{PAO}, ucell::UCell)
     
+    comm = MPI.COMM_WORLD
+    nprocs = MPI.Comm_size(comm)
+    myrank = MPI.Comm_rank(comm)
+
     system_grid = ucell.system_grid
     Natom = system_grid.Natom
     Nspecies = length(pao)
@@ -31,17 +58,14 @@ function Set_Orbitals_Grid!(Orbs_Grid, pao::Vector{PAO}, ucell::UCell)
     atom2spe = system_grid.atom2spe
     Ngrid = system_grid.Ngrid
     Ngrid1, Ngrid2, Ngrid3 = Ngrid
-    
     GridN_Atom = ucell.GridN_Atom
     GridListAtom = ucell.GridListAtom
     CellListAtom = ucell.CellListAtom
-
 
     gLatvecs = zeros(Float64, 3, 3)
     gLatvecs[1,:] = Latvecs[1,:]/Ngrid1
 	gLatvecs[2,:] = Latvecs[2,:]/Ngrid2
 	gLatvecs[3,:] = Latvecs[3,:]/Ngrid3
-
 
 
     pmax = 4
@@ -58,17 +82,14 @@ function Set_Orbitals_Grid!(Orbs_Grid, pao::Vector{PAO}, ucell::UCell)
     end
 
 
-
     for atom = 1:Natom
 
         spe = atom2spe[atom]
-        
         Spe_MaxL_Basis = pao[spe].Spe_MaxL_Basis
         Spe_Num_Basis = pao[spe].Spe_Num_Basis
         Spe_Num_Mesh_PAO = pao[spe].Spe_Num_Mesh_PAO
         Spe_PAO_RV = pao[spe].Spe_PAO_RV
         Spe_PAO_RWF = pao[spe].Spe_PAO_RWF
-
 
         for xyz = 1:GridN_Atom[atom]
 

@@ -186,36 +186,6 @@ function Generate_CWF(cwf_setup::CWF_Setup_MO)
     end
     
 
-    #=
-    if guide_out
-        Latvecs = material.Latvecs
-        Natom = material.Natom
-        Nspecies = material.Nspecies
-        atom2spe = material.atom2spe
-        Gxyz = material.Gxyz
-        Atoms_pao = material.Atoms_pao
-        Total_NumOrbs = material.Total_NumOrbs
-        Ecut = cwf_setup.Ecut
-        Ngrid = Calc_Ngrid(Ecut, Latvecs)
-        Atoms_Cut1 = material.Atoms_Cut1
-        Grid_Origin = material.Grid_Origin
-
-        Spe_symbol, Spe_cutoff, Spe_orb, Spe_extra = Get_Atoms_data(Atoms_pao)
-
-
-        pao = Vector{PAO}(undef, Nspecies)
-        for spe = 1:Nspecies
-            pao[spe] = Read_PAO(0.0, Spe_symbol[spe], Spe_cutoff[spe], Spe_orb[spe], Spe_extra[spe])
-        end
-        
-        ucell = UCell(Latvecs, Natom, atom2spe, Gxyz, Atoms_Cut1, Ngrid, Grid_Origin; Total_NumOrbs)
-        Orbs_Grid = Set_Orbitals_Grid(pao, ucell)
-
-        Set_CWF_GuideGrid(CWF_Guiding_MOs, Orbs_Grid, ucell, cwf_setup)        
-    end
-    =#
-
-
     if CWF_Wannier || write_coef
 
         myrank == 0 && println("<Set_CWF_ExpnCoef>")

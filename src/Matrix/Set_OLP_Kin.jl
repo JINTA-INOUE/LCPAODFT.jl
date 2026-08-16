@@ -1,4 +1,4 @@
-@timeit timer "Set_OLP_Kin" function Set_OLP_Kin!(OLP, Hkin, pao::Vector{PAO}, system_grid::System_Grid)
+@timeit timer "Set_OLP_Kin" function Set_OLP_Kin!(OLP, MPI_Hkin, pao::Vector{PAO}, system_grid::System_Grid)
     
     comm = MPI.COMM_WORLD
     myrank = MPI.Comm_rank(comm)
@@ -25,9 +25,6 @@
     k2[end] = 0.5*k2[end]
 
 
-
-    Natom = system_grid.Natom
-    FNAN = system_grid.FNAN
     atv = system_grid.atv
 	Gxyz = system_grid.Gxyz
     Total_NumOrbs = system_grid.Total_NumOrbs
@@ -149,17 +146,12 @@
         end
 
         
-        _Hkin = Hkin[atom][Rn]
         @inbounds for ist = 1:NO0, jst = 1:NO1
             hst += 1
             OLP[Hks_Num+hst] = 8*real(OLPiαjβ[ist,jst])
-            _Hkin[ist][jst] = 4*real(Hkiniαjβ[ist,jst])
+            MPI_Hkin[hst] = 4*real(Hkiniαjβ[ist,jst])
         end
     end
 
-
     MPI.Allreduce!(OLP, MPI.SUM, comm)
-   @inbounds for atom = 1:Natom, Rn = 1:FNAN[atom]+1, ist = 1:Total_NumOrbs[atom]
-        MPI.Allreduce!(Hkin[atom][Rn][ist], MPI.SUM, comm)
-    end
 end

@@ -1,9 +1,9 @@
-function VNAF(Num_Mesh_VPS, r, Atom_Cut1, VPS_RV, Vna)
+function VNAF(Num_Mesh_VPS, r, Spe_Atom_Cut1, VPS_RV, Vna)
 
     mp_min = 1
     mp_max = Num_Mesh_VPS
 
-    if Atom_Cut1 < r
+    if Spe_Atom_Cut1 < r
         return 0.0
     elseif r < VPS_RV[1]
 

@@ -13,7 +13,6 @@ using Printf
 using Dates
 using MPI
 using PrecompileTools
-using MKL
 
 
 const Ang_to_bohr = 1.8897259886
@@ -49,6 +48,11 @@ export NkGrid
 export Nkmax
 export OneD_Grid
 export Radial_kmin
+
+
+# For Set_Density_Grid, Set_Hamiltonian
+const density_block_size = 512
+const ham_block_size = 512
 
 
 # For VNA
@@ -93,6 +97,7 @@ export EmailPass_File_path
 
 
 const timer = TimerOutput()
+export timer
 
 
 include("utils/split_evenly.jl")
@@ -129,10 +134,13 @@ include("DFT_Setup.jl")
 export DFT_Setup
 
 
-include("UCell.jl")
+
 include("KPoints.jl")
+include("UCell.jl")
 include("Electron.jl")
 include("Hamiltonian.jl")
+export KPoints
+export Gen_KPoints
 export Set_Periodic
 export Get_FNAN
 export Estimate_Trn_System
@@ -141,8 +149,6 @@ export Get_RMI
 export Check_system
 export UCell
 export System_Grid
-export KPoints
-export Gen_KPoints
 export Electron
 export Hamiltonian
 export Set_Hamiltonian!
@@ -169,6 +175,7 @@ export Set_XC_Grid!
 export Calc_Vxc_Grid
 
 
+include("Matrix/Matrix_utils.jl")
 include("Matrix/Set_OLPpos.jl")
 include("Matrix/Set_OLP_Kin.jl")
 include("Matrix/Set_Nonlocal.jl")
@@ -215,6 +222,7 @@ export Solve_Poisson!
 
 include("Cluster_DFT.jl")
 include("Crystal_DFT.jl")
+include("Crystal_DFT_mode2.jl")
 export Cluster_DFT!
 export Cluster_DFT_Collinear_nonpol!
 export Cluster_DFT_Collinear_pol!
@@ -280,6 +288,7 @@ include("utils/Calc_dipole_moment.jl")
 include("utils/Mulliken_Charge.jl")
 include("utils/Set_Lebedev_Grid.jl")
 include("utils/Print_TimerOutput.jl")
+include("utils/memory_usage.jl")
 include("utils/Read_restartFile.jl")
 export Associated_Legendre
 export Associated_Legendre2
@@ -351,13 +360,13 @@ export Print_TimerOutput
 export Read_restartFile!
 
 
-# include("Matrix/Set_dOrbitals_Grid.jl")
-# include("Matrix/Set_OLP_Kinforce.jl")
+include("Matrix/Set_dOrbitals_Grid.jl")
+include("Matrix/Set_OLP_Kinforce.jl")
 include("Force.jl")
-# export Set_dOrbitals_Grid
-# export Set_dOrbitals_Grid!
-# export Set_OLP_Kinforce
-# export Set_OLP_Kinforce!
+export Set_dOrbitals_Grid
+export Set_dOrbitals_Grid!
+export Set_OLP_Kinforce
+export Set_OLP_Kinforce!
 export PCC_Force
 export Kinetic_Force
 export Force3_nospin
@@ -389,11 +398,11 @@ export Calc_EXC1
 export Calc_EXC2
 
 
-# include("Optim/GeoOpt_Setup.jl")
-# include("utils/Extp_Charge.jl")
-# include("Optim/Geo_Optim.jl")
-# export Extp_Charge
-# export GeoOpt_Setup
+include("Optim/GeoOpt_Setup.jl")
+include("utils/Extp_Charge.jl")
+include("Optim/Geo_Optim.jl")
+export Extp_Charge
+export GeoOpt_Setup
 
 
 include("LCPAO_model.jl")
@@ -409,6 +418,7 @@ include("KSsolve_SCF.jl")
 include("DFT.jl")
 export KSsolve_SCF
 export DFT
+
 
 
 # For Cube
@@ -447,9 +457,9 @@ include("postprocess/CWF/Write_HmnR_vs_R.jl")
 include("postprocess/CWF/CWF2Wannier90.jl")
 include("postprocess/CWF/Generate_CWF.jl")
 export CWF_Setup
-export Calc_WannierCenter
-export Write_HmnR_vs_R
 export Generate_CWF
+export Set_CWF_Grid
+export Write_HmnR_vs_R
 export CWF_model
 
 
@@ -497,7 +507,7 @@ include("postprocess/Dos/Write_Dos.jl")
 export DosMain
 
 
-# For postprocess
+# For postprocess common
 include("postprocess/common/select_model.jl")
 include("postprocess/common/Calc_Enk_Cnk.jl")
 export Calc_Enk_Cnk
@@ -507,8 +517,6 @@ export Calc_Enk_Cnk!
 # For result email
 include("utils/make_attachment.jl")
 include("utils/sending_mail.jl")
-
-
 
 
 
@@ -532,6 +540,8 @@ include("utils/sending_mail.jl")
     DFT_kmesh = (3,3,3)
     scf_filename = "Cdia_precompile"
     fileout = true
+    cal_force = true
+    cal_mode = 1
     verbosity = 1
 
 
@@ -569,7 +579,7 @@ include("utils/sending_mail.jl")
 
         println("Precompile DFT ...")
         dft_setup = DFT_Setup(Latvecs, Atoms_orb, Atoms_symbol, Atoms_pos, system; 
-                              Ecut, SCF_max, xc_type, kmesh=DFT_kmesh, filename=scf_filename, fileout, verbosity)
+                              cal_force, cal_mode, Ecut, SCF_max, xc_type, kmesh=DFT_kmesh, filename=scf_filename, fileout, verbosity)
         DFT(dft_setup)
 
         println("Precompile Band_kpath ...")

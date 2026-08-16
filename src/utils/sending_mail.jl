@@ -22,7 +22,7 @@ function sendmail(filename::String, scf_po::Bool, dft_mixing::Mixing)
     sendmail(subject, message, ["temp_attachment.txt"])
 end
 
-#=
+
 function sendmail(filename::String, GeoOpt_po::Bool, geo_optim::Geo_Optim)
 
     println("")
@@ -38,7 +38,7 @@ function sendmail(filename::String, GeoOpt_po::Bool, geo_optim::Geo_Optim)
         
     make_attachments(geo_optim)
     sendmail(subject, message, ["temp_attachment.txt"])
-end=#
+end
 
 
 # For attachments

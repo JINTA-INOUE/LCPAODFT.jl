@@ -22,7 +22,7 @@ struct System_Grid
     MPI_FNAN::Vector{Int32}
     MPI_natn::Vector{Int32}
     MPI_ncn::Vector{Int32}
-    Atom_Cut1::Vector{Float64}
+    Atoms_Cut1::Vector{Float64}
     Total_NumOrbs::Vector{Int32}
     MP::Vector{Int32}
     Ngrid::Tuple{Int32,Int32,Int32}
@@ -37,12 +37,43 @@ struct UCell
     MPI_NumOLG::Vector{Int32}
     MPI_GListTAtoms1::Vector{Vector{Int32}}
     MPI_GListTAtoms2::Vector{Vector{Int32}}
+    density_scratch::Matrix{Float64}
+    density_matrix_scratch::Array{Float64,3}
+    density_orbital_scratch::NTuple{3,Matrix{Float64}}
+    hamiltonian_orbital_scratch::NTuple{3,Matrix{Float64}}
+    hamiltonian_product_scratch::Matrix{Float64}
     Ngrid::Tuple{Int32,Int32,Int32}
 end
 
 
 
-function split_system_grid(Natom, FNAN, natn, ncn, Dis, RMI, Total_NumOrbs)
+function _split_weighted_contiguous(weights::AbstractVector{<:Real}, nparts::Integer)
+    nitems = length(weights)
+    nitems >= nparts || throw(ArgumentError("number of work items must be at least the number of MPI ranks"))
+    cumulative = cumsum(Float64.(weights))
+    total = cumulative[end]
+    ranges = Vector{UnitRange{Int}}(undef, nparts)
+    first_index = 1
+    for rank = 1:nparts-1
+        target = total*rank/nparts
+        boundary = searchsortedfirst(cumulative, target)
+        last_allowed = nitems - (nparts - rank)
+        boundary = clamp(boundary, first_index, last_allowed)
+        if boundary < last_allowed
+            previous_error = boundary == first_index ? Inf : abs(cumulative[boundary-1] - target)
+            current_error = abs(cumulative[boundary] - target)
+            boundary -= previous_error < current_error ? 1 : 0
+            boundary = max(boundary, first_index)
+        end
+        ranges[rank] = first_index:boundary
+        first_index = boundary + 1
+    end
+    ranges[end] = first_index:nitems
+    return ranges
+end
+
+
+function split_system_grid(Natom, FNAN, natn, ncn, Total_NumOrbs; GridN_Atom=nothing)
 
     comm = MPI.COMM_WORLD
     nprocs = MPI.Comm_size(comm)
@@ -53,6 +84,7 @@ function split_system_grid(Natom, FNAN, natn, ncn, Dis, RMI, Total_NumOrbs)
     OneD2FNAN = zeros(Int32, Nloop)
     OneD2natn = zeros(Int32, Nloop)
     OneD2ncn = zeros(Int32, Nloop)
+    work_weights = zeros(Float64, Nloop)
 
     counts = 1
     for atom = 1:Natom, Rn = 1:FNAN[atom]+1
@@ -60,13 +92,16 @@ function split_system_grid(Natom, FNAN, natn, ncn, Dis, RMI, Total_NumOrbs)
         OneD2FNAN[counts] = Rn
         OneD2natn[counts] = natn[atom][Rn]
         OneD2ncn[counts] = ncn[atom][Rn]
+        orbital_work = Total_NumOrbs[atom]*Total_NumOrbs[natn[atom][Rn]]
+        grid_work = isnothing(GridN_Atom) ? 1 : min(GridN_Atom[atom], GridN_Atom[natn[atom][Rn]])
+        work_weights[counts] = max(orbital_work*grid_work, 1)
         counts += 1
     end
 
 
     
 
-    myrange = split_evenly(1:Nloop, nprocs)
+    myrange = _split_weighted_contiguous(work_weights, nprocs)
     MPI_size = length(myrange[myrank+1])
 
     MPI_atom = OneD2atom[myrange[myrank+1]]
@@ -97,7 +132,82 @@ function split_system_grid(Natom, FNAN, natn, ncn, Dis, RMI, Total_NumOrbs)
 end
 
 
-@timeit timer "UCell" function UCell(Latvecs, Natom, atom2spe, Gxyz, Atom_Cut1, Ngrid, Grid_Origin; Total_NumOrbs=nothing, verbosity=1)
+# Set UCell for postprocess
+@timeit timer "UCell" function UCell(Nspin, TCpyCell, Latvecs, Natom, atom2spe, Gxyz, Atoms_Cut1, Ngrid, Grid_Origin, Total_NumOrbs; verbosity=1)
+
+    comm = MPI.COMM_WORLD
+    nprocs = MPI.Comm_size(comm)
+    myrank = MPI.Comm_rank(comm)
+
+    myrank == 0 && println("<UCell>  Setup Grid ...")
+
+    CpyCell = Int64(0.5*(cbrt(TCpyCell+1)-1))
+    atv = Vector{Vector{Float64}}(undef, (2*CpyCell+1)^3)
+    atv_ijk = Vector{Vector{Int32}}(undef, (2*CpyCell+1)^3)
+    for cell = 1:(2*CpyCell+1)^3
+        atv[cell] = zeros(Float64, 3)
+        atv_ijk[cell] = zeros(Int32, 3)
+    end
+    Generation_ATV!(CpyCell, Latvecs, atv)
+    Generation_ATV_ijk!(CpyCell, atv_ijk)
+
+    FNAN, natn, ncn, Dis = Trn_System(Natom, Gxyz, Atoms_Cut1, atv, TCpyCell)
+
+    
+    RMI = Get_RMI(Natom, CpyCell, FNAN, natn, ncn)
+    if myrank == 0
+        system = Check_system(FNAN, ncn, atv_ijk)
+        if verbosity >= 1
+            println("<Check_System> The system is $system.")
+        end
+    end
+    
+    MP = zeros(Int32, Natom+1)
+    Sum = 0
+    for atom = 1:Natom
+        MP[atom+1] = Sum + Total_NumOrbs[atom]
+        Sum += Total_NumOrbs[atom]
+    end
+    GridVol = abs(det(Latvecs))/prod(Ngrid)
+
+
+
+    GridN_Atom, GridListAtom, CellListAtom = Calc_AtomsGrid(Latvecs, Natom, CpyCell, Gxyz, Atoms_Cut1, Ngrid, Grid_Origin)
+
+    # split element for MPI
+    # one dimensionalization Natom, FNAN, natn, ncn
+    Total_Hsize, MPI_Hsize, MPHks, Nloop, MPI_size, MPI_atom, MPI_FNAN, MPI_natn, MPI_ncn = split_system_grid(Natom, FNAN, natn, ncn, Total_NumOrbs; GridN_Atom)
+    
+
+
+    system_grid = System_Grid(CpyCell, Natom, atom2spe, Latvecs,
+                              atv, atv_ijk, Gxyz, GridVol, Grid_Origin,
+                              FNAN, natn, ncn, Dis, RMI, 
+                              Total_Hsize, MPI_Hsize, MPHks, Nloop, MPI_size, 
+                              MPI_atom, MPI_FNAN, MPI_natn, MPI_ncn,
+                              Atoms_Cut1, Total_NumOrbs, MP, Ngrid)
+    
+
+    MPI_NumOLG, MPI_GListTAtoms1, MPI_GListTAtoms2 = Calc_AtomOverlap_Grid(CpyCell, MPI_size, MPI_atom, MPI_natn, MPI_ncn, GridN_Atom, GridListAtom, CellListAtom, atv_ijk)
+    density_scratch = zeros(Float64, maximum(GridN_Atom), Nspin)
+    max_orbitals = maximum(Total_NumOrbs)
+    density_matrix_scratch = zeros(Float64, max_orbitals, max_orbitals, Nspin)
+    density_orbital_scratch = ntuple(_ -> zeros(Float64, max_orbitals, density_block_size), 3)
+    hamiltonian_orbital_scratch = ntuple(_ -> zeros(Float64, max_orbitals, ham_block_size), 3)
+    hamiltonian_product_scratch = zeros(Float64, max_orbitals, max_orbitals)
+
+
+    return UCell(system_grid, 
+                 GridN_Atom, GridListAtom, CellListAtom,
+                 MPI_NumOLG, MPI_GListTAtoms1, MPI_GListTAtoms2,
+                 density_scratch, density_matrix_scratch, density_orbital_scratch,
+                 hamiltonian_orbital_scratch,
+                 hamiltonian_product_scratch,
+                 Ngrid)
+end
+
+
+@timeit timer "UCell" function UCell(Nspin, Latvecs, Natom, atom2spe, Gxyz, Atoms_Cut1, Ngrid, Grid_Origin; Total_NumOrbs=nothing, verbosity=1)
 
     comm = MPI.COMM_WORLD
     nprocs = MPI.Comm_size(comm)
@@ -106,7 +216,7 @@ end
     myrank == 0 && println("<UCell>  Setup Grid ...")
 
 
-    CpyCell, FNAN, natn, ncn, Dis = Get_FNAN(Latvecs, Natom, Gxyz, Atom_Cut1)
+    CpyCell, FNAN, natn, ncn, Dis = Get_FNAN(Latvecs, Natom, Gxyz, Atoms_Cut1)
 
     if myrank == 0
         for atom = 1:Natom
@@ -149,9 +259,11 @@ end
 
 
 
+    GridN_Atom, GridListAtom, CellListAtom = Calc_AtomsGrid(Latvecs, Natom, CpyCell, Gxyz, Atoms_Cut1, Ngrid, Grid_Origin)
+
     # split element for MPI
     # one dimensionalization Natom, FNAN, natn, ncn
-    Total_Hsize, MPI_Hsize, MPHks, Nloop, MPI_size, MPI_atom, MPI_FNAN, MPI_natn, MPI_ncn = split_system_grid(Natom, FNAN, natn, ncn, Dis, RMI, Total_NumOrbs)
+    Total_Hsize, MPI_Hsize, MPHks, Nloop, MPI_size, MPI_atom, MPI_FNAN, MPI_natn, MPI_ncn = split_system_grid(Natom, FNAN, natn, ncn, Total_NumOrbs; GridN_Atom)
     
 
 
@@ -160,24 +272,31 @@ end
                               FNAN, natn, ncn, Dis, RMI, 
                               Total_Hsize, MPI_Hsize, MPHks, Nloop, MPI_size, 
                               MPI_atom, MPI_FNAN, MPI_natn, MPI_ncn,
-                              Atom_Cut1, Total_NumOrbs, MP, Ngrid)
+                              Atoms_Cut1, Total_NumOrbs, MP, Ngrid)
     
 
-    GridN_Atom, GridListAtom, CellListAtom = Calc_AtomsGrid(Latvecs, Natom, CpyCell, Gxyz, Atom_Cut1, Ngrid, Grid_Origin)
-    
-    
     MPI_NumOLG, MPI_GListTAtoms1, MPI_GListTAtoms2 = Calc_AtomOverlap_Grid(CpyCell, MPI_size, MPI_atom, MPI_natn, MPI_ncn, GridN_Atom, GridListAtom, CellListAtom, atv_ijk)
+    density_scratch = zeros(Float64, maximum(GridN_Atom), Nspin)
+    max_orbitals = maximum(Total_NumOrbs)
+    density_matrix_scratch = zeros(Float64, max_orbitals, max_orbitals, Nspin)
+    density_orbital_scratch = ntuple(_ -> zeros(Float64, max_orbitals, density_block_size), 3)
+    hamiltonian_orbital_scratch = ntuple(_ -> zeros(Float64, max_orbitals, ham_block_size), 3)
+    hamiltonian_product_scratch = zeros(Float64, max_orbitals, max_orbitals)
 
 
     return UCell(system_grid, 
                  GridN_Atom, GridListAtom, CellListAtom,
                  MPI_NumOLG, MPI_GListTAtoms1, MPI_GListTAtoms2,
+                 density_scratch, density_matrix_scratch, density_orbital_scratch,
+                 hamiltonian_orbital_scratch,
+                 hamiltonian_product_scratch,
                  Ngrid)
 end
 
 
-function Calc_AtomsGrid(Latvecs, Natom, CpyCell, Gxyz, Atom_Cut1, Ngrid, Grid_Origin)
+function Calc_AtomsGrid(Latvecs, Natom, CpyCell, Gxyz, Atoms_Cut1, Ngrid, Grid_Origin)
     
+    Ngrid1, Ngrid2, Ngrid3 = Ngrid
     atv = Vector{Vector{Float64}}(undef, (2*CpyCell+1)^3)
     atv_ijk = Vector{Vector{Int32}}(undef, (2*CpyCell+1)^3)
     for cell = 1:(2*CpyCell+1)^3
@@ -189,9 +308,9 @@ function Calc_AtomsGrid(Latvecs, Natom, CpyCell, Gxyz, Atom_Cut1, Ngrid, Grid_Or
 
 
     gLatvecs = zeros(Float64, 3, 3)
-    gLatvecs[1,:] = Latvecs[1,:]/Ngrid[1]
-	gLatvecs[2,:] = Latvecs[2,:]/Ngrid[2]
-	gLatvecs[3,:] = Latvecs[3,:]/Ngrid[3]
+    gLatvecs[1,:] = Latvecs[1,:]/Ngrid1
+	gLatvecs[2,:] = Latvecs[2,:]/Ngrid2
+	gLatvecs[3,:] = Latvecs[3,:]/Ngrid3
 
 
     # reciprocal grid 
@@ -205,6 +324,7 @@ function Calc_AtomsGrid(Latvecs, Natom, CpyCell, Gxyz, Atom_Cut1, Ngrid, Grid_Or
     CellListAtom = Vector{Vector{Int32}}(undef, Natom)
 
 
+    kindex = [[2,3],[3,1],[1,2]]
     nmin = zeros(Int32, 3)
     nmax = zeros(Int32, 3)
     Cxyz = zeros(Float64, 3)
@@ -212,35 +332,27 @@ function Calc_AtomsGrid(Latvecs, Natom, CpyCell, Gxyz, Atom_Cut1, Ngrid, Grid_Or
 
     for atom = 1:Natom
 
-        rcut = Atom_Cut1[atom] + 0.5
+        Gx, Gy, Gz = Gxyz[atom]
+        rcut = Atoms_Cut1[atom] + 0.5
 
         for k = 1:3
-            if k == 1
-                i = 2
-                j = 3
-            elseif k == 2
-                i = 3
-                j = 1
-            elseif k == 3
-                i = 1
-                j = 2
-            end
+            i, j = kindex[k]
+            vx = Latvecs[i,2]*Latvecs[j,3] - Latvecs[i,3]*Latvecs[j,2]
+            vy = Latvecs[i,3]*Latvecs[j,1] - Latvecs[i,1]*Latvecs[j,3]
+            vz = Latvecs[i,1]*Latvecs[j,2] - Latvecs[i,2]*Latvecs[j,1]
+            coef = inv(sqrt(vx*vx + vy*vy + vz*vz))
+            vx = vx*coef
+            vy = vy*coef
+            vz = vz*coef
 
-            b = Latvecs[i,:]
-            c = Latvecs[j,:]
-
-            v = cross(b, c)
-            coef = 1/norm(v)
-            v = coef*v
-
-            Cx = Gxyz[atom][1] + rcut*v[1] - Grid_Origin[1]
-            Cy = Gxyz[atom][2] + rcut*v[2] - Grid_Origin[2]
-            Cz = Gxyz[atom][3] + rcut*v[3] - Grid_Origin[3]
+            Cx = Gx + rcut*vx - Grid_Origin[1]
+            Cy = Gy + rcut*vy - Grid_Origin[2]
+            Cz = Gz + rcut*vz - Grid_Origin[3]
             nmax[k] = trunc(Int32, (Cx*gRecvecs[k,1] + Cy*gRecvecs[k,2] + Cz*gRecvecs[k,3])*0.5/pi)
 
-            Cx = Gxyz[atom][1] - rcut*v[1] - Grid_Origin[1]
-            Cy = Gxyz[atom][2] - rcut*v[2] - Grid_Origin[2]
-            Cz = Gxyz[atom][3] - rcut*v[3] - Grid_Origin[3]
+            Cx = Gx - rcut*vx - Grid_Origin[1]
+            Cy = Gy - rcut*vy - Grid_Origin[2]
+            Cz = Gz - rcut*vz - Grid_Origin[3]
             nmin[k] = trunc(Int32, (Cx*gRecvecs[k,1] + Cy*gRecvecs[k,2] + Cz*gRecvecs[k,3])*0.5/pi)
 
             if nmax[k] < nmin[k]
@@ -252,7 +364,7 @@ function Calc_AtomsGrid(Latvecs, Natom, CpyCell, Gxyz, Atom_Cut1, Ngrid, Grid_Or
         Np = floor(Int32, prod(nmax.-nmin.+1)*3/2)
 
         Nct = 0
-        rcut = Atom_Cut1[atom]
+        rcut = Atoms_Cut1[atom]
 
         tmp_GridListAtom = zeros(Int32, Np)
         tmp_CellListAtom = zeros(Int32, Np)
@@ -265,12 +377,11 @@ function Calc_AtomsGrid(Latvecs, Natom, CpyCell, Gxyz, Atom_Cut1, Ngrid, Grid_Or
             l1 = NOC[2]
             l2 = NOC[3]
             l3 = NOC[4]
-            N = l1*Ngrid[2]*Ngrid[3] + l2*Ngrid[3] + l3
+            N = l1*Ngrid2*Ngrid3 + l2*Ngrid3 + l3
 
-            dx = Cxyz[1] - Gxyz[atom][1]
-            dy = Cxyz[2] - Gxyz[atom][2]
-            dz = Cxyz[3] - Gxyz[atom][3]
-
+            dx = Cxyz[1] - Gx
+            dy = Cxyz[2] - Gy
+            dz = Cxyz[3] - Gz
             R = sqrt(dx^2 + dy^2 + dz^2)
 
             if R <= rcut
@@ -289,7 +400,6 @@ function Calc_AtomsGrid(Latvecs, Natom, CpyCell, Gxyz, Atom_Cut1, Ngrid, Grid_Or
         end
     end
 
-
     for atom = 1:Natom
         Grid_sort = sortperm(GridListAtom[atom])
         @. GridListAtom[atom] = GridListAtom[atom][Grid_sort]
@@ -297,7 +407,6 @@ function Calc_AtomsGrid(Latvecs, Natom, CpyCell, Gxyz, Atom_Cut1, Ngrid, Grid_Or
     end
 
     
-
     return GridN_Atom, GridListAtom, CellListAtom
 end
 
@@ -318,17 +427,14 @@ function Calc_AtomOverlap_Grid(CpyCell, MPI_size, MPI_atom, MPI_natn, MPI_ncn, G
     ratv = zeros(Int64, 2*CpyCell+4, 2*CpyCell+4, 2*CpyCell+4)
     Generation_RATV!(CpyCell, ratv)
 
-
     # Find overlap grids between two orbitals
     # GListTAtoms0, GListTAtoms1, GListTAtoms2
-    MPI_NumOLG = Vector{Int32}(undef, MPI_size)
+    MPI_NumOLG = zeros(Int32, MPI_size)
     MPI_GListTAtoms1 = Vector{Vector{Int32}}(undef, MPI_size)
     MPI_GListTAtoms2 = Vector{Vector{Int32}}(undef, MPI_size)
     
-    
     TAtoms1 = zeros(Int32, maximum(GridN_Atom))
     TAtoms2 = zeros(Int32, maximum(GridN_Atom))
-
 
     for loop = 1:MPI_size
 
@@ -338,11 +444,8 @@ function Calc_AtomOverlap_Grid(CpyCell, MPI_size, MPI_atom, MPI_natn, MPI_ncn, G
         atom = MPI_atom[loop]
         jatom = MPI_natn[loop]
         cell = MPI_ncn[loop]
-
-        l1 = atv_ijk[cell+1][1]
-        l2 = atv_ijk[cell+1][2]
-        l3 = atv_ijk[cell+1][3]
-
+        l1, l2, l3 = atv_ijk[cell+1]
+        
         Nog = -1
         Nc = 0
 
@@ -350,17 +453,12 @@ function Calc_AtomOverlap_Grid(CpyCell, MPI_size, MPI_atom, MPI_natn, MPI_ncn, G
 
             GNh = GridListAtom[jatom][Nh]
             GRh = CellListAtom[jatom][Nh]
-
-            ll1 = atv_ijk[GRh+1][1]
-            ll2 = atv_ijk[GRh+1][2]
-            ll3 = atv_ijk[GRh+1][3]
-                    
+            ll1, ll2, ll3 = atv_ijk[GRh+1]
             lll1 = l1 + ll1
             lll2 = l2 + ll2
             lll3 = l3 + ll3
                     
             if GridListAtom[atom][1] <= GNh
-
                 if GNh == 0
                     Nc = 0
                 else
@@ -386,20 +484,15 @@ function Calc_AtomOverlap_Grid(CpyCell, MPI_size, MPI_atom, MPI_natn, MPI_ncn, G
 
                         if GNc==GNh && GRc==GRh1
                             Nog += 1
-
                             TAtoms1[Nog+1] = Nc
                             TAtoms2[Nog+1] = Nh-1
-
                             po = 1
                         elseif GNh < GNc
                             po = 1
                         end
-
                         Nc += 1
                     end
-
                     Nc -= 1
-
                     if Nc < 0
                          Nc = 0
                     end
@@ -424,7 +517,7 @@ end
 
 
 # get the FNAN, natn, ncn, Dis
-function Get_FNAN(Latvecs, Natom, Gxyz, Atom_Cut1)
+function Get_FNAN(Latvecs, Natom, Gxyz, Atoms_Cut1)
     
     po = 0
     CpyCell = 0
@@ -441,7 +534,7 @@ function Get_FNAN(Latvecs, Natom, Gxyz, Atom_Cut1)
 
         TFNAN_temp = TFNAN
 
-        FNAN = Estimate_Trn_System(Natom, Gxyz, Atom_Cut1, atv, TCpyCell)
+        FNAN = Estimate_Trn_System(Natom, Gxyz, Atoms_Cut1, atv, TCpyCell)
         TFNAN = sum(FNAN)
 
         if TFNAN == TFNAN_temp
@@ -457,7 +550,7 @@ function Get_FNAN(Latvecs, Natom, Gxyz, Atom_Cut1)
     end
 
     atv, TCpyCell = Set_Periodic(Latvecs, CpyCell)
-    FNAN, natn, ncn, Dis = Trn_System(Natom, Gxyz, Atom_Cut1, atv, TCpyCell)
+    FNAN, natn, ncn, Dis = Trn_System(Natom, Gxyz, Atoms_Cut1, atv, TCpyCell)
     
     return CpyCell, FNAN, natn, ncn, Dis
 end
@@ -477,31 +570,29 @@ function Set_Periodic(Latvecs, CpyCell)
 end
 
 
-function Estimate_Trn_System(Natom, Gxyz, Atom_Cut1, atv, TCpyCell)
+function Estimate_Trn_System(Natom, Gxyz, Atoms_Cut1, atv, TCpyCell)
     
     FNAN = zeros(Int32, Natom)
 
     for atom = 1:Natom
-
-        rcutA = Atom_Cut1[atom]
+        Gx1, Gy1, Gz1 = Gxyz[atom]
+        rcutA = Atoms_Cut1[atom]
         FNAN[atom] = 0
 
         for jatom = 1:Natom
-
-            rcutB = Atom_Cut1[jatom]
+            Gx2, Gy2, Gz2 = Gxyz[jatom]
+            rcutB = Atoms_Cut1[jatom]
             rcut = rcutA + rcutB
 
             for Rn = 0:TCpyCell
-
                 if atom == jatom && iszero(Rn)
                     continue
                 else
-                    dx = abs(Gxyz[atom][1] - Gxyz[jatom][1] - atv[Rn+1][1])
-                    dy = abs(Gxyz[atom][2] - Gxyz[jatom][2] - atv[Rn+1][2])
-                    dz = abs(Gxyz[atom][3] - Gxyz[jatom][3] - atv[Rn+1][3])
+                    dx = abs(Gx1 - Gx2 - atv[Rn+1][1])
+                    dy = abs(Gy1 - Gy2 - atv[Rn+1][2])
+                    dz = abs(Gz1 - Gz2 - atv[Rn+1][3])
                     
                     if dx <= rcut && dy <= rcut && dz <= rcut
-
                         r = sqrt(dx^2 + dy^2 + dz^2)
 
                         if r <= rcut
@@ -518,9 +609,9 @@ end
 
 
 
-function Trn_System(Natom, Gxyz, Atom_Cut1, atv, TCpyCell)
+function Trn_System(Natom, Gxyz, Atoms_Cut1, atv, TCpyCell)
 
-    Max_FNAN = maximum(Estimate_Trn_System(Natom, Gxyz, Atom_Cut1, atv, TCpyCell))
+    Max_FNAN = maximum(Estimate_Trn_System(Natom, Gxyz, Atoms_Cut1, atv, TCpyCell))
     
     FNAN = zeros(Int32, Natom)
 
@@ -534,25 +625,24 @@ function Trn_System(Natom, Gxyz, Atom_Cut1, atv, TCpyCell)
 
 
     for atom = 1:Natom
-        
+        Gx1, Gy1, Gz1 = Gxyz[atom]
         FNAN[atom] = 0
-        rcutA = Atom_Cut1[atom]
+        rcutA = Atoms_Cut1[atom]
 
         for jatom = 1:Natom
-            rcutB = Atom_Cut1[jatom]
+            Gx2, Gy2, Gz2 = Gxyz[jatom]
+            rcutB = Atoms_Cut1[jatom]
             rcut = rcutA + rcutB
 
             for Rn = 0:TCpyCell
-
                 if atom == jatom && iszero(Rn)
                     natn_atom[1] = atom
                     ncn_atom[1] = 0
                     Dis_atom[1] = 0.0
                 else
-
-                    dx = abs(Gxyz[atom][1] - Gxyz[jatom][1] - atv[Rn+1][1])
-                    dy = abs(Gxyz[atom][2] - Gxyz[jatom][2] - atv[Rn+1][2])
-                    dz = abs(Gxyz[atom][3] - Gxyz[jatom][3] - atv[Rn+1][3])
+                    dx = abs(Gx1 - Gx2 - atv[Rn+1][1])
+                    dy = abs(Gy1 - Gy2 - atv[Rn+1][2])
+                    dz = abs(Gz1 - Gz2 - atv[Rn+1][3])
                     
                     if dx <= rcut && dy <= rcut && dz <= rcut
                         r = sqrt(dx^2 + dy^2 + dz^2)
@@ -637,12 +727,13 @@ function Get_RMI(Natom, CpyCell, FNAN, natn, ncn)
             end
         end
     end
-                
+    
+
     return RMI
 end
 
 
-function Calc_Dis(Natom, FNAN, Gxyz, atv, Atom_Cut1, CpyCell)
+function Calc_Dis(Natom, FNAN, Gxyz, atv, Atoms_Cut1, CpyCell)
 
     TCpyCell = (2*CpyCell+1)^3-1
     Max_FNAN = maximum(FNAN)
@@ -654,21 +745,22 @@ function Calc_Dis(Natom, FNAN, Gxyz, atv, Atom_Cut1, CpyCell)
         Dis[atom] = zeros(Float64, FNAN[atom]+1)
     end
 
-    for atom = 1:Natom    
+    for atom = 1:Natom
         tmp = 0
-        rcutA = Atom_Cut1[atom]
+        Gx1, Gy1, Gz1 = Gxyz[atom]
+        rcutA = Atoms_Cut1[atom]
         for jatom = 1:Natom
-            rcutB = Atom_Cut1[jatom]
+            Gx2, Gy2, Gz2 = Gxyz[jatom]
+            rcutB = Atoms_Cut1[jatom]
             rcut = rcutA + rcutB
 
             for Rn = 0:TCpyCell
-
                 if atom == jatom && iszero(Rn)
                     Dis_atom[1] = 0.0
                 else
-                    dx = abs(Gxyz[atom][1] - Gxyz[jatom][1] - atv[Rn+1][1])
-                    dy = abs(Gxyz[atom][2] - Gxyz[jatom][2] - atv[Rn+1][2])
-                    dz = abs(Gxyz[atom][3] - Gxyz[jatom][3] - atv[Rn+1][3])
+                    dx = abs(Gx1 - Gx2 - atv[Rn+1][1])
+                    dy = abs(Gy1 - Gy2 - atv[Rn+1][2])
+                    dz = abs(Gz1 - Gz2 - atv[Rn+1][3])
                     
                     if dx <= rcut && dy <= rcut && dz <= rcut
                         r = sqrt(dx^2 + dy^2 + dz^2)

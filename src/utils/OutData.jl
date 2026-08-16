@@ -305,7 +305,7 @@ function WriteFile!(
     Grid_Origin = system_grid.Grid_Origin
     MP = system_grid.MP
     Total_NumOrbs = system_grid.Total_NumOrbs
-    Atoms_Cut1 = system_grid.Atom_Cut1
+    Atoms_Cut1 = system_grid.Atoms_Cut1
     xc_type = dft_setup.xc_type
     SpinPol = dft_setup.SpinPol
     SO_switch = dft_setup.SO_switch
@@ -323,18 +323,8 @@ function WriteFile!(
     ForceAll = force.ForceAll
     filename = dft_setup.filename
 
-    scf_inputfile = try
-        if isempty(PROGRAM_FILE) || PROGRAM_FILE == "-"
-            [""]
-        else
-            filepath = abspath(PROGRAM_FILE)
-            open(filepath, "r") do io
-                readlines(io)
-            end
-        end
-    catch
-        [""]
-    end
+    input_path = abspath(PROGRAM_FILE)
+    scf_inputfile = isfile(input_path) ? readlines(input_path) : String[]
     
     println("Write $filename.jld2 LCPAO_model")
     jldopen("$filename.jld2", "w") do file

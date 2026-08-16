@@ -1,9 +1,11 @@
 @timeit timer "Set_OLPexp" function Set_OLPexp(material::LCPAO_model, tot_bvector, bvector)
 
+    Nspin = material.Nspin
     Latvecs = material.Latvecs
     Natom = material.Natom
     Nspecies = material.Nspecies
     atom2spe = material.atom2spe
+    TCpyCell = material.TCpyCell
     FNAN = material.FNAN
     natn = material.natn
     Gxyz = material.Gxyz
@@ -21,7 +23,7 @@
         pao[spe] = Read_PAO(0.0, Spe_symbol[spe], Spe_cutoff[spe], Spe_orb[spe], Spe_extra[spe])
     end
         
-    ucell = UCell(Latvecs, Natom, atom2spe, Gxyz, Atoms_Cut1, Ngrid, Grid_Origin; Total_NumOrbs)
+    ucell = UCell(Nspin, TCpyCell, Latvecs, Natom, atom2spe, Gxyz, Atoms_Cut1, Ngrid, Grid_Origin, Total_NumOrbs)
     Orbs_Grid = Set_Orbitals_Grid(pao, ucell)
 
     
@@ -175,84 +177,5 @@ function _Set_OLPexp!(OLPexp_tmp, OLPexp, Natom, FNAN, natn, Total_NumOrbs)
     for atom = 1:Natom, Rn = 1:FNAN[atom]+1, ist = 1:Total_NumOrbs[atom], jst = 1:Total_NumOrbs[natn[atom][Rn]]
         hst += 1
         OLPexp[atom][Rn][ist][jst] = OLPexp_tmp[hst]
-    end
-end
-
-function temp_Set_OLPexp!(tot_bvector, bvector, OLPexp, Orbs_Grid, ucell::UCell)
-
-    system_grid = ucell.system_grid
-    Natom = system_grid.Natom
-    Latvecs = system_grid.Latvecs
-    FNAN = system_grid.FNAN
-	natn = system_grid.natn
-	Total_NumOrbs = system_grid.Total_NumOrbs
-    Ngrid1, Ngrid2, Ngrid3 = ucell.Ngrid
-    Grid_Origin = system_grid.Grid_Origin
-    atv = system_grid.atv
-    Gxyz = system_grid.Gxyz
-    GridVol = system_grid.GridVol
-    
-    system_grid = ucell.system_grid
-    GridListAtom = ucell.GridListAtom
-    CellListAtom = ucell.CellListAtom
-    MPI_NumOLG = ucell.MPI_NumOLG
-    MPI_GListTAtoms1 = ucell.MPI_GListTAtoms1
-    MPI_GListTAtoms2 = ucell.MPI_GListTAtoms2
-
-    gLatvecs = zeros(Float64, 3, 3)
-    gLatvecs[1,:] = Latvecs[1,:]/Ngrid1
-	gLatvecs[2,:] = Latvecs[2,:]/Ngrid2
-	gLatvecs[3,:] = Latvecs[3,:]/Ngrid3
-
-    
-    for ib = 1:tot_bvector
-        loop = 0
-        for atom = 1:Natom, Rn = 1:FNAN[atom]+1
-            loop += 1
-            jatom = natn[atom][Rn]
-            NO0 = Total_NumOrbs[atom]
-            NO1 = Total_NumOrbs[jatom]
-
-            _GridListAtom = GridListAtom[atom]
-            _CellListAtom = CellListAtom[atom]
-            _MPI_GListTAtoms1 = MPI_GListTAtoms1[loop]
-            _MPI_GListTAtoms2 = MPI_GListTAtoms2[loop]
-
-            bx, by, bz = bvector[ib]
-            _OLPexp = OLPexp[ib][atom][Rn]
-
-            for Nog = 1:MPI_NumOLG[loop]
-
-                Nc = _MPI_GListTAtoms1[Nog]+1
-                Nh = _MPI_GListTAtoms2[Nog]+1
-                GN = _GridListAtom[Nc]
-                cell = _CellListAtom[Nc]+1
-                
-                n1 = div(GN, Ngrid2*Ngrid3)
-                n2 = div(GN - n1*Ngrid2*Ngrid3, Ngrid3)
-                n3 = GN - n1*Ngrid2*Ngrid3 - n2*Ngrid3
-
-                Cx = n1*gLatvecs[1,1] + n2*gLatvecs[2,1] + n3*gLatvecs[3,1] + Grid_Origin[1]
-                Cy = n1*gLatvecs[1,2] + n2*gLatvecs[2,2] + n3*gLatvecs[3,2] + Grid_Origin[2]
-                Cz = n1*gLatvecs[1,3] + n2*gLatvecs[2,3] + n3*gLatvecs[3,3] + Grid_Origin[3]
-
-                x = Cx + atv[cell][1] - Gxyz[atom][1]
-                y = Cy + atv[cell][2] - Gxyz[atom][2]
-                z = Cz + atv[cell][3] - Gxyz[atom][3]
-
-                ex = exp(-im*(bx*x + by*y + bz*z))
-                fac = ex*GridVol
-
-                Orbs_Grid1 = Orbs_Grid[atom][Nc]
-                Orbs_Grid2 = Orbs_Grid[jatom][Nh]
-                
-                for ist = 1:NO0
-                    phi1 = Orbs_Grid1[ist]
-                    @inbounds for jst = 1:NO1
-                        _OLPexp[ist][jst] += fac*Orbs_Grid2[jst]*phi1
-                    end
-                end
-            end
-        end
     end
 end
