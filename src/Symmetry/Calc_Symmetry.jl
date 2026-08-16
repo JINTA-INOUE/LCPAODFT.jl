@@ -56,7 +56,7 @@ function Print_Symmetry(symmetry::Symmetry)
 end
 
 
-function Get_Symmetry_Spglib(Latvecs::Matrix{Float64}, Gxyz_frac::Vector{Vector{Float64}}, atom2spe; tol_symmetry=1e-5)
+@timeit timer "Get_Symmetry" function Get_Symmetry_Spglib(Latvecs::Matrix{Float64}, Gxyz_frac::Vector{Vector{Float64}}, atom2spe; tol_symmetry=1e-5)
 
     lattice = Spglib.Lattice(Latvecs[1,:],Latvecs[2,:],Latvecs[3,:])
     cell = Spglib.Cell(lattice, Gxyz_frac, atom2spe)
@@ -72,6 +72,5 @@ function Get_Symmetry_Spglib(Latvecs::Matrix{Float64}, Gxyz_frac::Vector{Vector{
             dataset.primitive_lattice, dataset.mapping_to_primitive,
             dataset.n_std_atoms, dataset.std_lattice,
             dataset.std_types, dataset.std_positions, dataset.std_rotation_matrix, dataset.std_mapping_to_primitive,
-            dataset.pointgroup_symbol
-    )
+            dataset.pointgroup_symbol)
 end

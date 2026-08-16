@@ -1,27 +1,36 @@
 @timeit timer "Crystal_DFT" function Crystal_DFT!(
-    Ham::Hamiltonian, 
+    cal_force::Bool,
     system_grid::System_Grid, 
     electron::CrystalBloch, 
     kpoints::KPoints,
-    Hks, DM)
+    OLP, Hks, iHks, DM, iDM, EDM)
 
-    SpinPol = Ham.SpinPol
-
-    if SpinPol == "off"
-        Crystal_DFT_Collinear_nonpol!(Ham.OLP, Hks[1], electron, kpoints, system_grid)
-        Calc_Band_Energy!(electron, kpoints)
-        Calc_DM_Crystal_Collinear_nopol!(electron, kpoints, system_grid, DM)
-    elseif SpinPol == "on"
-        Crystal_DFT_Collinear_pol!(Ham.OLP, Hks, electron, kpoints, system_grid)
-        Calc_Band_Energy!(electron, kpoints)
-        Calc_DM_Crystal_Collinear_pol!(electron, kpoints, system_grid, DM)
-    elseif SpinPol == "nc"
-        Crystal_DFT_NonCollinear!(Ham.OLP, Hks, Ham.iHNL, electron, kpoints, system_grid)   
-        Calc_Band_Energy!(electron, kpoints)
-        Calc_DM_Crystal_NonCollinear!(electron, kpoints, system_grid, DM)
-    else
-        println("SpinPol = ", SpinPol)
+    cal_mode = electron.cal_mode
+    SpinPol = electron.SpinPol
+    if SpinPol ∉ ("off", "on", "nc")
         error("please check SpinPol")
+    end
+
+    if cal_mode == 2
+        if SpinPol ∈ ("off", "on")
+            Crystal_DFT_Col!(cal_force, OLP, Hks, DM, EDM, electron, kpoints, system_grid)
+        else
+            Crystal_DFT_NonCol!(cal_force, OLP, Hks, iHks, DM, iDM, EDM, electron, kpoints, system_grid)
+        end
+    elseif cal_mode == 1
+        if SpinPol == "off"
+            Crystal_DFT_Collinear_nonpol!(OLP, Hks[1], electron, kpoints, system_grid)
+            Calc_Band_Energy!(electron, kpoints)
+            Calc_DM_Crystal_Collinear_nopol!(electron, kpoints, system_grid, DM)
+        elseif SpinPol == "on"
+            Crystal_DFT_Collinear_pol!(OLP, Hks, electron, kpoints, system_grid)
+            Calc_Band_Energy!(electron, kpoints)
+            Calc_DM_Crystal_Collinear_pol!(electron, kpoints, system_grid, DM)
+        elseif SpinPol == "nc"
+            Crystal_DFT_NonCollinear!(OLP, Hks, iHks, electron, kpoints, system_grid)   
+            Calc_Band_Energy!(electron, kpoints)
+            Calc_DM_Crystal_NonCollinear!(electron, kpoints, system_grid, DM)
+        end
     end
 end
 
@@ -410,18 +419,23 @@ end
     comm = MPI.COMM_WORLD
     myrank = MPI.Comm_rank(comm)
 
-    if isnothing(iDM)
+    Natom = system_grid.Natom
+    Total_NumOrbs = system_grid.Total_NumOrbs
+    FNAN = system_grid.FNAN
+
+    cal_mode = electron.cal_mode
+    if cal_mode == 2
+        @inbounds for atom = 1:Natom, Rn = 1:FNAN[atom]+1, ist = 1:Total_NumOrbs[atom]
+            MPI.Allreduce!(iDM[1][atom][Rn][ist], MPI.SUM, comm)
+            MPI.Allreduce!(iDM[2][atom][Rn][ist], MPI.SUM, comm)
+        end
         return
     end
 
-    Natom = system_grid.Natom
-    Total_NumOrbs = system_grid.Total_NumOrbs
     MP = system_grid.MP
-    FNAN = system_grid.FNAN
     natn = system_grid.natn
     ncn = system_grid.ncn
     atv_ijk = system_grid.atv_ijk
-
     fsize = electron.fsize
     Nfsize = electron.Nfsize
     Cnk = electron.Cnk
@@ -468,37 +482,6 @@ end
         MPI.Allreduce!(iDM[1][atom][Rn][ist], MPI.SUM, comm)
         MPI.Allreduce!(iDM[2][atom][Rn][ist], MPI.SUM, comm)
     end
-end
-
-
-# calculation Energy Density matrix when using Force calculation
-function Calc_EDM(electron::CrystalBloch, kpoints::KPoints, system_grid::System_Grid, occ_flag::Bool)
-
-    SpinPol = electron.SpinPol
-    Total_Hsize = system_grid.Total_Hsize
-    Nspin = ifelse(SpinPol=="off", 1, 2)
-
-    EDM = Vector{Vector{Float64}}(undef, Nspin)
-    for spin = 1:Nspin
-        EDM[spin] = zeros(Float64, Total_Hsize)
-    end
-
-    if occ_flag
-        Calc_fnkCnk!(electron, kpoints)
-    end
-
-    if SpinPol == "off"
-        Calc_EDM_Collinear_nonpol!(EDM, electron, kpoints, system_grid)
-    elseif SpinPol == "on"
-        Calc_EDM_Collinear_pol!(EDM, electron, kpoints, system_grid)
-    elseif SpinPol == "nc"
-        Calc_EDM_NonCollinear!(EDM, electron, kpoints, system_grid)
-    else
-        error("please check")
-    end
-
-
-    return EDM
 end
 
 

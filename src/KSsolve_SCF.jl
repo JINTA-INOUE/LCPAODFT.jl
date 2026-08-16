@@ -20,23 +20,22 @@ function KSsolve_SCF!(
     system = dft_setup.system
     xc_type = dft_setup.xc_type
     SpinPol = dft_setup.SpinPol
+    SO_switch = dft_setup.SO_switch
     Ngrid = dft_setup.Ngrid
     NN = prod(Ngrid)
     Mixing_method = dft_setup.Mixing_method
     SCF_criterion = dft_setup.SCF_criterion
     SCF_max = dft_setup.SCF_max
+    cal_force = dft_setup.cal_force
+    cal_mode = dft_setup.cal_mode
     filename = dft_setup.filename
     restart = dft_setup.restart
     filepath = dft_setup.filepath
     verbosity = dft_setup.verbosity
     send_email = dft_setup.send_email
     Hubbard_U = false # dft_setup.Hub_U
-    Hub_U_atom = dft_setup.Hub_U_atom
-    Hub_U_orbpol = dft_setup.Hub_U_orbpol
-    Hub_U_occ = dft_setup.Hub_U_occ
-    Hub_Type = dft_setup.Hub_Type
-    dc_Type = dft_setup.dc_Type
     system_grid = ucell.system_grid
+    MPI_Hsize = system_grid.MPI_Hsize
     Total_Hsize = system_grid.Total_Hsize
     Atoms_Core_Charge = electron.Core_Charge
     Extra_CHistory = dft_options.Extra_CHistory
@@ -56,10 +55,13 @@ function KSsolve_SCF!(
 
 
     
-    Ham = Hamiltonian(SpinPol, pao, pspot, system_grid)
-    
-    
+    Ham = Hamiltonian(cal_force, SpinPol, pao, pspot, system_grid)
+    OLP = Ham.OLP
+
+    myrank == 0 && println("<Set_Orbitals_Grid>  Calculation of the Orbitals Grid")
     Orbs_Grid = Set_Orbitals_Grid(pao, ucell)
+
+    myrank == 0 && println("<Set_AdenPCC_Grid>  Calculation of the Initial Density Grid")
     ADensity_Grid, PCCDensity_Grid, Density_Grid = Set_AdenPCC_Grid(SpinPol, Init_Atoms_Nspin, Init_Atoms_Angle, pao, pspot, ucell)
 
 
@@ -71,10 +73,14 @@ function KSsolve_SCF!(
 	end
 
 
+    Nspin_EDM = ifelse(SpinPol=="off", 1, 2)
+    EDMsize = ifelse(cal_force, Total_Hsize, 1)
 
+    MPI_Hks = Vector{Vector{Float64}}(undef, Nspin)
     Hks = Vector{Vector{Float64}}(undef, Nspin)
     DM = Vector{Vector{Float64}}(undef, Nspin)
     for spin = 1:Nspin
+        MPI_Hks[spin] = zeros(Float64, MPI_Hsize[myrank+1])
         Hks[spin] = zeros(Float64, Total_Hsize)
         DM[spin] = zeros(Float64, Total_Hsize)
     end
@@ -101,6 +107,19 @@ function KSsolve_SCF!(
         iDM = [[[[[1.0]]]]]
     end
 
+    EDM = Vector{Vector{Float64}}(undef, Nspin)
+    for spin = 1:Nspin_EDM
+        EDM[spin] = zeros(Float64, EDMsize)
+    end
+
+    if SpinPol == "nc"
+        iHks = Set_MPI_iHks2iHks(Ham.MPI_iHNL, system_grid)
+    else
+        iHks = [[[[[1.0]]]]]
+    end
+
+    
+
 
     # Read restart file for Geometric Optimization
     SucceedReadingHksfile = 0
@@ -122,13 +141,8 @@ function KSsolve_SCF!(
         Read_restartFile_DM!(filepath, system_grid, DM)
 
         myrank == 0 && println("<Set_Density_Grid>  Calculation Electron Density")
-        
-        if SpinPol == "off"
-            Set_Density_Grid_nonpol!(ucell, Orbs_Grid, DM, Density_Grid)
-        elseif SpinPol == "on"
-            Set_Density_Grid_pol!(ucell, Orbs_Grid, DM, Density_Grid)
-        elseif SpinPol == "nc"
-            Set_Density_Grid_nc!(ucell, Orbs_Grid, DM, Density_Grid)
+        Set_Density_Grid!(SpinPol, ucell, Orbs_Grid, DM, Density_Grid)
+        if SpinPol == "nc"
             diagonalize_nc_density!(Density_Grid)
         end
 
@@ -138,17 +152,13 @@ function KSsolve_SCF!(
 
 
     xc_func = XC_Func(xc_type, SpinPol, Nspin, Ngrid, gLatvecs)
-
-
-    if Hubbard_U
-        Hub_U = DFT_Hubbard_U(SpinPol, Hub_U_atom, Hub_U_orbpol, Hub_U_occ, Hub_Type, dc_Type, pao, system_grid)
-    end
-
-
     dft_mixing = DFT_Mixing(Nspin, dft_options, system_grid)
-
     TotalZ = electron.TotalZ
     mulliken_charge = Mulliken_Charge(SpinPol, system_grid, Atoms_Core_Charge)
+
+
+    myrank == 0 && memory_usage(cal_force, SpinPol, pao, pspot, ucell, Orbs_Grid, electron, dft_mixing, xc_func, Ham)
+    MPI.Barrier(comm)
 
 
     scf_po = false
@@ -168,10 +178,6 @@ function KSsolve_SCF!(
         if SCF_iter ≠ 1 || SucceedReadingrhofile == 1
             myrank == 0 && println("<Poisson>  Poisson's equation using FFT")
             Solve_Poisson!(SpinPol, dft_mixing, Density_Grid, ADensity_Grid, dVHart_Grid)
-
-            if Hubbard_U
-                Set_Eff_Hub_Pot!(Hub_U, Ham.OLP)
-            end
         end
 
 
@@ -180,20 +186,15 @@ function KSsolve_SCF!(
 
         if SucceedReadingHksfile == 0 || SucceedReadingrhofile == 1
             myrank == 0 && println("<Set_Hamiltonian>  Hamiltonian matrix for dVH+Vxc ...")
-            Set_Hamiltonian!(Ham, ucell, Orbs_Grid, Vpot_Grid, Hks)
+            Set_Hamiltonian!(Ham, ucell, Orbs_Grid, Vpot_Grid, MPI_Hks)
         end
         SucceedReadingHksfile = 0
         SucceedReadingrhofile = 1
-
-
-        if Hubbard_U
-            Add_H_Hub!(Hub_U, Hks)
-        end
         
 
         if Mixing_method == "RMM-DIISH"
             dft_mixing.ChemP = electron.ChemP
-            Mixing_H!(SCF_iter, Hks, dft_options, dft_mixing)
+            Mixing_H!(SCF_iter, MPI_Hks, Hks, dft_options, dft_mixing)
         end
 
 
@@ -204,7 +205,7 @@ function KSsolve_SCF!(
             Cluster_DFT!(Ham, system_grid, electron, Hks, DM)
         elseif system == "Crystal"
             myrank == 0 && println("<Crystal_DFT>  Solving the eigenvalue problem ...")
-            Crystal_DFT!(Ham, system_grid, electron, kpoints, Hks, DM)
+            Crystal_DFT!(cal_force, system_grid, electron, kpoints, OLP, Hks, iHks, DM, iDM, EDM)
         end
 
 
@@ -224,17 +225,11 @@ function KSsolve_SCF!(
             dft_mixing.Conv_iter = SCF_iter
 
             # calculate Mulliken_Charge and Density_Grid using convergence eigen vector
-            Mulliken_Charge!(mulliken_charge, DM, Ham.OLP)
+            Mulliken_Charge!(mulliken_charge, DM, OLP)
 
             myrank == 0 && println("<Set_Density_Grid>  Calculation Electron Density")
 
-            if SpinPol == "off"
-                Set_Density_Grid_nonpol!(ucell, Orbs_Grid, DM, Density_Grid)
-            elseif SpinPol == "on"
-                Set_Density_Grid_pol!(ucell, Orbs_Grid, DM, Density_Grid)
-            elseif SpinPol == "nc"
-                Set_Density_Grid_nc!(ucell, Orbs_Grid, DM, Density_Grid)
-            end
+            Set_Density_Grid!(SpinPol, ucell, Orbs_Grid, DM, Density_Grid)
 
             # Solve_Poisson!(SpinPol, dft_mixing, Density_Grid, ADensity_Grid, dVHart_Grid)
             # Set_XC_Grid!(xc_func, PCCDensity_Grid, Density_Grid)
@@ -254,13 +249,8 @@ function KSsolve_SCF!(
             update_Eele!(Eele, dft_mixing)
 
             myrank == 0 && println("<Set_Density_Grid>  Calculation Electron Density")
-
-            if SpinPol == "off"
-                Set_Density_Grid_nonpol!(ucell, Orbs_Grid, DM, Density_Grid)
-            elseif SpinPol == "on"
-                Set_Density_Grid_pol!(ucell, Orbs_Grid, DM, Density_Grid)
-            elseif SpinPol == "nc"
-                Set_Density_Grid_nc!(ucell, Orbs_Grid, DM, Density_Grid)
+            Set_Density_Grid!(SpinPol, ucell, Orbs_Grid, DM, Density_Grid)
+            if SpinPol == "nc"
                 diagonalize_nc_density!(Density_Grid)
             end
         else
@@ -268,13 +258,8 @@ function KSsolve_SCF!(
         end
 
 
-        if Hubbard_U
-            Set_DM2DM_Vec!(DM, DM_Vec, system_grid)
-            Occupation_Number_DFT_U!(SCF_iter, Hub_U, DM_Vec, Ham.OLP)
-        end
 
-
-        Mulliken_Charge!(mulliken_charge, DM, Ham.OLP)
+        Mulliken_Charge!(mulliken_charge, DM, OLP)
         
 
         if myrank == 0
@@ -349,10 +334,10 @@ function KSsolve_SCF!(
 
 
 
-
+    
     myrank == 0 && println("\n")
     myrank == 0 && println("<Energy> Energy calculation ...")
-    
+    DM_Vec = Set_DM2DM_Vec(DM, system_grid)
     if SpinPol == "nc"
         if system == "Cluster"
             Calc_iDM_Cluster_NonCollinear!(electron, system_grid, iDM)
@@ -360,9 +345,7 @@ function KSsolve_SCF!(
             Calc_iDM_Crystal_NonCollinear!(electron, kpoints, system_grid, iDM)
         end
     end
-
-    DM_Vec = Set_DM2DM_Vec(DM, system_grid)
-    Total_Energy!(energy, force, DM_Vec, iDM, 
+    Total_Energy!(energy, force, DM, iDM, 
                   ADensity_Grid, PCCDensity_Grid, Density_Grid, 
                   dVHart_Grid, Ham, system_grid, pao, pspot)
     energy.Eele = electron.Eele
@@ -375,15 +358,28 @@ function KSsolve_SCF!(
 
 
 
-
-    myrank == 0 && println("\n")
-    myrank == 0 && println("<Force> Force calculation ...")
-
-    Force!(force, electron, kpoints,
-           DM_Vec, iDM, Orbs_Grid,
-           ADensity_Grid, PCCDensity_Grid, 
-           dVHart_Grid, xc_func.Vxc_Grid, Vpot_Grid,
-           Ham, ucell, pao, pspot)
+    
+    if cal_force
+        myrank == 0 && println("\n")
+        myrank == 0 && println("<Force> Force calculation ...")
+        if cal_mode == 1
+            if SpinPol == "off"
+                Calc_EDM_Collinear_nonpol!(EDM, electron, kpoints, system_grid)
+            elseif SpinPol == "on"
+                Calc_EDM_Collinear_pol!(EDM, electron, kpoints, system_grid)
+            elseif SpinPol == "nc"
+                Calc_EDM_NonCollinear!(EDM, electron, kpoints, system_grid)
+            else
+                error("please check")
+            end
+        end
+        Force!(force, 
+            DM_Vec, iDM, EDM, Orbs_Grid,
+            ADensity_Grid, PCCDensity_Grid, 
+            dVHart_Grid, xc_func.Vxc_Grid, Vpot_Grid,
+            Ham, ucell, pao, pspot)
+    end
+    
     
 
 
@@ -398,19 +394,18 @@ function KSsolve_SCF!(
 
     # write .jld2 file
     if fileout && myrank == 0
-        OLP_Vec = Set_HVNA2HVNA_Vec(Ham.OLP, system_grid)
+        OLP_Vec = Set_HVNA2HVNA_Vec(OLP, system_grid)
         Hks_Vec = Set_DM2DM_Vec(Hks, system_grid)
-        WriteFile!(mulliken_charge, dft_setup, system_grid, dipole_moment, energy, force, DM_Vec, iDM, OLP_Vec, Hks_Vec, Ham.iHNL)
+        WriteFile!(mulliken_charge, dft_setup, system_grid, dipole_moment, energy, force, DM_Vec, iDM, OLP_Vec, Hks_Vec, iHks)
     end
     MPI.Barrier(comm)
-
+    
 
     
     
-    if verbosity>=1 && myrank==0
-        println("")
-        println("")
-        @show LCPAODFT.timer
+    if verbosity>=1
+        myrank == 0 && println("")
+        Print_TimerOutput(LCPAODFT.timer, comm)
     end
 
 

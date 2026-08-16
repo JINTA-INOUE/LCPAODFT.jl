@@ -4,12 +4,11 @@ function DFT(dft_setup::DFT_Setup)
     nprocs = MPI.Comm_size(comm)
     myrank = MPI.Comm_rank(comm)
 
-    BLAS.get_num_threads()
-
     LCPAODFT.reset_timer!(LCPAODFT.timer)
 
     
     Latvecs = dft_setup.Latvecs
+    Nspin = dft_setup.Nspin
     Natom = dft_setup.Natom
     Nspecies = dft_setup.Nspecies
     atom2spe = dft_setup.atom2spe
@@ -34,6 +33,7 @@ function DFT(dft_setup::DFT_Setup)
     Num_Mixing_Pulay = dft_setup.Num_Mixing_Pulay
     Start_Pulay_SCF = dft_setup.Start_Pulay_SCF
     time_rev = dft_setup.time_rev
+    cal_mode = dft_setup.cal_mode
     verbosity = dft_setup.verbosity
     fileout = dft_setup.fileout
 
@@ -70,13 +70,13 @@ function DFT(dft_setup::DFT_Setup)
                               Init_Mixing_weight, Min_Mixing_weight, Max_Mixing_weight, Max_Mixing_weight,
                               Num_Mixing_Pulay, -1, Start_Pulay_SCF, 3, Gxyz, false, time_rev)
     
-    electron = Electron(kpoints, SpinPol, E_Temp, Atoms_Core_Charge, fsize, system)
-
     energy = Init_Energy()
     force = Init_Force(Natom, Gxyz, Atoms_symbol)
 
-    ucell = UCell(Latvecs, Natom, atom2spe, Gxyz, Atoms_Cut1, Ngrid, Grid_Origin; Total_NumOrbs, verbosity)
+    ucell = UCell(Nspin, Latvecs, Natom, atom2spe, Gxyz, Atoms_Cut1, Ngrid, Grid_Origin; Total_NumOrbs, verbosity)
+    electron = Electron(kpoints, cal_mode, SpinPol, E_Temp, Atoms_Core_Charge, fsize, system)
 
+    
     KSsolve_SCF!(1, dft_setup, pao, pspot, ucell, electron, kpoints, dft_options, energy, force, false, fileout)
 
 
@@ -216,7 +216,7 @@ function DFT(geoopt_setup::GeoOpt_Setup)
         end
 
 
-        ucell = UCell(Latvecs, Natom, atom2spe, Gxyz_Optim, Atoms_Cut1, Ngrid, Grid_Origin; Total_NumOrbs, verbosity)
+        ucell = UCell(Nspin, Latvecs, Natom, atom2spe, Gxyz_Optim, Atoms_Cut1, Ngrid, Grid_Origin; Total_NumOrbs, verbosity)
         Set_Geo_Optim!(geo_optim, ucell.system_grid)
 
         # Be sure to save each step of the structural optimization process.
@@ -276,9 +276,9 @@ function DFT(geoopt_setup::GeoOpt_Setup)
     MPI.Barrier(comm)
 
 
-    if verbosity>=1 && myrank==0
-        println("")
-        @show LCPAODFT.timer
+    if verbosity>=1
+        myrank == 0 && println("")
+        Print_TimerOutput(LCPAODFT.timer, comm)
     end
     MPI.Barrier(comm)
 

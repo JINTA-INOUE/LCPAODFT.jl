@@ -43,8 +43,8 @@ end
 
 
 @timeit timer "Force" function Force!(
-    force::Force, electron::AbstractBloch, kpoints::KPoints,
-    DM, iDM, Orbs_Grid,
+    force::Force, 
+    DM, iDM, EDM, Orbs_Grid,
     ADensity_Grid, PCCDensity_Grid, 
     dVHart_Grid, Vxc_Grid, Vpot_Grid,
     Ham::Hamiltonian, ucell::UCell, pao::Vector{PAO}, pspot::Vector{Pspot}; 
@@ -56,26 +56,27 @@ end
 
     system_grid = ucell.system_grid
     SpinPol = Ham.SpinPol
-    HNL = Ham.HNL
-    iHNL = Ham.iHNL
-    HVNA = Ham.HVNA
-    Core_Charge = electron.Core_Charge
     Natom = system_grid.Natom
+    atom2spe = system_grid.atom2spe
 
+    Atoms_Core_Charge = zeros(Float64, Natom)
+	for atom = 1:Natom
+		spe = atom2spe[atom]
+        Atoms_Core_Charge[atom] = pspot[spe].Spe_Core_Charge
+	end
 
 
 
     myrank == 0 && println("<PCC_Force>")
     PCCForce = PCC_Force(SpinPol, ADensity_Grid, PCCDensity_Grid, Vxc_Grid, dVHart_Grid, pao, pspot, ucell)
     myrank == 0 && Print_Force("PCC_Force", Natom, PCCForce)
-    MPI.Barrier(comm)
 
     
     myrank == 0 && println("<Kinetic_Force>")
     OLP_force, Hkin_force = Set_OLP_Kinforce(pao, system_grid)
     HkinForce = Kinetic_Force(SpinPol, Hkin_force, DM, system_grid)
     myrank == 0 && Print_Force("Kinetic_Force", Natom, HkinForce)
-    MPI.Barrier(comm)
+    Hkin_force = nothing
 
 
     myrank == 0 && println("<Force3>")
@@ -87,40 +88,34 @@ end
         VpotForce = Force3_nc(pao, Orbs_Grid, dVHart_Grid, Vxc_Grid, DM, ucell)
     end
     myrank == 0 && Print_Force("Force3", Natom, VpotForce)
-    MPI.Barrier(comm)
-
+    Orbs_Grid = nothing
+    Vpot_Grid = nothing
 
     
     myrank == 0 && println("<HVNA_Force>")
-    DS_VNAforce = Ham.DS_VNAforce
-    HVNA2force = Ham.HVNA2force
-    HVNA3force = Ham.HVNA3force
-    HVNAForce = HVNA_Force(SpinPol, DS_VNAforce, HVNA2force, HVNA3force, HVNA, DM, system_grid)
+    HVNAForce = HVNA_Force(SpinPol, Ham.MPI_DS_VNAforce, Ham.MPI_HVNA2force, Ham.MPI_HVNA3force, Ham.MPI_HVNA, DM, system_grid)
     myrank == 0 && Print_Force("HVNA_Force", Natom, HVNAForce)
-    MPI.Barrier(comm)
 
 
     myrank == 0 && println("<OLP_Force>")
-    OLPForce = OLP_Force(OLP_force, electron, kpoints, system_grid, false)
+    OLPForce = OLP_Force(SpinPol, EDM, OLP_force, system_grid)
     myrank == 0 && Print_Force("OLP_Force", Natom, OLPForce)
-    MPI.Barrier(comm)
+    EDM = nothing
+    OLP_force = nothing
 
     
     myrank == 0 && println("<HNL_Force>")
-    NLPforce = Ham.NLPforce
     if SpinPol ∈ ("off", "on")
-        HNLForce = HNL_Force(SpinPol, pspot, NLPforce, HNL, DM, system_grid)
+        HNLForce = HNL_Force(SpinPol, pspot, Ham.MPI_NLPforce, Ham.MPI_HNL, DM, system_grid)
     else 
-        HNLForce = HNL_Force_NC(pspot, NLPforce, HNL, iHNL, DM, iDM, system_grid)
+        HNLForce = HNL_Force_NC(pspot, Ham.MPI_NLPforce, Ham.MPI_HNL, Ham.MPI_iHNL, DM, iDM, system_grid)
     end
     myrank == 0 && Print_Force("HNL_Force", Natom, HNLForce)
-    MPI.Barrier(comm)
 
     
     myrank == 0 && println("<Core_Force>")
-    CoreForce = Core_Force(Core_Charge, system_grid)
+    CoreForce = Core_Force(Atoms_Core_Charge, system_grid)
     myrank == 0 && Print_Force("CoreForce", Natom, CoreForce)
-    MPI.Barrier(comm)
 
 
     myrank == 0 && println("<EH0_Force>")
@@ -130,7 +125,6 @@ end
         EH0Force = force.EH0Force
     end
     myrank == 0 && Print_Force("EH0Force", Natom, EH0Force)
-    MPI.Barrier(comm)
 
 
     myrank == 0 && println("<Exc_Force>")
@@ -140,13 +134,16 @@ end
         ExcForce = force.ExcForce
     end
     myrank == 0 && Print_Force("ExcForce", Natom, ExcForce)
-    MPI.Barrier(comm)
 
 
     myrank == 0 && println("<ForceAll>")
-    ForceAll = PCCForce + HkinForce + VpotForce + HVNAForce + OLPForce + HNLForce + CoreForce + EH0Force + ExcForce
+    ForceAll = similar(PCCForce)
+    @inbounds for index in eachindex(ForceAll)
+        ForceAll[index] = PCCForce[index] + HkinForce[index] + VpotForce[index] +
+                          HVNAForce[index] + OLPForce[index] + HNLForce[index] +
+                          CoreForce[index] + EH0Force[index] + ExcForce[index]
+    end
     myrank == 0 && Print_Force("ForceAll", Natom, ForceAll)
-    MPI.Barrier(comm)
     
 
     force.PCCForce = PCCForce
@@ -342,44 +339,55 @@ end
                 fill!(Hz, 0.0)
 
                 if Rn == 1
+                    Hkin_force1 = Hkin_force[1][atom][Rm]
+                    Hkin_force2 = Hkin_force[2][atom][Rm]
+                    Hkin_force3 = Hkin_force[3][atom][Rm]
                     for ist = 1:Total_NumOrbs[jatom], jst = 1:Total_NumOrbs[katom]
-                        Hx[ist,jst] += Hkin_force[1][atom][Rm][ist][jst]
-                        Hy[ist,jst] += Hkin_force[2][atom][Rm][ist][jst]
-                        Hz[ist,jst] += Hkin_force[3][atom][Rm][ist][jst]
+                        Hx[ist,jst] += Hkin_force1[ist][jst]
+                        Hy[ist,jst] += Hkin_force2[ist][jst]
+                        Hz[ist,jst] += Hkin_force3[ist][jst]
                     end
                 elseif Rn ≠ 1 && Rm == 1
+                    Hkin_force1 = Hkin_force[1][atom][Rn]
+                    Hkin_force2 = Hkin_force[2][atom][Rn]
+                    Hkin_force3 = Hkin_force[3][atom][Rn]
                     for ist = 1:Total_NumOrbs[jatom], jst = 1:Total_NumOrbs[katom]
-                        Hx[ist,jst] += Hkin_force[1][atom][Rn][jst][ist]
-                        Hy[ist,jst] += Hkin_force[2][atom][Rn][jst][ist]
-                        Hz[ist,jst] += Hkin_force[3][atom][Rn][jst][ist]
+                        Hx[ist,jst] += Hkin_force1[jst][ist]
+                        Hy[ist,jst] += Hkin_force2[jst][ist]
+                        Hz[ist,jst] += Hkin_force3[jst][ist]
                     end
                 end
 
                 if SpinPol == "off"
+                    DM1 = DM[1][jatom][kl+1]
                     pref = ifelse(isequal(Rn,Rm), 2.0, 4.0)
                     for ist = 1:Total_NumOrbs[jatom], jst = 1:Total_NumOrbs[katom]
-                        dEx += pref*DM[1][jatom][kl+1][ist][jst]*Hx[ist,jst]
-                        dEy += pref*DM[1][jatom][kl+1][ist][jst]*Hy[ist,jst]
-                        dEz += pref*DM[1][jatom][kl+1][ist][jst]*Hz[ist,jst]
+                        dEx += pref*DM1[ist][jst]*Hx[ist,jst]
+                        dEy += pref*DM1[ist][jst]*Hy[ist,jst]
+                        dEz += pref*DM1[ist][jst]*Hz[ist,jst]
                     end
                 elseif SpinPol == "on"
+                    DM1 = DM[1][jatom][kl+1]
+                    DM2 = DM[2][jatom][kl+1]
                     pref = ifelse(isequal(Rn,Rm), 1.0, 2.0)
                     for ist = 1:Total_NumOrbs[jatom], jst = 1:Total_NumOrbs[katom]
-                        dEx += pref*DM[1][jatom][kl+1][ist][jst]*Hx[ist,jst]
-                        dEy += pref*DM[1][jatom][kl+1][ist][jst]*Hy[ist,jst]
-                        dEz += pref*DM[1][jatom][kl+1][ist][jst]*Hz[ist,jst]
-                        dEx += pref*DM[2][jatom][kl+1][ist][jst]*Hx[ist,jst]
-                        dEy += pref*DM[2][jatom][kl+1][ist][jst]*Hy[ist,jst]
-                        dEz += pref*DM[2][jatom][kl+1][ist][jst]*Hz[ist,jst]
+                        dEx += pref*DM1[ist][jst]*Hx[ist,jst]
+                        dEy += pref*DM1[ist][jst]*Hy[ist,jst]
+                        dEz += pref*DM1[ist][jst]*Hz[ist,jst]
+                        dEx += pref*DM2[ist][jst]*Hx[ist,jst]
+                        dEy += pref*DM2[ist][jst]*Hy[ist,jst]
+                        dEz += pref*DM2[ist][jst]*Hz[ist,jst]
                     end
                 else 
+                    DM1 = DM[1][jatom][kl+1]
+                    DM2 = DM[2][jatom][kl+1]
                     for ist = 1:Total_NumOrbs[jatom], jst = 1:Total_NumOrbs[katom]
-                        dEx += DM[1][jatom][kl+1][ist][jst]*Hx[ist,jst]
-                        dEx += DM[2][jatom][kl+1][ist][jst]*Hx[ist,jst]
-                        dEy += DM[1][jatom][kl+1][ist][jst]*Hy[ist,jst]
-                        dEy += DM[2][jatom][kl+1][ist][jst]*Hy[ist,jst]
-                        dEz += DM[1][jatom][kl+1][ist][jst]*Hz[ist,jst]
-                        dEz += DM[2][jatom][kl+1][ist][jst]*Hz[ist,jst]
+                        dEx += DM1[ist][jst]*Hx[ist,jst]
+                        dEx += DM2[ist][jst]*Hx[ist,jst]
+                        dEy += DM1[ist][jst]*Hy[ist,jst]
+                        dEy += DM2[ist][jst]*Hy[ist,jst]
+                        dEz += DM1[ist][jst]*Hz[ist,jst]
+                        dEz += DM2[ist][jst]*Hz[ist,jst]
                     end
                 end
             end
@@ -427,8 +435,9 @@ end
         NO0 = Total_NumOrbs[atom]
         NO1 = Total_NumOrbs[jatom]
 
-        sumx1, sumy1, sumz1 = _Calc_Force3_8(NO0, NO1, MPI_NumOLG[loop], GridListAtom[atom], MPI_GListTAtoms1[loop], MPI_GListTAtoms2[loop], 
-                                             dOrbs_Grid[1][atom], dOrbs_Grid[2][atom], dOrbs_Grid[3][atom], Orbs_Grid[jatom], Vpot_Grid[1], DM[1][atom][Rn])
+        sumx1, sumy1, sumz1 = _Calc_Force3_Blocked!(ucell,
+            dOrbs_Grid, Orbs_Grid, atom, jatom, loop, Vpot_Grid[1],
+            DM[1][atom][Rn])
 
         VpotForce[atom,1] += 4*sumx1*GridVol
         VpotForce[atom,2] += 4*sumy1*GridVol
@@ -474,11 +483,13 @@ end
         NO0 = Total_NumOrbs[atom]
         NO1 = Total_NumOrbs[jatom]
 
-        sumx1_up, sumy1_up, sumz1_up = _Calc_Force3_8(NO0, NO1, MPI_NumOLG[loop], GridListAtom[atom], MPI_GListTAtoms1[loop], MPI_GListTAtoms2[loop], 
-                                                      dOrbs_Grid[1][atom], dOrbs_Grid[2][atom], dOrbs_Grid[3][atom], Orbs_Grid[jatom], Vpot_Grid[1], DM[1][atom][Rn])
+        sumx1_up, sumy1_up, sumz1_up = _Calc_Force3_Blocked!(ucell,
+            dOrbs_Grid, Orbs_Grid, atom, jatom, loop, Vpot_Grid[1],
+            DM[1][atom][Rn])
 
-        sumx1_dn, sumy1_dn, sumz1_dn = _Calc_Force3_8(NO0, NO1, MPI_NumOLG[loop], GridListAtom[atom], MPI_GListTAtoms1[loop], MPI_GListTAtoms2[loop], 
-                                                      dOrbs_Grid[1][atom], dOrbs_Grid[2][atom], dOrbs_Grid[3][atom], Orbs_Grid[jatom], Vpot_Grid[2], DM[2][atom][Rn])
+        sumx1_dn, sumy1_dn, sumz1_dn = _Calc_Force3_Blocked!(ucell,
+            dOrbs_Grid, Orbs_Grid, atom, jatom, loop, Vpot_Grid[2],
+            DM[2][atom][Rn])
 
         VpotForce[atom,1] += 2*(sumx1_up + sumx1_dn)*GridVol
         VpotForce[atom,2] += 2*(sumy1_up + sumy1_dn)*GridVol
@@ -527,17 +538,21 @@ end
         NO0 = Total_NumOrbs[atom]
         NO1 = Total_NumOrbs[jatom]
         
-        sumx11, sumy11, sumz11 = _Calc_Force3_8(NO0, NO1, MPI_NumOLG[loop], GridListAtom[atom], MPI_GListTAtoms1[loop], MPI_GListTAtoms2[loop], 
-                                                dOrbs_Grid[1][atom], dOrbs_Grid[2][atom], dOrbs_Grid[3][atom], Orbs_Grid[jatom], Vpot1, DM[1][atom][Rn])
+        sumx11, sumy11, sumz11 = _Calc_Force3_Blocked!(ucell,
+            dOrbs_Grid, Orbs_Grid, atom, jatom, loop, Vpot1,
+            DM[1][atom][Rn])
 
-        sumx12, sumy12, sumz12 = _Calc_Force3_8(NO0, NO1, MPI_NumOLG[loop], GridListAtom[atom], MPI_GListTAtoms1[loop], MPI_GListTAtoms2[loop], 
-                                                dOrbs_Grid[1][atom], dOrbs_Grid[2][atom], dOrbs_Grid[3][atom], Orbs_Grid[jatom], Vpot2, DM[2][atom][Rn])
+        sumx12, sumy12, sumz12 = _Calc_Force3_Blocked!(ucell,
+            dOrbs_Grid, Orbs_Grid, atom, jatom, loop, Vpot2,
+            DM[2][atom][Rn])
 
-        sumx13, sumy13, sumz13 = _Calc_Force3_8(NO0, NO1, MPI_NumOLG[loop], GridListAtom[atom], MPI_GListTAtoms1[loop], MPI_GListTAtoms2[loop], 
-                                                dOrbs_Grid[1][atom], dOrbs_Grid[2][atom], dOrbs_Grid[3][atom], Orbs_Grid[jatom], Vxc_Grid[3], DM[3][atom][Rn])
+        sumx13, sumy13, sumz13 = _Calc_Force3_Blocked!(ucell,
+            dOrbs_Grid, Orbs_Grid, atom, jatom, loop, Vxc_Grid[3],
+            DM[3][atom][Rn])
 
-        sumx14, sumy14, sumz14 = _Calc_Force3_8(NO0, NO1, MPI_NumOLG[loop], GridListAtom[atom], MPI_GListTAtoms1[loop], MPI_GListTAtoms2[loop], 
-                                                dOrbs_Grid[1][atom], dOrbs_Grid[2][atom], dOrbs_Grid[3][atom], Orbs_Grid[jatom], Vxc_Grid[4], DM[4][atom][Rn])
+        sumx14, sumy14, sumz14 = _Calc_Force3_Blocked!(ucell,
+            dOrbs_Grid, Orbs_Grid, atom, jatom, loop, Vxc_Grid[4],
+            DM[4][atom][Rn])
 
         VpotForce[atom,1] += (2*sumx11 + 2*sumx12 + 4*sumx13 - 4*sumx14)*GridVol
         VpotForce[atom,2] += (2*sumy11 + 2*sumy12 + 4*sumy13 - 4*sumy14)*GridVol
@@ -551,7 +566,7 @@ end
 end
 
 
-@timeit timer "HVNA_Force" function HVNA_Force(SpinPol::String, DS_VNA, HVNA2, HVNA3, HVNA, DM, system_grid::System_Grid)
+@timeit timer "HVNA_Force" function HVNA_Force(SpinPol::String, MPI_DS_VNAforce, MPI_HVNA2, MPI_HVNA3, MPI_HVNA, DM, system_grid::System_Grid)
 
     comm = MPI.COMM_WORLD
 
@@ -567,7 +582,130 @@ end
     MPI_size = system_grid.MPI_size
     Total_NumOrbs = system_grid.Total_NumOrbs
     maxTotal_NumOrbs = maximum(Total_NumOrbs)
-    VNATotal_Num = size(DS_VNA[1][1][1], 2)
+    VNATotal_Num = size(MPI_DS_VNAforce[1][1], 2)
+    maxFNAN = maximum(FNAN)
+
+    # Set HVNA
+    HVNA = Vector{Vector{Matrix{Float64}}}(undef, Natom)
+	for atom = 1:Natom
+		HVNA[atom] = Vector{Matrix{Float64}}(undef, FNAN[atom]+1)
+		for Rn = 1:FNAN[atom]+1
+			HVNA[atom][Rn] = zeros(Float64, Total_NumOrbs[atom], Total_NumOrbs[natn[atom][Rn]])
+		end
+	end
+
+    hst = 0
+    for loop = 1:MPI_size
+        atom = MPI_atom[loop]
+        Rn = MPI_FNAN[loop]
+        jatom = MPI_natn[loop]
+		NO0 = Total_NumOrbs[atom]
+		NO1 = Total_NumOrbs[jatom]
+        for ist = 1:NO0, jst = 1:NO1
+            hst += 1
+            HVNA[atom][Rn][ist,jst] = MPI_HVNA[hst]
+        end
+    end
+    MPI_HVNA = nothing
+
+    for atom = 1:Natom
+        _packed_allreduce_matrices!(HVNA[atom], comm)
+    end
+
+
+    # Set DS_VNAforce
+    DS_VNAforce = Vector{Vector{Vector{Matrix{Float64}}}}(undef, 4)
+	for xyz = 1:4
+		DS_VNAforce[xyz] = Vector{Vector{Matrix{Float64}}}(undef, Natom+1)
+		for atom = 1:Natom+1
+			if atom == Natom+1
+				fan = maxFNAN+1
+				NO0 = maxTotal_NumOrbs
+			else
+				fan = FNAN[atom]+1
+				NO0 = Total_NumOrbs[atom]
+			end
+			DS_VNAforce[xyz][atom] = Vector{Matrix{Float64}}(undef, fan)
+			for Rn = 1:fan
+				DS_VNAforce[xyz][atom][Rn] = zeros(Float64, NO0, VNATotal_Num)
+			end
+		end
+	end
+
+    for xyz = 1:4, loop = 1:MPI_size
+        atom = MPI_atom[loop]
+        Rn = MPI_FNAN[loop]
+		NO0 = Total_NumOrbs[atom]
+        for ist = 1:NO0, jst = 1:VNATotal_Num
+			DS_VNAforce[xyz][atom][Rn][ist,jst] = MPI_DS_VNAforce[xyz][loop][ist,jst]
+		end
+	end
+    MPI_DS_VNAforce = nothing
+
+    for atom = 1:Natom
+        matrices = Matrix{Float64}[]
+        sizehint!(matrices, 4*(FNAN[atom] + 1))
+        for xyz = 1:4, Rn = 1:FNAN[atom]+1
+            push!(matrices, DS_VNAforce[xyz][atom][Rn])
+        end
+        _packed_allreduce_matrices!(matrices, comm)
+    end
+
+    # Set HVNAforce2, HVNAforce3
+    HVNA2force = Vector{Vector{Vector{Matrix{Float64}}}}(undef, 3)
+    HVNA3force = Vector{Vector{Vector{Matrix{Float64}}}}(undef, 3)
+	for xyz = 1:3
+		HVNA2force[xyz] = Vector{Vector{Matrix{Float64}}}(undef, Natom)
+		HVNA3force[xyz] = Vector{Vector{Matrix{Float64}}}(undef, Natom)
+		for atom = 1:Natom
+			HVNA2force[xyz][atom] = Vector{Matrix{Float64}}(undef, FNAN[atom]+1)
+			HVNA3force[xyz][atom] = Vector{Matrix{Float64}}(undef, FNAN[atom]+1)
+			for Rn = 1:FNAN[atom]+1
+				NO0 = Total_NumOrbs[atom]
+				NO1 = Total_NumOrbs[natn[atom][Rn]]
+				HVNA2force[xyz][atom][Rn] = zeros(Float64, NO0, NO0)
+                HVNA3force[xyz][atom][Rn] = zeros(Float64, NO1, NO1)
+			end
+		end
+	end
+
+    hst2 = 0
+    hst3 = 0
+    for loop = 1:MPI_size
+        atom = MPI_atom[loop]
+        Rn = MPI_FNAN[loop]
+        jatom = MPI_natn[loop]
+		NO0 = Total_NumOrbs[atom]
+		NO1 = Total_NumOrbs[jatom]
+        for ist = 1:NO0, jst = 1:NO0
+            hst2 += 1
+			HVNA2force[1][atom][Rn][ist,jst] = MPI_HVNA2[1][hst2]
+			HVNA2force[2][atom][Rn][ist,jst] = MPI_HVNA2[2][hst2]
+			HVNA2force[3][atom][Rn][ist,jst] = MPI_HVNA2[3][hst2]
+		end
+
+        for ist = 1:NO1, jst = 1:NO1
+            hst3 += 1
+			HVNA3force[1][atom][Rn][ist,jst] = MPI_HVNA3[1][hst3]
+			HVNA3force[2][atom][Rn][ist,jst] = MPI_HVNA3[2][hst3]
+			HVNA3force[3][atom][Rn][ist,jst] = MPI_HVNA3[3][hst3]
+		end
+	end
+    MPI_HVNA2 = nothing
+    MPI_HVNA3 = nothing
+
+    for atom = 1:Natom
+        matrices = Matrix{Float64}[]
+        sizehint!(matrices, 6*(FNAN[atom] + 1))
+        for xyz = 1:3, Rn = 1:FNAN[atom]+1
+            push!(matrices, HVNA2force[xyz][atom][Rn])
+        end
+        for xyz = 1:3, Rn = 1:FNAN[atom]+1
+            push!(matrices, HVNA3force[xyz][atom][Rn])
+        end
+        _packed_allreduce_matrices!(matrices, comm)
+    end
+
 
     Hx = zeros(Float64, maxTotal_NumOrbs, maxTotal_NumOrbs)
     Hy = zeros(Float64, maxTotal_NumOrbs, maxTotal_NumOrbs)
@@ -598,26 +736,29 @@ end
 
         dHVNA!( 0, atom, Rn, Rm, 
                 Hx, Hy, Hz, 
-                HVNA2[1][atom], HVNA2[2][atom], HVNA2[3][atom], 
-                HVNA3[1][atom], HVNA3[2][atom], HVNA3[3][atom], 
-                DS_VNA, HVNA[atom], system_grid)
+                HVNA2force[1][atom], HVNA2force[2][atom], HVNA2force[3][atom], 
+                HVNA3force[1][atom], HVNA3force[2][atom], HVNA3force[3][atom], 
+                DS_VNAforce, HVNA[atom], system_grid)
 
         if SpinPol == "off"
+            DM1 = DM[1][jatom][kl+1]
             pref = ifelse(isequal(Rn,Rm), 2.0, 4.0)
             for ist = 1:NO0, jst = 1:NO1
-                dEx += pref*DM[1][jatom][kl+1][ist][jst]*Hx[ist,jst]
-                dEy += pref*DM[1][jatom][kl+1][ist][jst]*Hy[ist,jst]
-                dEz += pref*DM[1][jatom][kl+1][ist][jst]*Hz[ist,jst]
+                dEx += pref*DM1[ist][jst]*Hx[ist,jst]
+                dEy += pref*DM1[ist][jst]*Hy[ist,jst]
+                dEz += pref*DM1[ist][jst]*Hz[ist,jst]
             end
         else
+            DM1 = DM[1][jatom][kl+1]
+            DM2 = DM[2][jatom][kl+1]
             pref = ifelse(isequal(Rn,Rm), 1.0, 2.0)
             for ist = 1:NO0, jst = 1:NO1
-                dEx += pref*DM[1][jatom][kl+1][ist][jst]*Hx[ist,jst]
-                dEx += pref*DM[2][jatom][kl+1][ist][jst]*Hx[ist,jst]
-                dEy += pref*DM[1][jatom][kl+1][ist][jst]*Hy[ist,jst]
-                dEy += pref*DM[2][jatom][kl+1][ist][jst]*Hy[ist,jst]
-                dEz += pref*DM[1][jatom][kl+1][ist][jst]*Hz[ist,jst]
-                dEz += pref*DM[2][jatom][kl+1][ist][jst]*Hz[ist,jst]
+                dEx += pref*DM1[ist][jst]*Hx[ist,jst]
+                dEx += pref*DM2[ist][jst]*Hx[ist,jst]
+                dEy += pref*DM1[ist][jst]*Hy[ist,jst]
+                dEy += pref*DM2[ist][jst]*Hy[ist,jst]
+                dEz += pref*DM1[ist][jst]*Hz[ist,jst]
+                dEz += pref*DM2[ist][jst]*Hz[ist,jst]
             end
         end
 
@@ -631,7 +772,7 @@ end
     
     loop = 1
     atom_old = MPI_atom[loop]
-    Set_DS_VNA_Natom!(atom_old, OneDatom, OneDFNAN, HVNA_FNAN, MP_FNAN, FNAN, Total_NumOrbs, VNATotal_Num, DS_VNA)
+    Set_DS_VNA_Natom!(atom_old, OneDatom, OneDFNAN, HVNA_FNAN, MP_FNAN, FNAN, Total_NumOrbs, VNATotal_Num, DS_VNAforce)
 
     for loop = 1:MPI_size
 
@@ -641,7 +782,7 @@ end
         NO0 = Total_NumOrbs[jatom]
 
         if atom ≠ atom_old
-            Set_DS_VNA_Natom!(atom, OneDatom, OneDFNAN, HVNA_FNAN, MP_FNAN, FNAN, Total_NumOrbs, VNATotal_Num, DS_VNA)
+            Set_DS_VNA_Natom!(atom, OneDatom, OneDFNAN, HVNA_FNAN, MP_FNAN, FNAN, Total_NumOrbs, VNATotal_Num, DS_VNAforce)
         end
 
         atom_old = atom
@@ -664,26 +805,29 @@ end
 
                 dHVNA!( 1, atom, Rn, Rm,
                         Hx, Hy, Hz, 
-                        HVNA2[1][atom], HVNA2[2][atom], HVNA2[3][atom], 
-                        HVNA3[1][atom], HVNA3[2][atom], HVNA3[3][atom], 
-                        DS_VNA, HVNA[atom], system_grid)
+                        HVNA2force[1][atom], HVNA2force[2][atom], HVNA2force[3][atom], 
+                        HVNA3force[1][atom], HVNA3force[2][atom], HVNA3force[3][atom], 
+                        DS_VNAforce, HVNA[atom], system_grid)
 
                 if SpinPol == "off"
+                    DM1 = DM[1][jatom][kl+1]
                     pref = ifelse(isequal(Rn,Rm), 2.0, 4.0)
                     for ist = 1:NO0, jst = 1:NO1
-                        dEx += pref*DM[1][jatom][kl+1][ist][jst]*Hx[ist,jst]
-                        dEy += pref*DM[1][jatom][kl+1][ist][jst]*Hy[ist,jst]
-                        dEz += pref*DM[1][jatom][kl+1][ist][jst]*Hz[ist,jst]
+                        dEx += pref*DM1[ist][jst]*Hx[ist,jst]
+                        dEy += pref*DM1[ist][jst]*Hy[ist,jst]
+                        dEz += pref*DM1[ist][jst]*Hz[ist,jst]
                     end
                 else
+                    DM1 = DM[1][jatom][kl+1]
+                    DM2 = DM[2][jatom][kl+1]
                     pref = ifelse(isequal(Rn,Rm), 1.0, 2.0)
                     for ist = 1:NO0, jst = 1:NO1
-                        dEx += pref*DM[1][jatom][kl+1][ist][jst]*Hx[ist,jst]
-                        dEx += pref*DM[2][jatom][kl+1][ist][jst]*Hx[ist,jst]
-                        dEy += pref*DM[1][jatom][kl+1][ist][jst]*Hy[ist,jst]
-                        dEy += pref*DM[2][jatom][kl+1][ist][jst]*Hy[ist,jst]
-                        dEz += pref*DM[1][jatom][kl+1][ist][jst]*Hz[ist,jst]
-                        dEz += pref*DM[2][jatom][kl+1][ist][jst]*Hz[ist,jst]
+                        dEx += pref*DM1[ist][jst]*Hx[ist,jst]
+                        dEx += pref*DM2[ist][jst]*Hx[ist,jst]
+                        dEy += pref*DM1[ist][jst]*Hy[ist,jst]
+                        dEy += pref*DM2[ist][jst]*Hy[ist,jst]
+                        dEz += pref*DM1[ist][jst]*Hz[ist,jst]
+                        dEz += pref*DM2[ist][jst]*Hz[ist,jst]
                     end
                 end
             end
@@ -700,16 +844,6 @@ end
 end
 
 
-@timeit timer "OLP_Force" function OLP_Force(OLP_force, electron::AbstractBloch, kpoints::KPoints, system_grid::System_Grid, occ_flag::Bool)
-
-    SpinPol = electron.SpinPol
-    EDM = Calc_EDM(electron, kpoints, system_grid, occ_flag)
-    OLPForce = OLP_Force(SpinPol, EDM, OLP_force, system_grid)
-
-    return OLPForce
-end
-
-
 function OLP_Force(SpinPol::String, EDM, OLP_force, system_grid::System_Grid)
 
     Natom = system_grid.Natom
@@ -717,11 +851,15 @@ function OLP_Force(SpinPol::String, EDM, OLP_force, system_grid::System_Grid)
     FNAN = system_grid.FNAN
     natn = system_grid.natn
 
-    
+    OLP_force1 = OLP_force[1]
+    OLP_force2 = OLP_force[2]
+    OLP_force3 = OLP_force[3]
+
     OLPForce = zeros(Float64, Natom, 3)
 
     if SpinPol == "off"
         hst = 0
+        EDM1 = EDM[1]
         for atom = 1:Natom, Rn = 1:FNAN[atom]+1
             NO0 = Total_NumOrbs[atom]
             jatom = natn[atom][Rn]
@@ -729,11 +867,11 @@ function OLP_Force(SpinPol::String, EDM, OLP_force, system_grid::System_Grid)
             for ist = 1:NO0, jst = 1:NO1
                 hst += 1
                 if Rn ≠ 1
-                    dum = 2*EDM[1][hst]
+                    dum = 2*EDM1[hst]
 
-                    dx = dum*OLP_force[1][hst]
-                    dy = dum*OLP_force[2][hst]
-                    dz = dum*OLP_force[3][hst]
+                    dx = dum*OLP_force1[hst]
+                    dy = dum*OLP_force2[hst]
+                    dz = dum*OLP_force3[hst]
 
                     OLPForce[atom,1] = OLPForce[atom,1] - 2*dx
                     OLPForce[atom,2] = OLPForce[atom,2] - 2*dy
@@ -743,6 +881,8 @@ function OLP_Force(SpinPol::String, EDM, OLP_force, system_grid::System_Grid)
         end
     else
         hst = 0
+        EDM1 = EDM[1]
+        EDM2 = EDM[2]
         for atom = 1:Natom, Rn = 1:FNAN[atom]+1
             NO0 = Total_NumOrbs[atom]
             jatom = natn[atom][Rn]
@@ -750,11 +890,11 @@ function OLP_Force(SpinPol::String, EDM, OLP_force, system_grid::System_Grid)
             for ist = 1:NO0, jst = 1:NO1
                 hst += 1
                 if Rn ≠ 1
-                    dum = EDM[1][hst] + EDM[2][hst]
+                    dum = EDM1[hst] + EDM2[hst]
 
-                    dx = dum*OLP_force[1][hst]
-                    dy = dum*OLP_force[2][hst]
-                    dz = dum*OLP_force[3][hst]
+                    dx = dum*OLP_force1[hst]
+                    dy = dum*OLP_force2[hst]
+                    dz = dum*OLP_force3[hst]
 
                     OLPForce[atom,1] = OLPForce[atom,1] - 2*dx
                     OLPForce[atom,2] = OLPForce[atom,2] - 2*dy
@@ -769,7 +909,7 @@ function OLP_Force(SpinPol::String, EDM, OLP_force, system_grid::System_Grid)
 end
 
 
-@timeit timer "HNL_Force" function HNL_Force(SpinPol::String, pspot::Vector{Pspot}, NLPforce, HNL, DM, system_grid::System_Grid)
+@timeit timer "HNL_Force" function HNL_Force(SpinPol::String, pspot::Vector{Pspot}, MPI_NLPforce, MPI_HNL, DM, system_grid::System_Grid)
     
     comm = MPI.COMM_WORLD
 
@@ -786,7 +926,7 @@ end
     MPI_size = system_grid.MPI_size
     Total_NumOrbs = system_grid.Total_NumOrbs
     maxTotal_NumOrbs = maximum(Total_NumOrbs)
-
+    maxFNAN = maximum(FNAN)
 
 
     NLTotal_Num = zeros(Int64, Natom)
@@ -797,9 +937,9 @@ end
         for list in List
             tot += 2*list + 1
         end
-
         NLTotal_Num[atom] = tot
     end
+	maxNLTotal_Num = maximum(NLTotal_Num)
 
     VNLE = Vector{Vector{Float64}}(undef, Natom)
     for atom = 1:Natom
@@ -816,6 +956,83 @@ end
             end
         end
     end
+
+
+    # Set HNL
+    HNL = Vector{Vector{Matrix{Float64}}}(undef, Natom)
+	for atom = 1:Natom
+		HNL[atom] = Vector{Matrix{Float64}}(undef, FNAN[atom]+1)
+		for Rn = 1:FNAN[atom]+1
+			HNL[atom][Rn] = zeros(Float64, Total_NumOrbs[atom], Total_NumOrbs[natn[atom][Rn]])
+		end
+	end
+
+    hst = 0
+    for loop = 1:MPI_size
+        atom = MPI_atom[loop]
+        Rn = MPI_FNAN[loop]
+        jatom = MPI_natn[loop]
+		NO0 = Total_NumOrbs[atom]
+		NO1 = Total_NumOrbs[jatom]
+        for ist = 1:NO0, jst = 1:NO1
+            hst += 1
+            HNL[atom][Rn][ist,jst] = MPI_HNL[1][hst]
+        end
+    end
+    MPI_HNL = nothing
+
+    for atom = 1:Natom
+        _packed_allreduce_matrices!(HNL[atom], comm)
+    end
+
+    # Set NLPforce
+    NLPforce = Vector{Vector{Vector{Matrix{Float64}}}}(undef, 4)
+    for xyz = 1:4
+        NLPforce[xyz] = Vector{Vector{Matrix{Float64}}}(undef, Natom+1)
+        for atom = 1:Natom+1
+            if atom == Natom+1
+				fan = maxFNAN+1
+				NO0 = maxTotal_NumOrbs
+			else
+				fan = FNAN[atom]+1
+				NO0 = Total_NumOrbs[atom]
+			end
+            
+            NLPforce[xyz][atom] = Vector{Matrix{Float64}}(undef, fan)
+            for Rn = 1:fan
+                if atom == Natom+1
+                    NO1 = maxNLTotal_Num
+                else
+                    jatom = natn[atom][Rn]
+                    NO1 = NLTotal_Num[jatom]
+                end
+                NLPforce[xyz][atom][Rn] = zeros(Float64, NO0, NO1)
+            end
+        end
+    end
+
+    for xyz = 1:4, loop = 1:MPI_size
+        atom = MPI_atom[loop]
+        Rn = MPI_FNAN[loop]
+        jatom = MPI_natn[loop]
+		NO0 = Total_NumOrbs[atom]
+        NO1 = NLTotal_Num[jatom]
+        for ist = 1:NO0, jst = 1:NO1
+			NLPforce[xyz][atom][Rn][ist,jst] = MPI_NLPforce[xyz][loop][1][ist,jst]
+		end
+	end
+    MPI_NLPforce = nothing
+
+    for atom = 1:Natom
+        matrices = Matrix{Float64}[]
+        sizehint!(matrices, 4*(FNAN[atom] + 1))
+        for xyz = 1:4, Rn = 1:FNAN[atom]+1
+            push!(matrices, NLPforce[xyz][atom][Rn])
+        end
+        _packed_allreduce_matrices!(matrices, comm)
+    end
+
+
 
     Hx = zeros(Float64, maxTotal_NumOrbs, maxTotal_NumOrbs)
     Hy = zeros(Float64, maxTotal_NumOrbs, maxTotal_NumOrbs)
@@ -847,7 +1064,7 @@ end
 
         dHNL!( 0, atom, Rn, Rm, NLTotal_Num, VNLE, weighted_NLP,
                Hx, Hy, Hz, 
-               NLPforce, HNL[1][atom],
+               NLPforce, HNL[atom],
                system_grid)
 
         if SpinPol == "off"
@@ -884,7 +1101,7 @@ end
 
     loop = 1
     atom_old = MPI_atom[loop]
-    Set_NLPforce_Natom!(atom_old, OneDatom, OneDjatom, OneDFNAN, HNL_FNAN, MP_FNAN, FNAN, Total_NumOrbs, NLTotal_Num, 0, NLPforce)
+    Set_NLPforce_Natom!(atom_old, OneDatom, OneDjatom, OneDFNAN, HNL_FNAN, MP_FNAN, FNAN, Total_NumOrbs, NLTotal_Num, NLPforce)
 
     for loop = 1:MPI_size
 
@@ -894,7 +1111,7 @@ end
         NO0 = Total_NumOrbs[jatom]
 
         if atom ≠ atom_old
-            Set_NLPforce_Natom!(atom, OneDatom, OneDjatom, OneDFNAN, HNL_FNAN, MP_FNAN, FNAN, Total_NumOrbs, NLTotal_Num, 0, NLPforce)
+            Set_NLPforce_Natom!(atom, OneDatom, OneDjatom, OneDFNAN, HNL_FNAN, MP_FNAN, FNAN, Total_NumOrbs, NLTotal_Num, NLPforce)
         end
 
         atom_old = atom
@@ -916,7 +1133,7 @@ end
 
                 dHNL!( 1, atom, Rn, Rm, NLTotal_Num, VNLE, weighted_NLP,
                        Hx, Hy, Hz, 
-                       NLPforce, HNL[1][atom],
+                       NLPforce, HNL[atom],
                        system_grid)
 
                 if SpinPol == "off"
@@ -955,7 +1172,7 @@ end
 
 
 # Calc HNL_Force for NonCollinear case
-@timeit timer "HNL_Force" function HNL_Force_NC(pspot::Vector{Pspot}, NLPforce, HNL, iHNL, DM, iDM, system_grid::System_Grid)
+@timeit timer "HNL_Force" function HNL_Force_NC(pspot::Vector{Pspot}, MPI_NLPforce, MPI_HNL, MPI_iHNL, DM, iDM, system_grid::System_Grid)
     
     comm = MPI.COMM_WORLD
     
@@ -972,7 +1189,7 @@ end
     MPI_size = system_grid.MPI_size
     Total_NumOrbs = system_grid.Total_NumOrbs
     maxTotal_NumOrbs = maximum(Total_NumOrbs)
-
+    maxFNAN = maximum(FNAN)
 
     Atoms_Num_RVPS = zeros(Int64, Natom)
     NLTotal_Num = zeros(Int64, Natom)
@@ -986,6 +1203,7 @@ end
         Atoms_Num_RVPS[atom] = pspot[spe].Spe_Num_RVPS
         NLTotal_Num[atom] = tot
     end
+    maxNLTotal_Num = maximum(NLTotal_Num)
 
     Atoms_VPS_List = Vector{Vector{Int64}}(undef, Natom)
     Atoms_VNLE = Vector{Array{Float64,2}}(undef, Natom)
@@ -1000,6 +1218,104 @@ end
             Atoms_VPS_List[atom][lst] = pspot[spe].Spe_VPS_List[lst]
         end
     end
+    # Set HNL, iHNL
+    HNL = Vector{Vector{Vector{Matrix{Float64}}}}(undef, 3)
+    iHNL = Vector{Vector{Vector{Matrix{Float64}}}}(undef, 3)
+    for xyz = 1:3
+        HNL[xyz] = Vector{Vector{Matrix{Float64}}}(undef, Natom)
+        iHNL[xyz] = Vector{Vector{Matrix{Float64}}}(undef, Natom)
+        for atom = 1:Natom
+            HNL[xyz][atom] = Vector{Matrix{Float64}}(undef, FNAN[atom]+1)
+            iHNL[xyz][atom] = Vector{Matrix{Float64}}(undef, FNAN[atom]+1)
+            for Rn = 1:FNAN[atom]+1
+                HNL[xyz][atom][Rn] = zeros(Float64, Total_NumOrbs[atom], Total_NumOrbs[natn[atom][Rn]])
+                iHNL[xyz][atom][Rn] = zeros(Float64, Total_NumOrbs[atom], Total_NumOrbs[natn[atom][Rn]])
+            end
+        end
+    end
+
+    hst = 0
+    for loop = 1:MPI_size
+        atom = MPI_atom[loop]
+        Rn = MPI_FNAN[loop]
+        jatom = MPI_natn[loop]
+		NO0 = Total_NumOrbs[atom]
+		NO1 = Total_NumOrbs[jatom]
+        for ist = 1:NO0, jst = 1:NO1
+            hst += 1
+            HNL[1][atom][Rn][ist,jst] = MPI_HNL[1][hst]
+            HNL[2][atom][Rn][ist,jst] = MPI_HNL[2][hst]
+            HNL[3][atom][Rn][ist,jst] = MPI_HNL[3][hst]
+            iHNL[1][atom][Rn][ist,jst] = MPI_iHNL[1][hst]
+            iHNL[2][atom][Rn][ist,jst] = MPI_iHNL[2][hst]
+            iHNL[3][atom][Rn][ist,jst] = MPI_iHNL[3][hst]
+        end
+    end
+    MPI_HNL = nothing
+    MPI_iHNL = nothing
+
+    for atom = 1:Natom
+        matrices = Matrix{Float64}[]
+        sizehint!(matrices, 6*(FNAN[atom] + 1))
+        for xyz = 1:3, Rn = 1:FNAN[atom]+1
+            push!(matrices, HNL[xyz][atom][Rn])
+        end
+        for xyz = 1:3, Rn = 1:FNAN[atom]+1
+            push!(matrices, iHNL[xyz][atom][Rn])
+        end
+        _packed_allreduce_matrices!(matrices, comm)
+    end
+
+    # Set NLPforce
+    NLPforce = Vector{Vector{Vector{Vector{Matrix{Float64}}}}}(undef, 4)
+    for xyz = 1:4
+        NLPforce[xyz] = Vector{Vector{Vector{Matrix{Float64}}}}(undef, Natom+1)
+        for atom = 1:Natom+1
+            if atom == Natom+1
+				fan = maxFNAN+1
+				NO0 = maxTotal_NumOrbs
+			else
+				fan = FNAN[atom]+1
+				NO0 = Total_NumOrbs[atom]
+			end
+            
+            NLPforce[xyz][atom] = Vector{Vector{Matrix{Float64}}}(undef, fan)
+            for Rn = 1:fan
+                if atom == Natom+1
+                    NO1 = maxNLTotal_Num
+                else
+                    jatom = natn[atom][Rn]
+                    NO1 = NLTotal_Num[jatom]
+                end
+                NLPforce[xyz][atom][Rn] = Vector{Matrix{Float64}}(undef, 2)
+                for so = 1:2
+                    NLPforce[xyz][atom][Rn][so] = zeros(Float64, NO0, NO1)
+                end
+            end
+        end
+    end
+
+    for xyz = 1:4, loop = 1:MPI_size
+        atom = MPI_atom[loop]
+        Rn = MPI_FNAN[loop]
+        jatom = MPI_natn[loop]
+		NO0 = Total_NumOrbs[atom]
+        NO1 = NLTotal_Num[jatom]
+        for so = 1:2, ist = 1:NO0, jst = 1:NO1
+			NLPforce[xyz][atom][Rn][so][ist,jst] = MPI_NLPforce[xyz][loop][so][ist,jst]
+		end
+	end
+    MPI_NLPforce = nothing
+
+    for atom = 1:Natom
+        matrices = Matrix{Float64}[]
+        sizehint!(matrices, 8*(FNAN[atom] + 1))
+        for xyz = 1:4, Rn = 1:FNAN[atom]+1, so = 1:2
+            push!(matrices, NLPforce[xyz][atom][Rn][so])
+        end
+        _packed_allreduce_matrices!(matrices, comm)
+    end
+
 
 
 
@@ -1153,7 +1469,7 @@ end
 
     loop = 1
     atom_old = MPI_atom[loop]
-    Set_NLPforce_Natom!(atom_old, OneDatom, OneDjatom, OneDFNAN, HNL_FNAN, MP_FNAN, FNAN, Total_NumOrbs, NLTotal_Num, 1, NLPforce)
+    Set_NLPforce_Natom_NonCol!(atom_old, OneDatom, OneDjatom, OneDFNAN, HNL_FNAN, MP_FNAN, FNAN, Total_NumOrbs, NLTotal_Num, NLPforce)
 
     for loop = 1:MPI_size
 
@@ -1163,7 +1479,7 @@ end
         NO0 = Total_NumOrbs[jatom]
 
         if atom ≠ atom_old
-            Set_NLPforce_Natom!(atom, OneDatom, OneDjatom, OneDFNAN, HNL_FNAN, MP_FNAN, FNAN, Total_NumOrbs, NLTotal_Num, 1, NLPforce)
+            Set_NLPforce_Natom_NonCol!(atom, OneDatom, OneDjatom, OneDFNAN, HNL_FNAN, MP_FNAN, FNAN, Total_NumOrbs, NLTotal_Num, NLPforce)
         end
 
         atom_old = atom
@@ -1230,7 +1546,7 @@ end
 end
 
 
-@timeit timer "Core_Force" function Core_Force(Core_Charge::Vector{Float64}, system_grid::System_Grid)
+@timeit timer "Core_Force" function Core_Force(Atoms_Core_Charge::Vector{Float64}, system_grid::System_Grid)
 
     Natom = system_grid.Natom
     Gxyz = system_grid.Gxyz
@@ -1243,7 +1559,7 @@ end
 
     CoreForce = zeros(Float64, Natom, 3)
     for atom = 1:Natom
-        Zc = Core_Charge[atom]
+        Zc = Atoms_Core_Charge[atom]
 
         dEx = 0.0
         dEy = 0.0
@@ -1252,7 +1568,7 @@ end
         for Rn = 2:FNAN[atom]+1
             jatom = natn[atom][Rn]
             cell = ncn[atom][Rn]+1
-            Zh = Core_Charge[jatom]
+            Zh = Atoms_Core_Charge[jatom]
 
             r = ifelse(Dis[atom][Rn]<1e-10, 1e-10, Dis[atom][Rn]) 
 
@@ -1587,7 +1903,7 @@ end
     natn = system_grid.natn
     ncn = system_grid.ncn
     FNAN = system_grid.FNAN
-    Atom_Cut1 = system_grid.Atom_Cut1
+    Atoms_Cut1 = system_grid.Atoms_Cut1
     Nspecies = length(pao)
 
 
@@ -1629,7 +1945,7 @@ end
         fill!(sum_ry, 0.0)
         fill!(sum_rz, 0.0)
 
-        Rcut = Atom_Cut1[atom]
+        Rcut = Atoms_Cut1[atom]
         
         for loop = 1:MPI_size
 
@@ -1651,7 +1967,7 @@ end
                     jatom = natn[atom][Rn]
                     cell = ncn[atom][Rn]+1
                     jspe = atom2spe[jatom]
-                    r2cut = Atom_Cut1[jatom]^2
+                    r2cut = Atoms_Cut1[jatom]^2
                     
                     Spe_Num_Mesh_PAO = pao[jspe].Spe_Num_Mesh_PAO
                     Spe_PAO_XV = pao[jspe].Spe_PAO_XV
@@ -1811,7 +2127,7 @@ function Set_DS_VNA_Natom!(atom, OneDatom, OneDFNAN, HVNA_FNAN, MP_FNAN, FNAN, T
 end
 
 
-function Set_NLPforce_Natom!(atom, OneDatom, OneDjatom, OneDFNAN, HNL_FNAN, MP_FNAN, FNAN, Total_NumOrbs, NLTotal_Num, VPS_j_dependency, NLPforce)
+function Set_NLPforce_Natom!(atom, OneDatom, OneDjatom, OneDFNAN, HNL_FNAN, MP_FNAN, FNAN, Total_NumOrbs, NLTotal_Num, NLPforce)
     
     num = MP_FNAN[atom]
     for Rn = 1:FNAN[atom]+1
@@ -1821,7 +2137,27 @@ function Set_NLPforce_Natom!(atom, OneDatom, OneDjatom, OneDFNAN, HNL_FNAN, MP_F
         Rl = HNL_FNAN[Rn+num]+1
         NO0 = Total_NumOrbs[atom1]
         NO1 = NLTotal_Num[jatom]
-        @inbounds for so = 1:VPS_j_dependency+1, ist = 1:NO0, jst = 1:NO1
+        @inbounds for ist = 1:NO0, jst = 1:NO1
+            NLPforce[1][end][Rl][ist,jst] = NLPforce[1][atom1][Rm][ist,jst]
+            NLPforce[2][end][Rl][ist,jst] = NLPforce[2][atom1][Rm][ist,jst]
+            NLPforce[3][end][Rl][ist,jst] = NLPforce[3][atom1][Rm][ist,jst]
+            NLPforce[4][end][Rl][ist,jst] = NLPforce[4][atom1][Rm][ist,jst]
+        end
+    end
+end
+
+
+function Set_NLPforce_Natom_NonCol!(atom, OneDatom, OneDjatom, OneDFNAN, HNL_FNAN, MP_FNAN, FNAN, Total_NumOrbs, NLTotal_Num, NLPforce)
+    
+    num = MP_FNAN[atom]
+    for Rn = 1:FNAN[atom]+1
+        atom1 = OneDatom[Rn+num]
+        jatom = OneDjatom[Rn+num]
+        Rm = OneDFNAN[Rn+num]
+        Rl = HNL_FNAN[Rn+num]+1
+        NO0 = Total_NumOrbs[atom1]
+        NO1 = NLTotal_Num[jatom]
+        @inbounds for so = 1:2, ist = 1:NO0, jst = 1:NO1
             NLPforce[1][end][Rl][so][ist,jst] = NLPforce[1][atom1][Rm][so][ist,jst]
             NLPforce[2][end][Rl][so][ist,jst] = NLPforce[2][atom1][Rm][so][ist,jst]
             NLPforce[3][end][Rl][so][ist,jst] = NLPforce[3][atom1][Rm][so][ist,jst]
@@ -1847,19 +2183,19 @@ function dHVNA!(
     ncn = system_grid.ncn
     atv = system_grid.atv
     Total_NumOrbs = system_grid.Total_NumOrbs
-    Atom_Cut1 = system_grid.Atom_Cut1
+    Atoms_Cut1 = system_grid.Atoms_Cut1
     RMI = system_grid.RMI
     Dis = system_grid.Dis
 
     ig = natn[atom][Rn]
     Rni = ncn[atom][Rn]+1
     NO0 = Total_NumOrbs[ig]
-    Rcut1 = Atom_Cut1[ig]
+    Rcut1 = Atoms_Cut1[ig]
 
     jg = natn[atom][Rm]
     Rnj = ncn[atom][Rm]+1
     NO1 = Total_NumOrbs[jg]
-    Rcut2 = Atom_Cut1[jg]
+    Rcut2 = Atoms_Cut1[jg]
 
     Rcut = Rcut1 + Rcut2
     kl = RMI[atom][Rn][Rm]
@@ -1869,15 +2205,15 @@ function dHVNA!(
 
     if Rn == 1 && Rm == 1 && where_flag == 0
         for k = 2:FNAN[atom]+1, ist = 1:NO0, jst = 1:NO1
-            Hx[ist,jst] += HVNA2x[k][ist][jst]
-            Hy[ist,jst] += HVNA2y[k][ist][jst]
-            Hz[ist,jst] += HVNA2z[k][ist][jst]
+            Hx[ist,jst] += HVNA2x[k][ist,jst]
+            Hy[ist,jst] += HVNA2y[k][ist,jst]
+            Hz[ist,jst] += HVNA2z[k][ist,jst]
         end
     elseif Rn == Rm && Rn ≠ 1
         for ist = 1:NO0, jst = 1:NO1
-            Hx[ist,jst] = -HVNA3x[Rn][ist][jst]
-            Hy[ist,jst] = -HVNA3y[Rn][ist][jst]
-            Hz[ist,jst] = -HVNA3z[Rn][ist][jst]
+            Hx[ist,jst] = -HVNA3x[Rn][ist,jst]
+            Hy[ist,jst] = -HVNA3y[Rn][ist,jst]
+            Hz[ist,jst] = -HVNA3z[Rn][ist,jst]
         end
     else
         if Rn == 1
@@ -1942,7 +2278,8 @@ function dHVNA!(
     end
 
 
-    for ist = 1:NO0, jst = 1:NO1
+    # Dimensions are established by the caller.
+    @inbounds for ist = 1:NO0, jst = 1:NO1
         Hx[ist,jst] = dmp*Hx[ist,jst]
         Hy[ist,jst] = dmp*Hy[ist,jst]
         Hz[ist,jst] = dmp*Hz[ist,jst]
@@ -1982,15 +2319,15 @@ function dHVNA!(
     
         if Rn == 1
             for ist = 1:NO0, jst = 1:NO1
-                Hx[ist,jst] += HVNA[kl][ist][jst]*dx
-                Hy[ist,jst] += HVNA[kl][ist][jst]*dy
-                Hz[ist,jst] += HVNA[kl][ist][jst]*dz
+                Hx[ist,jst] += HVNA[kl][ist,jst]*dx
+                Hy[ist,jst] += HVNA[kl][ist,jst]*dy
+                Hz[ist,jst] += HVNA[kl][ist,jst]*dz
             end
         elseif Rm == 1
             for ist = 1:NO0, jst = 1:NO1
-                Hx[ist,jst] += HVNA[kl][jst][ist]*dx
-                Hy[ist,jst] += HVNA[kl][jst][ist]*dy
-                Hz[ist,jst] += HVNA[kl][jst][ist]*dz
+                Hx[ist,jst] += HVNA[kl][jst,ist]*dx
+                Hy[ist,jst] += HVNA[kl][jst,ist]*dy
+                Hz[ist,jst] += HVNA[kl][jst,ist]*dz
             end
         end
     end
@@ -2014,19 +2351,19 @@ function dHNL!(
     RMI = system_grid.RMI
     Dis = system_grid.Dis
     Total_NumOrbs = system_grid.Total_NumOrbs
-    Atom_Cut1 = system_grid.Atom_Cut1
+    Atoms_Cut1 = system_grid.Atoms_Cut1
 
 
     ig = natn[atom][Rn]
     Rni = ncn[atom][Rn]+1
     NO0 = Total_NumOrbs[ig]
-    Rcut1 = Atom_Cut1[ig]
+    Rcut1 = Atoms_Cut1[ig]
 
 
     jg = natn[atom][Rm]
     Rnj = ncn[atom][Rm]+1
     NO1 = Total_NumOrbs[jg]
-    Rcut2 = Atom_Cut1[jg]
+    Rcut2 = Atoms_Cut1[jg]
 
     Rcut = Rcut1 + Rcut2
     kl = RMI[atom][Rn][Rm]
@@ -2042,9 +2379,9 @@ function dHNL!(
 
             if kl >= 0 && where_flag == 0
                 nl = NLTotal_Num[kg]
-                base = NLP[1][jatom][kl+1][1]
+                base = NLP[1][jatom][kl+1]
                 for (xyz, H) in ((2, Hx), (3, Hy), (4, Hz))
-                    derivative = NLP[xyz][atom][Rl][1]
+                    derivative = NLP[xyz][atom][Rl]
                     @views weighted_NLP[1:NO0,1:nl] .= derivative[1:NO0,1:nl] .* transpose(VNLE[kg])
                     @views mul!(H[1:NO0,1:NO1], weighted_NLP[1:NO0,1:nl],
                         transpose(base[1:NO1,1:nl]), 1.0, 1.0)
@@ -2073,10 +2410,10 @@ function dHNL!(
             kg = natn[atom][1]
             kl = RMI[atom][Rm][1]+1
             nl = NLTotal_Num[kg]
-            base = NLP[1][atom][1][1]
+            base = NLP[1][atom][1]
             @views weighted_NLP[1:NO0,1:nl] .= base[1:NO0,1:nl] .* transpose(VNLE[kg])
             for (xyz, H) in ((2, Hx), (3, Hy), (4, Hz))
-                derivative = NLP[xyz][jatom][kl][1]
+                derivative = NLP[xyz][jatom][kl]
                 @views mul!(H[1:NO0,1:NO1], weighted_NLP[1:NO0,1:nl],
                     transpose(derivative[1:NO1,1:nl]), -1.0, 1.0)
             end
@@ -2086,19 +2423,19 @@ function dHNL!(
         kl1 = RMI[atom][1][Rn]+1
         kl2 = RMI[atom][1][Rm]+1
         nl = NLTotal_Num[kg]
-        base = NLP[1][end][kl2][1]
+        base = NLP[1][end][kl2]
         for (xyz, H) in ((2, Hx), (3, Hy), (4, Hz))
-            derivative = NLP[xyz][end][kl1][1]
+            derivative = NLP[xyz][end][kl1]
             @views weighted_NLP[1:NO0,1:nl] .= derivative[1:NO0,1:nl] .* transpose(VNLE[kg])
             @views mul!(H[1:NO0,1:NO1], weighted_NLP[1:NO0,1:nl],
                 transpose(base[1:NO1,1:nl]), -1.0, 0.0)
         end
 
         if Rm ≠ 1
-            base = NLP[1][end][kl1][1]
+            base = NLP[1][end][kl1]
             @views weighted_NLP[1:NO0,1:nl] .= base[1:NO0,1:nl] .* transpose(VNLE[kg])
             for (xyz, H) in ((2, Hx), (3, Hy), (4, Hz))
-                derivative = NLP[xyz][end][kl2][1]
+                derivative = NLP[xyz][end][kl2]
                 @views mul!(H[1:NO0,1:NO1], weighted_NLP[1:NO0,1:nl],
                     transpose(derivative[1:NO1,1:nl]), -1.0, 1.0)
             end
@@ -2118,9 +2455,7 @@ function dHNL!(
     if (Rn == 1 && Rm ≠ 1) || (Rn ≠ 1 && Rm == 1)
 
         kl = ifelse(Rn == 1, Rm, Rn)
-
         r = Dis[atom][kl]
-
         if r >= Rcut
             deri_dmp = 0.0
             tmp = 0.0
@@ -2131,10 +2466,8 @@ function dHNL!(
 
         x0 = Gxyz[ig][1] + atv[Rni][1]
         x1 = Gxyz[jg][1] + atv[Rnj][1]
-
         y0 = Gxyz[ig][2] + atv[Rni][2]
         y1 = Gxyz[jg][2] + atv[Rnj][2]
-
         z0 = Gxyz[ig][3] + atv[Rni][3]
         z1 = Gxyz[jg][3] + atv[Rnj][3]
 
@@ -2153,15 +2486,15 @@ function dHNL!(
 
         if Rn == 1
             for ist = 1:NO0, jst = 1:NO1
-                Hx[ist,jst] += HNL[kl][ist][jst]*dx
-                Hy[ist,jst] += HNL[kl][ist][jst]*dy
-                Hz[ist,jst] += HNL[kl][ist][jst]*dz
+                Hx[ist,jst] += HNL[kl][ist,jst]*dx
+                Hy[ist,jst] += HNL[kl][ist,jst]*dy
+                Hz[ist,jst] += HNL[kl][ist,jst]*dz
             end
         elseif Rm == 1
             for ist = 1:NO0, jst = 1:NO1
-                Hx[ist,jst] += HNL[kl][jst][ist]*dx
-                Hy[ist,jst] += HNL[kl][jst][ist]*dy
-                Hz[ist,jst] += HNL[kl][jst][ist]*dz
+                Hx[ist,jst] += HNL[kl][jst,ist]*dx
+                Hy[ist,jst] += HNL[kl][jst,ist]*dy
+                Hz[ist,jst] += HNL[kl][jst,ist]*dz
             end
         end
     end    
@@ -2185,18 +2518,18 @@ function dHNL_NC!(
     RMI = system_grid.RMI
     Dis = system_grid.Dis
     Total_NumOrbs = system_grid.Total_NumOrbs
-    Atom_Cut1 = system_grid.Atom_Cut1
+    Atoms_Cut1 = system_grid.Atoms_Cut1
 
 
     ig = natn[atom][Rn]
     Rni = ncn[atom][Rn]+1
     NO0 = Total_NumOrbs[ig]
-    Rcut1 = Atom_Cut1[ig]
+    Rcut1 = Atoms_Cut1[ig]
 
     jg = natn[atom][Rm]
     Rnj = ncn[atom][Rm]+1
     NO1 = Total_NumOrbs[jg]
-    Rcut2 = Atom_Cut1[jg]
+    Rcut2 = Atoms_Cut1[jg]
 
     Rcut = Rcut1 + Rcut2
     kl = RMI[atom][Rn][Rm]
@@ -2281,10 +2614,8 @@ function dHNL_NC!(
 
         x0 = Gxyz[ig][1] + atv[Rni][1]
         x1 = Gxyz[jg][1] + atv[Rnj][1]
-
         y0 = Gxyz[ig][2] + atv[Rni][2]
         y1 = Gxyz[jg][2] + atv[Rnj][2]
-
         z0 = Gxyz[ig][3] + atv[Rni][3]
         z1 = Gxyz[jg][3] + atv[Rnj][3]
 
@@ -2310,54 +2641,54 @@ function dHNL_NC!(
 
         if Rn == 1
             for ist = 1:NO0, jst = 1:NO1
-                Hx[ist,jst,1] += HNL1[ist][jst]*dx
-                Hx[ist,jst,2] += HNL2[ist][jst]*dx
-                Hx[ist,jst,3] += HNL3[ist][jst]*dx
-                Hy[ist,jst,1] += HNL1[ist][jst]*dy
-                Hy[ist,jst,2] += HNL2[ist][jst]*dy
-                Hy[ist,jst,3] += HNL3[ist][jst]*dy
-                Hz[ist,jst,1] += HNL1[ist][jst]*dz
-                Hz[ist,jst,2] += HNL2[ist][jst]*dz
-                Hz[ist,jst,3] += HNL3[ist][jst]*dz
+                Hx[ist,jst,1] += HNL1[ist,jst]*dx
+                Hx[ist,jst,2] += HNL2[ist,jst]*dx
+                Hx[ist,jst,3] += HNL3[ist,jst]*dx
+                Hy[ist,jst,1] += HNL1[ist,jst]*dy
+                Hy[ist,jst,2] += HNL2[ist,jst]*dy
+                Hy[ist,jst,3] += HNL3[ist,jst]*dy
+                Hz[ist,jst,1] += HNL1[ist,jst]*dz
+                Hz[ist,jst,2] += HNL2[ist,jst]*dz
+                Hz[ist,jst,3] += HNL3[ist,jst]*dz
             end
         elseif Rm == 1
             for ist = 1:NO0, jst = 1:NO1
-                Hx[ist,jst,1] += HNL1[jst][ist]*dx
-                Hx[ist,jst,2] += HNL2[jst][ist]*dx
-                Hx[ist,jst,3] += HNL3[jst][ist]*dx
-                Hy[ist,jst,1] += HNL1[jst][ist]*dy
-                Hy[ist,jst,2] += HNL2[jst][ist]*dy
-                Hy[ist,jst,3] += HNL3[jst][ist]*dy
-                Hz[ist,jst,1] += HNL1[jst][ist]*dz
-                Hz[ist,jst,2] += HNL2[jst][ist]*dz
-                Hz[ist,jst,3] += HNL3[jst][ist]*dz
+                Hx[ist,jst,1] += HNL1[jst,ist]*dx
+                Hx[ist,jst,2] += HNL2[jst,ist]*dx
+                Hx[ist,jst,3] += HNL3[jst,ist]*dx
+                Hy[ist,jst,1] += HNL1[jst,ist]*dy
+                Hy[ist,jst,2] += HNL2[jst,ist]*dy
+                Hy[ist,jst,3] += HNL3[jst,ist]*dy
+                Hz[ist,jst,1] += HNL1[jst,ist]*dz
+                Hz[ist,jst,2] += HNL2[jst,ist]*dz
+                Hz[ist,jst,3] += HNL3[jst,ist]*dz
             end
         end
 
 
         if Rn == 1
             for ist = 1:NO0, jst = 1:NO1
-                Hx[ist,jst,1] += im*iHNL1[ist][jst]*dx
-                Hx[ist,jst,2] += im*iHNL2[ist][jst]*dx
-                Hx[ist,jst,3] += im*iHNL3[ist][jst]*dx
-                Hy[ist,jst,1] += im*iHNL1[ist][jst]*dy
-                Hy[ist,jst,2] += im*iHNL2[ist][jst]*dy
-                Hy[ist,jst,3] += im*iHNL3[ist][jst]*dy
-                Hz[ist,jst,1] += im*iHNL1[ist][jst]*dz
-                Hz[ist,jst,2] += im*iHNL2[ist][jst]*dz
-                Hz[ist,jst,3] += im*iHNL3[ist][jst]*dz
+                Hx[ist,jst,1] += im*iHNL1[ist,jst]*dx
+                Hx[ist,jst,2] += im*iHNL2[ist,jst]*dx
+                Hx[ist,jst,3] += im*iHNL3[ist,jst]*dx
+                Hy[ist,jst,1] += im*iHNL1[ist,jst]*dy
+                Hy[ist,jst,2] += im*iHNL2[ist,jst]*dy
+                Hy[ist,jst,3] += im*iHNL3[ist,jst]*dy
+                Hz[ist,jst,1] += im*iHNL1[ist,jst]*dz
+                Hz[ist,jst,2] += im*iHNL2[ist,jst]*dz
+                Hz[ist,jst,3] += im*iHNL3[ist,jst]*dz
             end
         elseif Rm == 1
             for ist = 1:NO0, jst = 1:NO1
-                Hx[ist,jst,1] += im*iHNL1[jst][ist]*dx
-                Hx[ist,jst,2] += im*iHNL2[jst][ist]*dx
-                Hx[ist,jst,3] += im*iHNL3[jst][ist]*dx
-                Hy[ist,jst,1] += im*iHNL1[jst][ist]*dy
-                Hy[ist,jst,2] += im*iHNL2[jst][ist]*dy
-                Hy[ist,jst,3] += im*iHNL3[jst][ist]*dy
-                Hz[ist,jst,1] += im*iHNL1[jst][ist]*dz
-                Hz[ist,jst,2] += im*iHNL2[jst][ist]*dz
-                Hz[ist,jst,3] += im*iHNL3[jst][ist]*dz
+                Hx[ist,jst,1] += im*iHNL1[jst,ist]*dx
+                Hx[ist,jst,2] += im*iHNL2[jst,ist]*dx
+                Hx[ist,jst,3] += im*iHNL3[jst,ist]*dx
+                Hy[ist,jst,1] += im*iHNL1[jst,ist]*dy
+                Hy[ist,jst,2] += im*iHNL2[jst,ist]*dy
+                Hy[ist,jst,3] += im*iHNL3[jst,ist]*dy
+                Hz[ist,jst,1] += im*iHNL1[jst,ist]*dz
+                Hz[ist,jst,2] += im*iHNL2[jst,ist]*dz
+                Hz[ist,jst,3] += im*iHNL3[jst,ist]*dz
             end
         end
     end    
@@ -2382,7 +2713,10 @@ function dHNL_SO!(
     l2 = 0
     PFp = 0.0
     PFm = 0.0
-    for ist = 1:NO0, jst = 1:NO1
+    # This is the innermost non-local SOC force kernel.  All projector
+    # dimensions are established by the caller, so repeated bounds checks in
+    # the (orbital pair) x (projector) loop only add overhead.
+    @inbounds for ist = 1:NO0, jst = 1:NO1
 
         Sum0x_re = 0.0
         Sum0x_im = 0.0
@@ -2981,6 +3315,80 @@ function dHNL_SO!(
             Hz[jst,ist,3] += Sum2z_re + im*Sum2z_im
         end
     end
+end
+
+
+function _Calc_Force3_Blocked!(ucell::UCell, dOrbs_Grid, Orbs_Grid,
+                               atom::Integer, jatom::Integer, loop::Integer,
+                               Vpot_Grid, DM)
+    system_grid = ucell.system_grid
+    NO0 = system_grid.Total_NumOrbs[atom]
+    NO1 = system_grid.Total_NumOrbs[jatom]
+    NumOLG = ucell.MPI_NumOLG[loop]
+    GridListAtom = ucell.GridListAtom[atom]
+    GListTAtoms1 = ucell.MPI_GListTAtoms1[loop]
+    GListTAtoms2 = ucell.MPI_GListTAtoms2[loop]
+
+    orbital_block, product_block, _ = ucell.density_orbital_scratch
+    dm_matrix = ucell.hamiltonian_product_scratch
+    derivatives_x = dOrbs_Grid[1].data[atom]
+    derivatives_y = dOrbs_Grid[2].data[atom]
+    derivatives_z = dOrbs_Grid[3].data[atom]
+    orbitals = Orbs_Grid.data[jatom]
+
+    return _Calc_Force3_Blocked_Kernel!(NO0, NO1, NumOLG, GridListAtom,
+        GListTAtoms1, GListTAtoms2, derivatives_x, derivatives_y,
+        derivatives_z, orbitals, Vpot_Grid, DM, orbital_block,
+        product_block, dm_matrix)
+end
+
+
+function _Calc_Force3_Blocked_Kernel!(NO0, NO1, NumOLG, GridListAtom,
+                                      GListTAtoms1, GListTAtoms2,
+                                      derivatives_x, derivatives_y,
+                                      derivatives_z, orbitals, Vpot_Grid, DM,
+                                      orbital_block, product_block, dm_matrix)
+
+    @inbounds for ist = 1:NO0, jst = 1:NO1
+        dm_matrix[ist, jst] = DM[ist][jst]
+    end
+
+    sumx = 0.0
+    sumy = 0.0
+    sumz = 0.0
+    block_size = size(orbital_block, 2)
+    for block_start = 1:block_size:NumOLG
+        points = min(block_size, NumOLG - block_start + 1)
+        @inbounds for point = 1:points
+            overlap_index = block_start + point - 1
+            grid2 = GListTAtoms2[overlap_index] + 1
+            for orbital = 1:NO1
+                orbital_block[orbital, point] = orbitals[orbital, grid2]
+            end
+        end
+        @views mul!(product_block[1:NO0, 1:points],
+                    dm_matrix[1:NO0, 1:NO1],
+                    orbital_block[1:NO1, 1:points])
+
+        @inbounds for point = 1:points
+            overlap_index = block_start + point - 1
+            grid1 = GListTAtoms1[overlap_index] + 1
+            potential = Vpot_Grid[GridListAtom[grid1] + 1]
+            local_x = 0.0
+            local_y = 0.0
+            local_z = 0.0
+            @simd for orbital = 1:NO0
+                product = product_block[orbital, point]
+                local_x += derivatives_x[orbital, grid1]*product
+                local_y += derivatives_y[orbital, grid1]*product
+                local_z += derivatives_z[orbital, grid1]*product
+            end
+            sumx += potential*local_x
+            sumy += potential*local_y
+            sumz += potential*local_z
+        end
+    end
+    return sumx, sumy, sumz
 end
 
 

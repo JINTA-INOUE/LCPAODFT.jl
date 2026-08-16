@@ -71,7 +71,6 @@ function KPoints(kmesh::Tuple{Signed,Signed,Signed}, time_rev::Bool, Shift_K_Poi
     MPI_kweight = kweight[MPI_krange[myrank+1]]
 
     MPI_Nkptsize = zeros(Int32, nprocs)
-    MPkpts = zeros(Int32, nprocs)
     MPI_Nkptsize[myrank+1] = MPI_Nkpt
     
     MPI.Allreduce!(MPI_Nkptsize, MPI.SUM, comm)

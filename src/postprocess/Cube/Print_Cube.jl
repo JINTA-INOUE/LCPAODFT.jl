@@ -60,6 +60,8 @@ function Print_Cube(
 
 
     material = Load_LCPAODFT_model(filepath)
+    Nspin = material.Nspin
+    TCpyCell = material.TCpyCell
     Natom = material.Natom
     Nspecies = material.Nspecies
     atom2spe = material.atom2spe
@@ -91,7 +93,7 @@ function Print_Cube(
 
 
 
-    ucell = UCell(Latvecs, Natom, atom2spe, Gxyz, Atoms_Cut1, Ngrid, Grid_Origin; Total_NumOrbs)
+    ucell = UCell(Nspin, TCpyCell, Latvecs, Natom, atom2spe, Gxyz, Atoms_Cut1, Ngrid, Grid_Origin, Total_NumOrbs)
     system_grid = ucell.system_grid
 
 

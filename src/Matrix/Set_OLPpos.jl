@@ -1,4 +1,4 @@
-function Set_OLPpos(Orbs_Grid, ucell::UCell)
+@timeit timer "Set_OLPpos" function Set_OLPpos(Orbs_Grid, ucell::UCell)
 
     Natom = ucell.system_grid.Natom
 	FNAN = ucell.system_grid.FNAN

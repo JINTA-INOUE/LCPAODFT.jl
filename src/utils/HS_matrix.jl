@@ -1,8 +1,20 @@
+struct CachedKPoint{V<:AbstractVector{Float64},P<:AbstractVector{ComplexF64}} <: AbstractVector{Float64}
+    coordinates::V
+    cell_phases::P
+end
+
+Base.size(kpoint::CachedKPoint) = size(kpoint.coordinates)
+Base.length(kpoint::CachedKPoint) = length(kpoint.coordinates)
+@inline Base.getindex(kpoint::CachedKPoint, index::Int) = @inbounds kpoint.coordinates[index]
+@inline _bloch_phase(kpoint::CachedKPoint, cell::Int, unused) = @inbounds kpoint.cell_phases[cell]
+@inline _bloch_phase(kpoint, cell::Int, kRn) = cispi(2*kRn)
+
+
 @timeit timer "HS_matrix!" function HS_matrix!(
     S, 
     OLP::Vector{Vector{Vector{Vector{Float64}}}}, 
     Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, 
-    kpts::Vector{Float64})
+    kpts::AbstractVector{Float64})
     
     ka, kb, kc = kpts
     fill!(S, 0.0)
@@ -14,7 +26,7 @@
         NO1 = Total_NumOrbs[jatom]
         kRn = ka*atv_ijk[cell][1] + kb*atv_ijk[cell][2] + kc*atv_ijk[cell][3]
         Bnum = MP[jatom]
-        ex = cispi(2*kRn)
+        ex = _bloch_phase(kpts, cell, kRn)
         _OLP = OLP[atom][Rn]
         @inbounds for ist = 1:NO0, jst = 1:NO1
             S[Anum+ist,Bnum+jst] += _OLP[ist][jst]*ex
@@ -28,7 +40,7 @@ end
     OLP::Vector{Vector{Vector{Vector{Float64}}}}, 
     Hks::Vector{Vector{Vector{Vector{Float64}}}}, 
     Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, 
-    kpts::Vector{Float64})
+    kpts::AbstractVector{Float64})
     
     ka, kb, kc = kpts
     fill!(S, 0.0)
@@ -41,7 +53,7 @@ end
         NO1 = Total_NumOrbs[jatom]
         kRn = ka*atv_ijk[cell][1] + kb*atv_ijk[cell][2] + kc*atv_ijk[cell][3]
         Bnum = MP[jatom]
-        ex = cispi(2*kRn)
+        ex = _bloch_phase(kpts, cell, kRn)
         _OLP = OLP[atom][Rn]
         _Hks = Hks[atom][Rn]
         @inbounds for ist = 1:NO0, jst = 1:NO1
@@ -77,7 +89,7 @@ end
     S, 
     OLP::Vector{Float64}, 
     Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, 
-    kpts::Vector{Float64})
+    kpts::AbstractVector{Float64})
     
     ka, kb, kc = kpts
     fill!(S, 0.0)
@@ -90,7 +102,7 @@ end
         NO1 = Total_NumOrbs[jatom]
         kRn = ka*atv_ijk[cell][1] + kb*atv_ijk[cell][2] + kc*atv_ijk[cell][3]
         Bnum = MP[jatom]
-        ex = cispi(2*kRn)
+        ex = _bloch_phase(kpts, cell, kRn)
         @inbounds for ist = 1:NO0, jst = 1:NO1
             hst += 1
             S[Anum+ist,Bnum+jst] += OLP[hst]*ex
@@ -128,7 +140,7 @@ end
     OLP::Vector{Float64}, 
     Hks::Vector{Float64}, 
     Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, 
-    kpts::Vector{Float64})
+    kpts::AbstractVector{Float64})
     
     ka, kb, kc = kpts
     fill!(S, 0.0)
@@ -142,7 +154,7 @@ end
         NO1 = Total_NumOrbs[jatom]
         kRn = ka*atv_ijk[cell][1] + kb*atv_ijk[cell][2] + kc*atv_ijk[cell][3]
         Bnum = MP[jatom]
-        ex = cispi(2*kRn)
+        ex = _bloch_phase(kpts, cell, kRn)
         @inbounds for ist = 1:NO0, jst = 1:NO1
             hst += 1
             S[Anum+ist,Bnum+jst] += OLP[hst]*ex
@@ -201,7 +213,7 @@ end
     Hks::Vector{Vector{Float64}},
     iHks::Vector{Vector{Vector{Vector{Vector{Float64}}}}},
     Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, 
-    kpts::Vector{Float64})
+    kpts::AbstractVector{Float64})
     
     ka, kb, kc = kpts
     fsize = sum(Total_NumOrbs)
@@ -224,7 +236,7 @@ end
         NO1 = Total_NumOrbs[jatom]
         kRn = ka*atv_ijk[cell][1] + kb*atv_ijk[cell][2] + kc*atv_ijk[cell][3]
         Bnum = MP[jatom]
-        ex = cispi(2*kRn)
+        ex = _bloch_phase(kpts, cell, kRn)
         _iHks_uu = iHks1[atom][Rn]
         _iHks_dd = iHks2[atom][Rn]
         _iHks_ud2 = iHks3[atom][Rn]
@@ -250,7 +262,7 @@ end
     Hks::Vector{Vector{Vector{Vector{Vector{Float64}}}}},
     iHks::Vector{Vector{Vector{Vector{Vector{Float64}}}}}, 
     Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, 
-    kpts::Vector{Float64})
+    kpts::AbstractVector{Float64})
     
     ka, kb, kc = kpts
     fsize = sum(Total_NumOrbs)
@@ -272,7 +284,7 @@ end
         NO1 = Total_NumOrbs[jatom]
         kRn = ka*atv_ijk[cell][1] + kb*atv_ijk[cell][2] + kc*atv_ijk[cell][3]
         Bnum = MP[jatom]
-        ex = cispi(2*kRn)
+        ex = _bloch_phase(kpts, cell, kRn)
         _Hks_uu = Hks1[atom][Rn]
         _Hks_dd = Hks2[atom][Rn]
         _Hks_ud = Hks3[atom][Rn]

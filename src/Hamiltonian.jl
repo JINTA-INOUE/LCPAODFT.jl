@@ -1,18 +1,44 @@
 struct Hamiltonian
 	SpinPol::String
 	OLP::Vector{Float64}
-	Hkin::Vector{Vector{Vector{Vector{Float64}}}}
-	HNL::Vector{Vector{Vector{Vector{Vector{Float64}}}}}
-	iHNL::Vector{Vector{Vector{Vector{Vector{Float64}}}}}
-	HVNA::Vector{Vector{Vector{Vector{Float64}}}}
-	NLPforce::Vector{Vector{Vector{Vector{Matrix{Float64}}}}}
-	DS_VNAforce::Vector{Vector{Vector{Matrix{Float64}}}}
-	HVNA2force::Vector{Vector{Vector{Vector{Vector{Float64}}}}}
-	HVNA3force::Vector{Vector{Vector{Vector{Vector{Float64}}}}}
+	MPI_Hkin::Vector{Float64}
+	MPI_HNL::Vector{Vector{Float64}}
+	MPI_iHNL::Vector{Vector{Float64}}
+	MPI_HVNA::Vector{Float64}
+	MPI_NLPforce::Vector{Vector{Vector{Matrix{Float64}}}}
+	MPI_DS_VNAforce::Vector{Vector{Matrix{Float64}}}
+	MPI_HVNA2force::Vector{Vector{Float64}}
+	MPI_HVNA3force::Vector{Vector{Float64}}
 end
 
 
-@timeit timer "Hamiltonian" function Hamiltonian(SpinPol::AbstractString, pao::Vector{PAO}, pspot::Vector{Pspot}, system_grid::System_Grid)	
+"""Zero-copy atom-pair block backed by the flattened MPI Hamiltonian arrays."""
+struct _HamiltonianBlock{N,T,V<:AbstractVector{T}}
+    data::NTuple{N,V}
+    offset::Int
+    nrows::Int
+end
+
+@inline _HamiltonianBlock(data::NTuple{N,V}, offset::Integer, nrows::Integer) where {N,T,V<:AbstractVector{T}} =
+    _HamiltonianBlock{N,T,V}(data, Int(offset), Int(nrows))
+
+@inline function Base.getindex(block::_HamiltonianBlock, j::Int, i::Int)
+    @inbounds return block.data[1][block.offset + (i - 1)*block.nrows + j]
+end
+@inline function Base.setindex!(block::_HamiltonianBlock, value, j::Int, i::Int)
+    @inbounds block.data[1][block.offset + (i - 1)*block.nrows + j] = value
+    return value
+end
+@inline function Base.getindex(block::_HamiltonianBlock, j::Int, i::Int, spin::Int)
+    @inbounds return block.data[spin][block.offset + (i - 1)*block.nrows + j]
+end
+@inline function Base.setindex!(block::_HamiltonianBlock, value, j::Int, i::Int, spin::Int)
+    @inbounds block.data[spin][block.offset + (i - 1)*block.nrows + j] = value
+    return value
+end
+
+
+@timeit timer "Hamiltonian" function Hamiltonian(cal_force::Bool, SpinPol::AbstractString, pao::Vector{PAO}, pspot::Vector{Pspot}, system_grid::System_Grid)	
 	
     comm = MPI.COMM_WORLD
     myrank = MPI.Comm_rank(comm)
@@ -26,89 +52,68 @@ end
 	FNAN = system_grid.FNAN
 	natn = system_grid.natn
 	Total_NumOrbs = system_grid.Total_NumOrbs
+	MPI_atom = system_grid.MPI_atom
+	MPI_natn = system_grid.MPI_natn
+	MPI_size = system_grid.MPI_size
+	MPI_Hsize = system_grid.MPI_Hsize
+	myHsize = MPI_Hsize[myrank+1]
 	Total_Hsize = system_grid.Total_Hsize
 
 	
     # Overlap/Kinetic Matrix
 	OLP = zeros(Float64, Total_Hsize)
-    Hkin = Vector{Vector{Vector{Vector{Float64}}}}(undef, Natom)
-	for atom = 1:Natom
-		Hkin[atom] = Vector{Vector{Vector{Float64}}}(undef, FNAN[atom]+1)
-		for Rn = 1:FNAN[atom]+1
-			Hkin[atom][Rn] = Vector{Vector{Float64}}(undef, Total_NumOrbs[atom])
-			for ist = 1:Total_NumOrbs[atom]
-				Hkin[atom][Rn][ist] = zeros(Float64, Total_NumOrbs[natn[atom][Rn]])
-			end
-		end
-	end
+    MPI_Hkin = zeros(Float64, myHsize)
 
 	myrank == 0 && println("<Set_OLP_Kin>  Calculation of the overlap matrix")
-	Set_OLP_Kin!(OLP, Hkin, pao, system_grid)
+	Set_OLP_Kin!(OLP, MPI_Hkin, pao, system_grid)
 
 
 
 	Nspecies = length(pao)
-	maxFNAN = maximum(FNAN)
-	maxTotal_NumOrbs = maximum(Total_NumOrbs)
 	maxL = maximum([pao[spe].Spe_MaxL_Basis for spe = 1:Nspecies]) + BufferL_ProVNA
     VNATotal_Num = (maxL+1)^2 * maxM
 
-	DS_VNAforce = Vector{Vector{Vector{Matrix{Float64}}}}(undef, 4)
+	myDS_VNAforce = 0
+    for loop = 1:MPI_size, _ = 1:Total_NumOrbs[MPI_atom[loop]], _ = 1:VNATotal_Num
+        myDS_VNAforce += 1
+    end
+
+	MPI_DS_VNAforce = Vector{Vector{Matrix{Float64}}}(undef, 4)
 	for xyz = 1:4
-		DS_VNAforce[xyz] = Vector{Vector{Matrix{Float64}}}(undef, Natom+1)
-		for atom = 1:Natom+1
-			if atom == Natom+1
-				fan = maxFNAN+1
-				NO0 = maxTotal_NumOrbs
-			else
-				fan = FNAN[atom]+1
-				NO0 = Total_NumOrbs[atom]
-			end
-			DS_VNAforce[xyz][atom] = Vector{Matrix{Float64}}(undef, fan)
-			for Rn = 1:fan
-				DS_VNAforce[xyz][atom][Rn] = zeros(Float64, NO0, VNATotal_Num)
-			end
+		MPI_DS_VNAforce[xyz] = Vector{Matrix{Float64}}(undef, MPI_size)
+		for loop = 1:MPI_size
+			NO0 = Total_NumOrbs[MPI_atom[loop]]
+			MPI_DS_VNAforce[xyz][loop] = zeros(Float64, NO0, VNATotal_Num)
 		end
 	end
 
-	HVNA = Vector{Vector{Vector{Vector{Float64}}}}(undef, Natom)
-	for atom = 1:Natom
-		HVNA[atom] = Vector{Vector{Vector{Float64}}}(undef, FNAN[atom]+1)
-		for Rn = 1:FNAN[atom]+1
-			HVNA[atom][Rn] = Vector{Vector{Float64}}(undef, Total_NumOrbs[atom])
-			for ist = 1:Total_NumOrbs[atom]
-				HVNA[atom][Rn][ist] = zeros(Float64, Total_NumOrbs[natn[atom][Rn]])
-			end
-		end
-	end
+	MPI_HVNA = zeros(Float64, myHsize)
 
-	HVNA2force = Vector{Vector{Vector{Vector{Vector{Float64}}}}}(undef, 3)
-    HVNA3force = Vector{Vector{Vector{Vector{Vector{Float64}}}}}(undef, 3)
+	myHVNA2force = 0
+	myHVNA3force = 0
+    for loop = 1:MPI_size
+		for _ = 1:Total_NumOrbs[MPI_atom[loop]], _ = 1:Total_NumOrbs[MPI_atom[loop]]
+        	myHVNA2force += 1
+		end
+		for _ = 1:Total_NumOrbs[MPI_natn[loop]], _ = 1:Total_NumOrbs[MPI_natn[loop]]
+        	myHVNA3force += 1
+		end
+    end
+
+	MPI_HVNA2force = Vector{Vector{Float64}}(undef, 3)
+    MPI_HVNA3force = Vector{Vector{Float64}}(undef, 3)
 	for xyz = 1:3
-		HVNA2force[xyz] = Vector{Vector{Vector{Vector{Float64}}}}(undef, Natom)
-		HVNA3force[xyz] = Vector{Vector{Vector{Vector{Float64}}}}(undef, Natom)
-		for atom = 1:Natom
-			HVNA2force[xyz][atom] = Vector{Vector{Vector{Float64}}}(undef, FNAN[atom]+1)
-			HVNA3force[xyz][atom] = Vector{Vector{Vector{Float64}}}(undef, FNAN[atom]+1)
-			for Rn = 1:FNAN[atom]+1
-				NO0 = Total_NumOrbs[atom]
-				HVNA2force[xyz][atom][Rn] = Vector{Vector{Float64}}(undef, NO0)
-				for ist = 1:NO0
-					HVNA2force[xyz][atom][Rn][ist] = zeros(Float64, NO0)
-				end
-
-				NO1 = Total_NumOrbs[natn[atom][Rn]]
-                HVNA3force[xyz][atom][Rn] = Vector{Vector{Float64}}(undef, NO1)
-                for ist = 1:NO1
-					HVNA3force[xyz][atom][Rn][ist] = zeros(Float64, NO1)
-				end
-			end
-		end
+		MPI_HVNA2force[xyz] = zeros(Float64, myHVNA2force)
+		MPI_HVNA3force[xyz] = zeros(Float64, myHVNA3force)
 	end
 
 	myrank == 0 && println("<Set_ProExpn_VNA>  Calculation of the VNA projector matrix")
-	Set_ProExpn_VNA!(DS_VNAforce, HVNA, HVNA2force, HVNA3force, pao, pspot, system_grid)
-
+	Set_ProExpn_VNA!(MPI_DS_VNAforce, MPI_HVNA, MPI_HVNA2force, MPI_HVNA3force, pao, pspot, system_grid)
+	if !cal_force
+		MPI_DS_VNAforce = [[zeros(Float64,1,1)]]
+		MPI_HVNA2force = [[0.0]]
+		MPI_HVNA3force = [[0.0]]
+	end
 
 
 
@@ -127,81 +132,49 @@ end
         NLTotal_Num[atom] = tot
     end
 
-	maxVPS_j_Num = maximum(VPS_j_Num)
-	maxNLTotal_Num = maximum(NLTotal_Num)
-    NLPforce = Vector{Vector{Vector{Vector{Matrix{Float64}}}}}(undef, 4)
+	myNLPforce = 0
+    for loop = 1:MPI_size, _ = 1:Total_NumOrbs[MPI_atom[loop]], _ = 1:NLTotal_Num[MPI_natn[loop]]
+        myNLPforce += 1
+    end
+
+    MPI_NLPforce = Vector{Vector{Vector{Matrix{Float64}}}}(undef, 4)
     for xyz = 1:4
-        NLPforce[xyz] = Vector{Vector{Vector{Matrix{Float64}}}}(undef, Natom+1)
-        for atom = 1:Natom+1
-            if atom == Natom+1
-				fan = maxFNAN+1
-				NO0 = maxTotal_NumOrbs
-			else
-				fan = FNAN[atom]+1
-				NO0 = Total_NumOrbs[atom]
-			end
-            
-            NLPforce[xyz][atom] = Vector{Vector{Matrix{Float64}}}(undef, fan)
-            for Rn = 1:fan
-                if atom == Natom+1
-                    VPS_j_dependency = maxVPS_j_Num
-                    NO1 = maxNLTotal_Num
-                else
-                    jatom = natn[atom][Rn]
-                    VPS_j_dependency = VPS_j_Num[jatom]
-                    NO1 = NLTotal_Num[jatom]
-                end
-                
-                NLPforce[xyz][atom][Rn] = Vector{Matrix{Float64}}(undef, VPS_j_dependency+1)
-                for so = 1:VPS_j_dependency+1
-                    NLPforce[xyz][atom][Rn][so] = zeros(Float64, NO0, NO1)
-                end
+        MPI_NLPforce[xyz] = Vector{Vector{Matrix{Float64}}}(undef, MPI_size)
+        for loop = 1:MPI_size
+			NO0 = Total_NumOrbs[MPI_atom[loop]]
+			VPS_j_dependency = VPS_j_Num[MPI_natn[loop]]
+			NO1 = NLTotal_Num[MPI_natn[loop]]
+            MPI_NLPforce[xyz][loop] = Vector{Matrix{Float64}}(undef, VPS_j_dependency+1)
+            for so = 1:VPS_j_dependency+1
+                MPI_NLPforce[xyz][loop][so] = zeros(Float64, NO0, NO1)
             end
         end
     end
 
 
 	if SpinPol ∈ ("off", "on")
-		HNL = Vector{Vector{Vector{Vector{Vector{Float64}}}}}(undef, 1)
+		MPI_HNL = Vector{Vector{Float64}}(undef, 1)
 		for spin = 1:1
-			HNL[spin] = Vector{Vector{Vector{Vector{Float64}}}}(undef, Natom)
-			for atom = 1:Natom
-				HNL[spin][atom] = Vector{Vector{Vector{Float64}}}(undef, FNAN[atom]+1)
-				for Rn = 1:FNAN[atom]+1
-					HNL[spin][atom][Rn] = Vector{Vector{Float64}}(undef, Total_NumOrbs[atom])
-					for ist = 1:Total_NumOrbs[atom]
-						HNL[spin][atom][Rn][ist] = zeros(Float64, Total_NumOrbs[natn[atom][Rn]])
-					end
-				end
-			end
+			MPI_HNL[spin] = zeros(Float64, myHsize)
 		end
-		iHNL = [[[[[1.0]]]]]
+		MPI_iHNL = [[1.0]]
 	elseif SpinPol == "nc"
-		HNL = Vector{Vector{Vector{Vector{Vector{Float64}}}}}(undef, 3)
-		iHNL = Vector{Vector{Vector{Vector{Vector{Float64}}}}}(undef, 3)
+		MPI_HNL = Vector{Vector{Float64}}(undef, 3)
+		MPI_iHNL = Vector{Vector{Float64}}(undef, 3)
 		for spin = 1:3
-			HNL[spin] = Vector{Vector{Vector{Vector{Float64}}}}(undef, Natom)
-			iHNL[spin] = Vector{Vector{Vector{Vector{Float64}}}}(undef, Natom)
-			for atom = 1:Natom
-				HNL[spin][atom] = Vector{Vector{Vector{Float64}}}(undef, FNAN[atom]+1)
-				iHNL[spin][atom] = Vector{Vector{Vector{Float64}}}(undef, FNAN[atom]+1)
-				for Rn = 1:FNAN[atom]+1
-					HNL[spin][atom][Rn] = Vector{Vector{Float64}}(undef, Total_NumOrbs[atom])
-					iHNL[spin][atom][Rn] = Vector{Vector{Float64}}(undef, Total_NumOrbs[atom])
-					for ist = 1:Total_NumOrbs[atom]
-						HNL[spin][atom][Rn][ist] = zeros(Float64, Total_NumOrbs[natn[atom][Rn]])
-						iHNL[spin][atom][Rn][ist] = zeros(Float64, Total_NumOrbs[natn[atom][Rn]])
-					end
-				end
-			end
+			MPI_HNL[spin] = zeros(Float64, myHsize)
+			MPI_iHNL[spin] = zeros(Float64, myHsize)
 		end
 	end
 	    
 	myrank == 0 && println("<Set_Nonlocal>  Calculation of the nonlocal matrix")
-	Set_Nonlocal!(SpinPol, NLPforce, HNL, iHNL, pao, pspot, system_grid)
+	Set_Nonlocal!(SpinPol, MPI_NLPforce, MPI_HNL, MPI_iHNL, pao, pspot, system_grid)
+	if !cal_force
+		MPI_NLPforce = [[[zeros(Float64, 1, 1)]]]
+	end
 	
 
-	return Hamiltonian(SpinPol, OLP, Hkin, HNL, iHNL, HVNA, NLPforce, DS_VNAforce, HVNA2force, HVNA3force)
+	return Hamiltonian(SpinPol, OLP, MPI_Hkin, MPI_HNL, MPI_iHNL, MPI_HVNA, MPI_NLPforce, MPI_DS_VNAforce, MPI_HVNA2force, MPI_HVNA3force)
 end
 
 
@@ -217,71 +190,49 @@ Mandatory arguments:
 - `Vpot_Grid`: `V(r)`, (periodic case when `V(r) = V(r+Rn)` satisfy, `V(r)` only in cell data (`Ngrid1*Ngrid2*Ngrid3`))
 - `Hks`: calculate Kohn-Sham Hamiltonian matrix, `<ϕiα|Hks|ϕjβ>`
 """
-@timeit timer "Set_Hamiltonian" function Set_Hamiltonian!(Ham::Hamiltonian, ucell::UCell, Orbs_Grid, Vpot_Grid::Vector{Vector{Float64}}, Hks)
+function Set_Hamiltonian!(Ham::Hamiltonian, ucell::UCell, Orbs_Grid, Vpot_Grid::Vector{Vector{Float64}}, MPI_Hks)
 	
     comm = MPI.COMM_WORLD
 	myrank = MPI.Comm_rank(comm)
 
 	system_grid = ucell.system_grid
-	Natom = system_grid.Natom
-	FNAN = system_grid.FNAN
-	natn = system_grid.natn
-	Total_NumOrbs = system_grid.Total_NumOrbs
+	myHsize = system_grid.MPI_Hsize[myrank+1]
 	SpinPol = Ham.SpinPol
-	Hkin = Ham.Hkin
-	HVNA = Ham.HVNA
-	HNL = Ham.HNL
-
-
-	if SpinPol == "off"
-		Calc_MatrixElements_dVH_Vxc_off!(ucell, Orbs_Grid, Vpot_Grid, Hks)
-		MPI.Allreduce!(Hks[1], MPI.SUM, comm)
-	elseif SpinPol == "on"
-		Calc_MatrixElements_dVH_Vxc_on!(ucell, Orbs_Grid, Vpot_Grid, Hks)
-		MPI.Allreduce!(Hks[1], MPI.SUM, comm)
-		MPI.Allreduce!(Hks[2], MPI.SUM, comm)
-	elseif SpinPol == "nc"
-		Calc_MatrixElements_dVH_Vxc_nc!(ucell, Orbs_Grid, Vpot_Grid, Hks)
-		MPI.Allreduce!(Hks[1], MPI.SUM, comm)
-		MPI.Allreduce!(Hks[2], MPI.SUM, comm)
-		MPI.Allreduce!(Hks[3], MPI.SUM, comm)
-		MPI.Allreduce!(Hks[4], MPI.SUM, comm)
-	end
-	
-	
+	MPI_Hkin = Ham.MPI_Hkin
+	MPI_HVNA = Ham.MPI_HVNA
+	MPI_HNL = Ham.MPI_HNL
 
 	if SpinPol == "off"
-		Add_Hkin_HVNA_HNL!(Hks[1], Hkin, HVNA, HNL[1], Natom, FNAN, natn, Total_NumOrbs)
+		Calc_MatrixElements_dVH_Vxc_off!(ucell, Orbs_Grid, Vpot_Grid, MPI_Hks)
+		Add_Hkin_HVNA_HNL!(MPI_Hks[1], MPI_Hkin, MPI_HVNA, MPI_HNL[1], myHsize)
 	elseif SpinPol == "on"
-		Add_Hkin_HVNA_HNL!(Hks[1], Hkin, HVNA, HNL[1], Natom, FNAN, natn, Total_NumOrbs)
-		Add_Hkin_HVNA_HNL!(Hks[2], Hkin, HVNA, HNL[1], Natom, FNAN, natn, Total_NumOrbs)
+		Calc_MatrixElements_dVH_Vxc_on!(ucell, Orbs_Grid, Vpot_Grid, MPI_Hks)
+		Add_Hkin_HVNA_HNL!(MPI_Hks[1], MPI_Hkin, MPI_HVNA, MPI_HNL[1], myHsize)
+		Add_Hkin_HVNA_HNL!(MPI_Hks[2], MPI_Hkin, MPI_HVNA, MPI_HNL[1], myHsize)
 	elseif SpinPol == "nc"
-		Add_Hkin_HVNA_HNL!(Hks[1], Hkin, HVNA, HNL[1], Natom, FNAN, natn, Total_NumOrbs)
-		Add_Hkin_HVNA_HNL!(Hks[2], Hkin, HVNA, HNL[2], Natom, FNAN, natn, Total_NumOrbs)
-		Add_HNL3!(Hks[3], HNL[3], Natom, FNAN, natn, Total_NumOrbs)
+		Calc_MatrixElements_dVH_Vxc_nc!(ucell, Orbs_Grid, Vpot_Grid, MPI_Hks)
+		Add_Hkin_HVNA_HNL!(MPI_Hks[1], MPI_Hkin, MPI_HVNA, MPI_HNL[1], myHsize)
+		Add_Hkin_HVNA_HNL!(MPI_Hks[2], MPI_Hkin, MPI_HVNA, MPI_HNL[2], myHsize)
+		Add_HNL3!(MPI_Hks[3], MPI_HNL[3], myHsize)
 	end
 end
 
 
-@inline function Add_HNL3!(Hks, HNL, Natom, FNAN, natn, Total_NumOrbs)
-	hst = 0
-	@inbounds for atom = 1:Natom, Rn = 1:FNAN[atom]+1, ist = 1:Total_NumOrbs[atom], jst = 1:Total_NumOrbs[natn[atom][Rn]]
-		hst += 1
-		Hks[hst] += HNL[atom][Rn][ist][jst]
+@inline function Add_HNL3!(Hks, HNL, myHsize)
+	@inbounds for hst = 1:myHsize
+		Hks[hst] += HNL[hst]
 	end
 end
 
 
-@inline function Add_Hkin_HVNA_HNL!(Hks, Hkin, HVNA, HNL, Natom, FNAN, natn, Total_NumOrbs)
-	hst = 0
-	@inbounds for atom = 1:Natom, Rn = 1:FNAN[atom]+1, ist = 1:Total_NumOrbs[atom], jst = 1:Total_NumOrbs[natn[atom][Rn]]
-		hst += 1
-		Hks[hst] += Hkin[atom][Rn][ist][jst] + HVNA[atom][Rn][ist][jst] + HNL[atom][Rn][ist][jst]
+@inline function Add_Hkin_HVNA_HNL!(Hks, Hkin, HVNA, HNL, myHsize)
+	@inbounds for hst = 1:myHsize
+		Hks[hst] += Hkin[hst] + HVNA[hst] + HNL[hst]
 	end
 end
 
 
-function Calc_MatrixElements_dVH_Vxc_off!(ucell::UCell, Orbs_Grid, Vpot_Grid::Vector{Vector{Float64}}, Hks)
+@timeit timer "Set_Hamiltonian" function Calc_MatrixElements_dVH_Vxc_off!(ucell::UCell, Orbs_Grid, Vpot_Grid::Vector{Vector{Float64}}, MPI_Hks)
 
     comm = MPI.COMM_WORLD
     myrank = MPI.Comm_rank(comm)
@@ -289,41 +240,44 @@ function Calc_MatrixElements_dVH_Vxc_off!(ucell::UCell, Orbs_Grid, Vpot_Grid::Ve
 	MPI_atom = ucell.system_grid.MPI_atom
 	MPI_natn = ucell.system_grid.MPI_natn
 	Total_NumOrbs = ucell.system_grid.Total_NumOrbs
-	MPHks = ucell.system_grid.MPHks
 	MPI_size = ucell.system_grid.MPI_size
-	HksNum = MPHks[myrank+1]
 
 	GridVol = ucell.system_grid.GridVol
 	GridListAtom = ucell.GridListAtom
 	MPI_NumOLG = ucell.MPI_NumOLG
 	MPI_GListTAtoms1 = ucell.MPI_GListTAtoms1
 	MPI_GListTAtoms2 = ucell.MPI_GListTAtoms2
-
-	Hks_temp = zeros(Float64, maximum(Total_NumOrbs), maximum(Total_NumOrbs))
-
-
-	fill!(Hks[1], 0.0)
+	orbital_scratch = ucell.hamiltonian_orbital_scratch
+	product_scratch = ucell.hamiltonian_product_scratch
+	fill!(MPI_Hks[1], 0.0)
 
 	hst = 0
 	for loop = 1:MPI_size
-
 		atom = MPI_atom[loop]
 		jatom = MPI_natn[loop]
 		NO0 = Total_NumOrbs[atom]
 		NO1 = Total_NumOrbs[jatom]
 
-		fill!(Hks_temp, 0.0)
-		_Calc_Ham8_off!(Hks_temp, NO0, NO1, MPI_NumOLG[loop], GridListAtom[atom], MPI_GListTAtoms1[loop], MPI_GListTAtoms2[loop], Orbs_Grid[atom], Orbs_Grid[jatom], Vpot_Grid[1])
-
-		@inbounds for ist = 1:NO0, jst = 1:NO1
-			hst += 1
-			Hks[1][HksNum+hst] = GridVol*Hks_temp[jst,ist]
+		block_size = NO0*NO1
+		Hks_block = _HamiltonianBlock((MPI_Hks[1],), hst, NO1)
+		if Orbs_Grid isa PackedOrbitalsGrid
+			_Calc_Hamiltonian_Blocked!(Hks_block, 1, NO0, NO1,
+				MPI_NumOLG[loop], GridListAtom[atom], MPI_GListTAtoms1[loop],
+				MPI_GListTAtoms2[loop], Orbs_Grid.data[atom],
+				Orbs_Grid.data[jatom], Vpot_Grid, orbital_scratch,
+				product_scratch)
+		else
+			_Calc_Ham8_off!(Hks_block, NO0, NO1, MPI_NumOLG[loop],
+				GridListAtom[atom], MPI_GListTAtoms1[loop], MPI_GListTAtoms2[loop],
+				Orbs_Grid[atom], Orbs_Grid[jatom], Vpot_Grid[1])
 		end
+		hst += block_size
     end
+	@. MPI_Hks[1] *= GridVol
 end
 
 
-function Calc_MatrixElements_dVH_Vxc_on!(ucell::UCell, Orbs_Grid, Vpot_Grid::Vector{Vector{Float64}}, Hks)
+@timeit timer "Set_Hamiltonian" function Calc_MatrixElements_dVH_Vxc_on!(ucell::UCell, Orbs_Grid, Vpot_Grid::Vector{Vector{Float64}}, MPI_Hks)
 
     comm = MPI.COMM_WORLD
     myrank = MPI.Comm_rank(comm)
@@ -331,44 +285,46 @@ function Calc_MatrixElements_dVH_Vxc_on!(ucell::UCell, Orbs_Grid, Vpot_Grid::Vec
 	MPI_atom = ucell.system_grid.MPI_atom
 	MPI_natn = ucell.system_grid.MPI_natn
 	Total_NumOrbs = ucell.system_grid.Total_NumOrbs
-	MPHks = ucell.system_grid.MPHks
 	MPI_size = ucell.system_grid.MPI_size
-	HksNum = MPHks[myrank+1]
-
 	GridVol = ucell.system_grid.GridVol
 	GridListAtom = ucell.GridListAtom
 	MPI_NumOLG = ucell.MPI_NumOLG
 	MPI_GListTAtoms1 = ucell.MPI_GListTAtoms1
 	MPI_GListTAtoms2 = ucell.MPI_GListTAtoms2
+	orbital_scratch = ucell.hamiltonian_orbital_scratch
+	product_scratch = ucell.hamiltonian_product_scratch
 
-	Hks_temp = zeros(Float64, maximum(Total_NumOrbs), maximum(Total_NumOrbs), 2)
-
-
-	fill!(Hks[1], 0.0)
-	fill!(Hks[2], 0.0)
-
+	fill!(MPI_Hks[1], 0.0)
+	fill!(MPI_Hks[2], 0.0)
 
 	hst = 0
 	for loop = 1:MPI_size
-
 		atom = MPI_atom[loop]
 		jatom = MPI_natn[loop]
 		NO0 = Total_NumOrbs[atom]
 		NO1 = Total_NumOrbs[jatom]
 
-		fill!(Hks_temp, 0.0)
-		_Calc_Ham8_on!(Hks_temp, NO0, NO1, MPI_NumOLG[loop], GridListAtom[atom], MPI_GListTAtoms1[loop], MPI_GListTAtoms2[loop], Orbs_Grid[atom], Orbs_Grid[jatom], Vpot_Grid)
-
-		@inbounds for ist = 1:NO0, jst = 1:NO1
-			hst += 1
-			Hks[1][HksNum+hst] = GridVol*Hks_temp[jst,ist,1]
-			Hks[2][HksNum+hst] = GridVol*Hks_temp[jst,ist,2]
+		block_size = NO0*NO1
+		Hks_block = _HamiltonianBlock((MPI_Hks[1], MPI_Hks[2]), hst, NO1)
+		if Orbs_Grid isa PackedOrbitalsGrid
+			_Calc_Hamiltonian_Blocked!(Hks_block, 2, NO0, NO1,
+				MPI_NumOLG[loop], GridListAtom[atom], MPI_GListTAtoms1[loop],
+				MPI_GListTAtoms2[loop], Orbs_Grid.data[atom],
+				Orbs_Grid.data[jatom], Vpot_Grid, orbital_scratch,
+				product_scratch)
+		else
+			_Calc_Ham8_on!(Hks_block, NO0, NO1, MPI_NumOLG[loop],
+				GridListAtom[atom], MPI_GListTAtoms1[loop], MPI_GListTAtoms2[loop],
+				Orbs_Grid[atom], Orbs_Grid[jatom], Vpot_Grid)
 		end
+		hst += block_size
     end
+	@. MPI_Hks[1] *= GridVol
+	@. MPI_Hks[2] *= GridVol
 end
 
 
-function Calc_MatrixElements_dVH_Vxc_nc!(ucell::UCell, Orbs_Grid, Vpot_Grid::Vector{Vector{Float64}}, Hks)
+@timeit timer "Set_Hamiltonian" function Calc_MatrixElements_dVH_Vxc_nc!(ucell::UCell, Orbs_Grid, Vpot_Grid::Vector{Vector{Float64}}, MPI_Hks)
 
     comm = MPI.COMM_WORLD
     myrank = MPI.Comm_rank(comm)
@@ -376,44 +332,100 @@ function Calc_MatrixElements_dVH_Vxc_nc!(ucell::UCell, Orbs_Grid, Vpot_Grid::Vec
 	MPI_atom = ucell.system_grid.MPI_atom
 	MPI_natn = ucell.system_grid.MPI_natn
 	Total_NumOrbs = ucell.system_grid.Total_NumOrbs
-	MPHks = ucell.system_grid.MPHks
 	MPI_size = ucell.system_grid.MPI_size
-	HksNum = MPHks[myrank+1]
-
 	GridVol = ucell.system_grid.GridVol
 	GridListAtom = ucell.GridListAtom
 	MPI_NumOLG = ucell.MPI_NumOLG
 	MPI_GListTAtoms1 = ucell.MPI_GListTAtoms1
 	MPI_GListTAtoms2 = ucell.MPI_GListTAtoms2
+	orbital_scratch = ucell.hamiltonian_orbital_scratch
+	product_scratch = ucell.hamiltonian_product_scratch
 
-	Hks_temp = zeros(Float64, maximum(Total_NumOrbs), maximum(Total_NumOrbs), 4)
+	fill!(MPI_Hks[1], 0.0)
+	fill!(MPI_Hks[2], 0.0)	
+	fill!(MPI_Hks[3], 0.0)	
+	fill!(MPI_Hks[4], 0.0)	
 
 
-	fill!(Hks[1], 0.0)
-	fill!(Hks[2], 0.0)	
-	fill!(Hks[3], 0.0)	
-	fill!(Hks[4], 0.0)	
-
-
+	MPI_Hks1 = MPI_Hks[1]
+	MPI_Hks2 = MPI_Hks[2]
+	MPI_Hks3 = MPI_Hks[3]
+	MPI_Hks4 = MPI_Hks[4]
 	hst = 0
 	for loop = 1:MPI_size
-
 		atom = MPI_atom[loop]
 		jatom = MPI_natn[loop]
 		NO0 = Total_NumOrbs[atom]
 		NO1 = Total_NumOrbs[jatom]
 
-		fill!(Hks_temp, 0.0)
-		_Calc_Ham8_nc!(Hks_temp, NO0, NO1, MPI_NumOLG[loop], GridListAtom[atom], MPI_GListTAtoms1[loop], MPI_GListTAtoms2[loop], Orbs_Grid[atom], Orbs_Grid[jatom], Vpot_Grid)
-
-		@inbounds for ist = 1:NO0, jst = 1:NO1
-			hst += 1
-			Hks[1][HksNum+hst] = GridVol*Hks_temp[jst,ist,1]
-			Hks[2][HksNum+hst] = GridVol*Hks_temp[jst,ist,2]
-			Hks[3][HksNum+hst] = GridVol*Hks_temp[jst,ist,3]
-			Hks[4][HksNum+hst] = GridVol*Hks_temp[jst,ist,4]
+		block_size = NO0*NO1
+		Hks_block = _HamiltonianBlock((MPI_Hks1, MPI_Hks2, MPI_Hks3, MPI_Hks4), hst, NO1)
+		if Orbs_Grid isa PackedOrbitalsGrid
+			_Calc_Hamiltonian_Blocked!(Hks_block, 4, NO0, NO1,
+				MPI_NumOLG[loop], GridListAtom[atom], MPI_GListTAtoms1[loop],
+				MPI_GListTAtoms2[loop], Orbs_Grid.data[atom],
+				Orbs_Grid.data[jatom], Vpot_Grid, orbital_scratch,
+				product_scratch)
+		else
+			_Calc_Ham8_nc!(Hks_block, NO0, NO1, MPI_NumOLG[loop],
+				GridListAtom[atom], MPI_GListTAtoms1[loop], MPI_GListTAtoms2[loop],
+				Orbs_Grid[atom], Orbs_Grid[jatom], Vpot_Grid)
 		end
+		hst += block_size
     end
+	@. MPI_Hks1 *= GridVol
+	@. MPI_Hks2 *= GridVol
+	@. MPI_Hks3 *= GridVol
+	@. MPI_Hks4 *= GridVol
+end
+
+
+"""Blocked BLAS contraction for `<phi_j|V_channel|phi_i>` on one atom pair."""
+function _Calc_Hamiltonian_Blocked!(Hks_block, nchannels::Integer, NO0::Integer,
+                                    NO1::Integer, NumOLG::Integer, GridListAtom,
+                                    GListTAtoms1, GListTAtoms2,
+                                    orbitals1::Matrix{Float64},
+                                    orbitals2::Matrix{Float64}, Vpot_Grid,
+                                    orbital_scratch,
+                                    product_scratch::Matrix{Float64})
+    orbital_block1, orbital_block2, weighted_block = orbital_scratch
+    block_size = size(orbital_block1, 2)
+
+    for block_start = 1:block_size:NumOLG
+        points = min(block_size, NumOLG - block_start + 1)
+        @inbounds for point = 1:points
+            overlap_index = block_start + point - 1
+            grid1 = GListTAtoms1[overlap_index] + 1
+            grid2 = GListTAtoms2[overlap_index] + 1
+            for orbital = 1:NO0
+                orbital_block1[orbital, point] = orbitals1[orbital, grid1]
+            end
+            for orbital = 1:NO1
+                orbital_block2[orbital, point] = orbitals2[orbital, grid2]
+            end
+        end
+
+        for channel = 1:nchannels
+            potential = Vpot_Grid[channel]
+            @inbounds for point = 1:points
+                overlap_index = block_start + point - 1
+                grid1 = GListTAtoms1[overlap_index] + 1
+                value = potential[GridListAtom[grid1] + 1]
+                @simd for orbital = 1:NO0
+                    weighted_block[orbital, point] =
+                        orbital_block1[orbital, point]*value
+                end
+            end
+
+            @views mul!(product_scratch[1:NO1, 1:NO0],
+                        orbital_block2[1:NO1, 1:points],
+                        transpose(weighted_block[1:NO0, 1:points]))
+            @inbounds for ist = 1:NO0, jst = 1:NO1
+                Hks_block[jst, ist, channel] += product_scratch[jst, ist]
+            end
+        end
+    end
+    return nothing
 end
 
 
@@ -500,6 +512,9 @@ end
 
 function _Calc_Ham8_on!(Hks_temp, NO0, NO1, NumOLG, GridListAtom, GListTAtoms1, GListTAtoms2, Orbs_Grid1, Orbs_Grid2, Vpot_Grid)
 
+	Vpot_Grid1 = Vpot_Grid[1]
+	Vpot_Grid2 = Vpot_Grid[2]
+
 	for Nog = 1:8:NumOLG-7
 
 		Nc0 = GListTAtoms1[Nog]+1
@@ -529,23 +544,23 @@ function _Calc_Ham8_on!(Hks_temp, NO0, NO1, NumOLG, GridListAtom, GListTAtoms1, 
 		Nh6 = GListTAtoms2[Nog+6]+1
 		Nh7 = GListTAtoms2[Nog+7]+1
 		
-		temp0_up = Vpot_Grid[1][MN0]
-		temp1_up = Vpot_Grid[1][MN1]
-		temp2_up = Vpot_Grid[1][MN2]
-		temp3_up = Vpot_Grid[1][MN3]
-		temp4_up = Vpot_Grid[1][MN4]
-		temp5_up = Vpot_Grid[1][MN5]
-		temp6_up = Vpot_Grid[1][MN6]
-		temp7_up = Vpot_Grid[1][MN7]
+		temp0_up = Vpot_Grid1[MN0]
+		temp1_up = Vpot_Grid1[MN1]
+		temp2_up = Vpot_Grid1[MN2]
+		temp3_up = Vpot_Grid1[MN3]
+		temp4_up = Vpot_Grid1[MN4]
+		temp5_up = Vpot_Grid1[MN5]
+		temp6_up = Vpot_Grid1[MN6]
+		temp7_up = Vpot_Grid1[MN7]
 
-		temp0_dn = Vpot_Grid[2][MN0]
-		temp1_dn = Vpot_Grid[2][MN1]
-		temp2_dn = Vpot_Grid[2][MN2]
-		temp3_dn = Vpot_Grid[2][MN3]
-		temp4_dn = Vpot_Grid[2][MN4]
-		temp5_dn = Vpot_Grid[2][MN5]
-		temp6_dn = Vpot_Grid[2][MN6]
-		temp7_dn = Vpot_Grid[2][MN7]
+		temp0_dn = Vpot_Grid2[MN0]
+		temp1_dn = Vpot_Grid2[MN1]
+		temp2_dn = Vpot_Grid2[MN2]
+		temp3_dn = Vpot_Grid2[MN3]
+		temp4_dn = Vpot_Grid2[MN4]
+		temp5_dn = Vpot_Grid2[MN5]
+		temp6_dn = Vpot_Grid2[MN6]
+		temp7_dn = Vpot_Grid2[MN7]
 
 		for ist = 1:NO0
 
@@ -619,8 +634,8 @@ function _Calc_Ham8_on!(Hks_temp, NO0, NO1, NumOLG, GridListAtom, GListTAtoms1, 
 		MN = GridListAtom[Nc]+1
 		Nh = GListTAtoms2[Nog+Nog1]+1
 
-        temp_up = Vpot_Grid[1][MN]
-        temp_dn = Vpot_Grid[2][MN]
+        temp_up = Vpot_Grid1[MN]
+        temp_dn = Vpot_Grid2[MN]
         for ist = 1:NO0
 			orbs1 = Orbs_Grid1[Nc][ist]
             Sum_up = temp_up * orbs1
@@ -636,6 +651,11 @@ end
 
 
 function _Calc_Ham8_nc!(Hks_temp, NO0, NO1, NumOLG, GridListAtom, GListTAtoms1, GListTAtoms2, Orbs_Grid1, Orbs_Grid2, Vpot_Grid)
+
+	Vpot_Grid1 = Vpot_Grid[1]
+	Vpot_Grid2 = Vpot_Grid[2]
+	Vpot_Grid3 = Vpot_Grid[3]
+	Vpot_Grid4 = Vpot_Grid[4]
 
 	for Nog = 1:8:NumOLG-7
 
@@ -666,41 +686,41 @@ function _Calc_Ham8_nc!(Hks_temp, NO0, NO1, NumOLG, GridListAtom, GListTAtoms1, 
 		Nh6 = GListTAtoms2[Nog+6]+1
 		Nh7 = GListTAtoms2[Nog+7]+1
 		
-		temp0_uu = Vpot_Grid[1][MN0]
-		temp1_uu = Vpot_Grid[1][MN1]
-		temp2_uu = Vpot_Grid[1][MN2]
-		temp3_uu = Vpot_Grid[1][MN3]
-		temp4_uu = Vpot_Grid[1][MN4]
-		temp5_uu = Vpot_Grid[1][MN5]
-		temp6_uu = Vpot_Grid[1][MN6]
-		temp7_uu = Vpot_Grid[1][MN7]
+		temp0_uu = Vpot_Grid1[MN0]
+		temp1_uu = Vpot_Grid1[MN1]
+		temp2_uu = Vpot_Grid1[MN2]
+		temp3_uu = Vpot_Grid1[MN3]
+		temp4_uu = Vpot_Grid1[MN4]
+		temp5_uu = Vpot_Grid1[MN5]
+		temp6_uu = Vpot_Grid1[MN6]
+		temp7_uu = Vpot_Grid1[MN7]
 
-		temp0_dd = Vpot_Grid[2][MN0]
-		temp1_dd = Vpot_Grid[2][MN1]
-		temp2_dd = Vpot_Grid[2][MN2]
-		temp3_dd = Vpot_Grid[2][MN3]
-		temp4_dd = Vpot_Grid[2][MN4]
-		temp5_dd = Vpot_Grid[2][MN5]
-		temp6_dd = Vpot_Grid[2][MN6]
-		temp7_dd = Vpot_Grid[2][MN7]
+		temp0_dd = Vpot_Grid2[MN0]
+		temp1_dd = Vpot_Grid2[MN1]
+		temp2_dd = Vpot_Grid2[MN2]
+		temp3_dd = Vpot_Grid2[MN3]
+		temp4_dd = Vpot_Grid2[MN4]
+		temp5_dd = Vpot_Grid2[MN5]
+		temp6_dd = Vpot_Grid2[MN6]
+		temp7_dd = Vpot_Grid2[MN7]
 
-		temp0_ud_r = Vpot_Grid[3][MN0]
-		temp1_ud_r = Vpot_Grid[3][MN1]
-		temp2_ud_r = Vpot_Grid[3][MN2]
-		temp3_ud_r = Vpot_Grid[3][MN3]
-		temp4_ud_r = Vpot_Grid[3][MN4]
-		temp5_ud_r = Vpot_Grid[3][MN5]
-		temp6_ud_r = Vpot_Grid[3][MN6]
-		temp7_ud_r = Vpot_Grid[3][MN7]
+		temp0_ud_r = Vpot_Grid3[MN0]
+		temp1_ud_r = Vpot_Grid3[MN1]
+		temp2_ud_r = Vpot_Grid3[MN2]
+		temp3_ud_r = Vpot_Grid3[MN3]
+		temp4_ud_r = Vpot_Grid3[MN4]
+		temp5_ud_r = Vpot_Grid3[MN5]
+		temp6_ud_r = Vpot_Grid3[MN6]
+		temp7_ud_r = Vpot_Grid3[MN7]
 
-		temp0_ud_i = Vpot_Grid[4][MN0]
-		temp1_ud_i = Vpot_Grid[4][MN1]
-		temp2_ud_i = Vpot_Grid[4][MN2]
-		temp3_ud_i = Vpot_Grid[4][MN3]
-		temp4_ud_i = Vpot_Grid[4][MN4]
-		temp5_ud_i = Vpot_Grid[4][MN5]
-		temp6_ud_i = Vpot_Grid[4][MN6]
-		temp7_ud_i = Vpot_Grid[4][MN7]
+		temp0_ud_i = Vpot_Grid4[MN0]
+		temp1_ud_i = Vpot_Grid4[MN1]
+		temp2_ud_i = Vpot_Grid4[MN2]
+		temp3_ud_i = Vpot_Grid4[MN3]
+		temp4_ud_i = Vpot_Grid4[MN4]
+		temp5_ud_i = Vpot_Grid4[MN5]
+		temp6_ud_i = Vpot_Grid4[MN6]
+		temp7_ud_i = Vpot_Grid4[MN7]
 
 		for ist = 1:NO0
 
@@ -815,10 +835,10 @@ function _Calc_Ham8_nc!(Hks_temp, NO0, NO1, NumOLG, GridListAtom, GListTAtoms1, 
 		MN = GridListAtom[Nc]+1
 		Nh = GListTAtoms2[Nog+Nog1]+1
 
-        temp_uu = Vpot_Grid[1][MN]
-        temp_dd = Vpot_Grid[2][MN]
-        temp_ud_r = Vpot_Grid[3][MN]
-        temp_ud_i = Vpot_Grid[4][MN]
+        temp_uu = Vpot_Grid1[MN]
+        temp_dd = Vpot_Grid2[MN]
+        temp_ud_r = Vpot_Grid3[MN]
+        temp_ud_i = Vpot_Grid4[MN]
         for ist = 1:NO0
 			orbs1 = Orbs_Grid1[Nc][ist]
             Sum_uu = temp_uu * orbs1

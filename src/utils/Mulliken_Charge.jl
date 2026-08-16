@@ -54,7 +54,7 @@ function Mulliken_Charge(SpinPol::String, system_grid::System_Grid, Atoms_Core_C
     end
 
 
-    Mulliken_Charge(
+    return Mulliken_Charge(
         Natom, Nspin, SpinPol, FNAN, natn, Total_NumOrbs, Atoms_Core_Charge,
         MulP, DecMulP, InitN_USpin, InitN_DSpin, Angle_Spin, 0.0, 0.0, 0.0, TotalZ)
 end

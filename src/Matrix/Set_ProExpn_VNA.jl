@@ -1,37 +1,141 @@
-@timeit timer "Set_ProExpn_VNA" function Set_ProExpn_VNA!(DS_VNA, HVNA, HVNA2force, HVNA3force, pao::Vector{PAO}, pspot::Vector{Pspot}, system_grid::System_Grid)
+struct _VNACoupling
+    orbital::Int32
+    projector::Int32
+    radial_index::Int32
+    multiplicity::Int32
+    angular_momentum::Int32
+    coefficient::ComplexF64
+end
+
+
+struct _VNARadialShell
+    radius::Float64
+    values::Array{Float64,4}
+    derivatives::Array{Float64,4}
+end
+
+
+struct _HVNARadialShell
+    radius::Float64
+    values2::Array{Float64,5}
+    derivatives2::Array{Float64,5}
+    values3::Array{Float64,5}
+    derivatives3::Array{Float64,5}
+end
+
+
+struct _HVNACoupling
+    row::Int32
+    column::Int32
+    fourier_l::Int32
+    fourier_m::Int32
+    pp::Int32
+    ll::Int32
+    p::Int32
+    l::Int32
+    coefficient::Float64
+end
+
+
+@inline function _same_radial_shell(radius1::Float64, radius2::Float64)
+    scale = max(abs(radius1), abs(radius2), 1.0)
+    return abs(radius1 - radius2) <= 32*eps(scale)
+end
+
+
+@inline function _radial_shell_index(shells, radius::Float64)
+    @inbounds for index in eachindex(shells)
+        _same_radial_shell(shells[index].radius, radius) && return index
+    end
+    return 0
+end
+
+
+@timeit timer "Set_ProExpn_VNA" function Set_ProExpn_VNA!(MPI_DS_VNA, MPI_HVNA, MPI_HVNA2force, MPI_HVNA3force, pao::Vector{PAO}, pspot::Vector{Pspot}, system_grid::System_Grid)
+
+    comm = MPI.COMM_WORLD
+    nprocs = MPI.Comm_size(comm)
+    myrank = MPI.Comm_rank(comm)
 
     Natom = system_grid.Natom
     FNAN = system_grid.FNAN
+    natn = system_grid.natn
     Total_NumOrbs = system_grid.Total_NumOrbs
+    MPI_size = system_grid.MPI_size
+    MPI_atom = system_grid.MPI_atom
+    MPI_FNAN = system_grid.MPI_FNAN
+    MPI_natn = system_grid.MPI_natn
 
-    Set_ProExpn_VNA!(DS_VNA, HVNA, pao, pspot, system_grid)
+    Set_ProExpn_VNA!(MPI_DS_VNA, MPI_HVNA, pao, pspot, system_grid)
 
-    HVNA2 = Vector{Vector{Vector{Vector{Float64}}}}(undef, Natom)
+    HVNA = Vector{Vector{Matrix{Float64}}}(undef, Natom)
 	for atom = 1:Natom
-		HVNA2[atom] = Vector{Vector{Vector{Float64}}}(undef, FNAN[atom]+1)
+        NO0 = Total_NumOrbs[atom]
+		HVNA[atom] = Vector{Matrix{Float64}}(undef, FNAN[atom]+1)
 		for Rn = 1:FNAN[atom]+1
-			HVNA2[atom][Rn] = Vector{Vector{Float64}}(undef, Total_NumOrbs[atom])
-			for ist = 1:Total_NumOrbs[atom]
-				HVNA2[atom][Rn][ist] = zeros(Float64, Total_NumOrbs[atom])
-			end
+            NO1 = Total_NumOrbs[natn[atom][Rn]]
+			HVNA[atom][Rn] = zeros(Float64, NO0, NO1)
 		end
 	end
-    Set_HVNA2_3!(HVNA2, HVNA2force, HVNA3force, pao, pspot, system_grid)
+
+    hst = 0
+    for loop = 1:MPI_size
+        atom = MPI_atom[loop]
+        Rn = MPI_FNAN[loop]
+        jatom = MPI_natn[loop]
+        NO0 = Total_NumOrbs[atom]
+        NO1 = Total_NumOrbs[jatom]
+        for ist = 1:NO0, jst = 1:NO1
+            hst += 1
+            HVNA[atom][Rn][ist,jst] = MPI_HVNA[hst]
+        end
+    end
+
+    for atom = 1:Natom
+        _packed_allreduce_matrices!(HVNA[atom], comm)
+    end
+
+
+
+
+    HVNA2 = Vector{Vector{Matrix{Float64}}}(undef, Natom)
+	for atom = 1:Natom
+        NO0 = Total_NumOrbs[atom]
+		HVNA2[atom] = Vector{Matrix{Float64}}(undef, FNAN[atom]+1)
+		for Rn = 1:FNAN[atom]+1
+			HVNA2[atom][Rn] = zeros(Float64, NO0, NO0)
+		end
+	end
+    Set_HVNA2_3!(HVNA2, MPI_HVNA2force, MPI_HVNA3force, pao, pspot, system_grid)
 
     for atom = 1:Natom
         NO0 = Total_NumOrbs[atom]
+        HVNA1 = HVNA[atom][1]
         @inbounds for ist = 1:NO0, jst = 1:NO0
-            HVNA[atom][1][ist][jst] = 0.0
+            HVNA1[ist,jst] = 0.0
         end
-
+        HVNA2atom = HVNA2[atom]
         @inbounds for Rn = 1:FNAN[atom]+1, ist = 1:NO0, jst = 1:NO0
-            HVNA[atom][1][ist][jst] += HVNA2[atom][Rn][ist][jst]
+            HVNA1[ist,jst] += HVNA2atom[Rn][jst,ist]
+        end
+    end
+
+    hst = 0
+    for loop = 1:MPI_size
+        atom = MPI_atom[loop]
+        Rn = MPI_FNAN[loop]
+        jatom = MPI_natn[loop]
+        NO0 = Total_NumOrbs[atom]
+        NO1 = Total_NumOrbs[jatom]
+        for ist = 1:NO0, jst = 1:NO1
+            hst += 1
+            MPI_HVNA[hst] = HVNA[atom][Rn][ist,jst] 
         end
     end
 end
 
 
-function Set_ProExpn_VNA!(DS_VNA, HVNA, pao::Vector{PAO}, pspot::Vector{Pspot}, system_grid::System_Grid)
+@timeit timer "VNA_Projector" function Set_ProExpn_VNA!(MPI_DS_VNA, MPI_HVNA, pao::Vector{PAO}, pspot::Vector{Pspot}, system_grid::System_Grid)
     
     comm = MPI.COMM_WORLD
     nprocs = MPI.Comm_size(comm)
@@ -116,8 +220,6 @@ function Set_ProExpn_VNA!(DS_VNA, HVNA, pao::Vector{PAO}, pspot::Vector{Pspot}, 
 
 
 
-    SumNL0 = zeros(Float64, Num_RVNA, 4, 4)
-    SumNLr0 = zeros(Float64, Num_RVNA, 4, 4)
     fsize = maximum(Total_NumOrbs)
     VNAiαjβ = zeros(ComplexF64, fsize, VNATotal_Num)
     VNAriαjβ = zeros(ComplexF64, fsize, VNATotal_Num)
@@ -134,6 +236,40 @@ function Set_ProExpn_VNA!(DS_VNA, HVNA, pao::Vector{PAO}, pspot::Vector{Pspot}, 
 
     f = zeros(Float64, S3J_MAX_FACT)
     _Set_f_for_Gaunt!(f)
+
+    couplings = Vector{Vector{Vector{Vector{_VNACoupling}}}}(undef, Nspecies)
+    for spe = 1:Nspecies
+        species_couplings = Vector{Vector{Vector{_VNACoupling}}}(undef,
+                                                                  Lmax_Four_Int + 1)
+        max_basis_l = pao[spe].Spe_MaxL_Basis
+        num_basis = pao[spe].Spe_Num_Basis
+        for L = 0:Lmax_Four_Int
+            species_couplings[L+1] = [Vector{_VNACoupling}() for _ = -L:L]
+            for M = -L:L
+                entries = species_couplings[L+1][M+L+1]
+                orbital = 0
+                for l = 0:max_basis_l, p = 1:num_basis[l+1], m = -l:l
+                    orbital += 1
+                    projector = 0
+                    for lnum = 1:Num_RVNA
+                        ll = VNA_List[lnum]
+                        for mm = -ll:ll
+                            projector += 1
+                            if abs(ll-L) <= l <= abs(ll+L) &&
+                               iszero(m-mm-M) && abs(m-M) <= ll
+                                exponent = Float64(L+ll-l)
+                                coefficient = (-im)^exponent *
+                                              Gaunt(f,l,m,ll,mm,L,M)
+                                push!(entries, _VNACoupling(orbital, projector,
+                                    lnum, p, l, coefficient))
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        couplings[spe] = species_couplings
+    end
 
     fact2 = zeros(Float64, 2*Lmax_Four_Int+1, 2*Lmax_Four_Int+1)
     Set_SqrtFactorial_Ratio!(fact2)
@@ -155,6 +291,7 @@ function Set_ProExpn_VNA!(DS_VNA, HVNA, pao::Vector{PAO}, pspot::Vector{Pspot}, 
     end
     tmpH = zeros(ComplexF64, fsize)
     tmpL = zeros(Float64, GL_Mesh)
+    radial_shells = [Vector{_VNARadialShell}() for _ = 1:Nspecies, _ = 1:Nspecies]
 
 
     SH = zeros(Float64, 2)
@@ -188,13 +325,34 @@ function Set_ProExpn_VNA!(DS_VNA, HVNA, pao::Vector{PAO}, pspot::Vector{Pspot}, 
         coP = cos(phi)
             
 
-        for ik = 1:GL_Mesh
-            Calc_SphericalBesselj2!(Lmax_Four_Int, R*k1[ik], tsb, SphB_l, dSphB_l)
-            @inbounds for l = 1:Lmax_Four_Int+1
-                SphB[l][ik] = SphB_l[l]
-                dSphB[l][ik] = dSphB_l[l]*k1[ik]
+        shells = radial_shells[ispe, jspe]
+        shell_index = _radial_shell_index(shells, R)
+        if iszero(shell_index)
+            SumNL0 = zeros(Float64, Num_RVNA, 4, 4, Lmax_Four_Int + 1)
+            SumNLr0 = zeros(Float64, Num_RVNA, 4, 4, Lmax_Four_Int + 1)
+            for ik = 1:GL_Mesh
+                Calc_SphericalBesselj2!(Lmax_Four_Int, R*k1[ik], tsb,
+                                        SphB_l, dSphB_l)
+                @inbounds for l = 1:Lmax_Four_Int+1
+                    SphB[l][ik] = SphB_l[l]
+                    dSphB[l][ik] = dSphB_l[l]*k1[ik]
+                end
             end
+            for L = 0:Lmax_Four_Int
+                for l = 0:iMaxL_Basis, p = 1:iNum_Basis[l+1], lnum = 1:Num_RVNA
+                    ll = VNA_List[lnum]
+                    index = VNA_List2[lnum]+1
+                    @. tmpL = Bessel_Pro00[ispe][l+1][p]*VNA_Bessel[jspe][ll+1][index]
+                    SumNL0[lnum,p,l+1,L+1] = dot(SphB[L+1], tmpL)
+                    SumNLr0[lnum,p,l+1,L+1] = dot(dSphB[L+1], tmpL)
+                end
+            end
+            push!(shells, _VNARadialShell(R, SumNL0, SumNLr0))
+            shell_index = length(shells)
         end
+        radial_shell = shells[shell_index]
+        SumNL0 = radial_shell.values
+        SumNLr0 = radial_shell.derivatives
 
 
         fill!(VNAiαjβ, 0.0)
@@ -204,46 +362,26 @@ function Set_ProExpn_VNA!(DS_VNA, HVNA, pao::Vector{PAO}, pspot::Vector{Pspot}, 
 
 
         for L = 0:Lmax_Four_Int
-
-            for l = 0:iMaxL_Basis, p = 1:iNum_Basis[l+1], lnum = 1:Num_RVNA
-                ll = VNA_List[lnum]
-                index = VNA_List2[lnum]+1
-                @. tmpL = Bessel_Pro00[ispe][l+1][p]*VNA_Bessel[jspe][ll+1][index]
-                SumNL0[lnum,p,l+1] = dot(SphB[L+1], tmpL)
-                SumNLr0[lnum,p,l+1] = dot(dSphB[L+1], tmpL)
-            end
-
-
             for M = -L:L
-                ist = 0
-                for l = 0:iMaxL_Basis, p = 1:iNum_Basis[l+1], m = -l:l
-                    jst = 0
-                    ist += 1
-                    @inbounds for lnum = 1:Num_RVNA, mm = -VNA_List[lnum]:VNA_List[lnum]
-                        ll = VNA_List[lnum]
-                        jst += 1
-                        if abs(ll-L) <= l <= abs(ll+L) && iszero(m-mm-M) && abs(m-M) <= ll
-                            indx0 = L-abs(M)+1
-                            indx1 = L+abs(M)+1
-                            Ylm_complex!(L,M,fact2[indx0,indx1],theta,phi,SH,dSHt,dSHp)
-                            Ls = Float64(L+ll-l)
-                            gaunt = Gaunt(f,l,m,ll,mm,L,M)
-                            tmp = (-im)^Ls
-                                
-                            Ylm = ComplexF64(SH[1], SH[2])
-                            dYlmdtheta = ComplexF64(dSHt[1], dSHt[2])
-                            dYlmdphi = ComplexF64(dSHp[1], dSHp[2])
-                            
-                            iYC = conj(Ylm) * tmp * gaunt
-                            iYCt = conj(dYlmdtheta) * tmp * gaunt
-                            iYCp = conj(dYlmdphi) * tmp * gaunt
-
-                            VNAiαjβ[ist,jst] += iYC*SumNL0[lnum,p,l+1]
-                            VNAriαjβ[ist,jst] += iYC*SumNLr0[lnum,p,l+1]
-                            VNAtiαjβ[ist,jst] += iYCt*SumNL0[lnum,p,l+1]
-                            VNApiαjβ[ist,jst] += iYCp*SumNL0[lnum,p,l+1]
-                        end
-                    end
+                indx0 = L-abs(M)+1
+                indx1 = L+abs(M)+1
+                Ylm_complex!(L,M,fact2[indx0,indx1],theta,phi,SH,dSHt,dSHp)
+                Ylm_conj = conj(ComplexF64(SH[1], SH[2]))
+                dYlmdtheta_conj = conj(ComplexF64(dSHt[1], dSHt[2]))
+                dYlmdphi_conj = conj(ComplexF64(dSHp[1], dSHp[2]))
+                @inbounds for coupling in couplings[ispe][L+1][M+L+1]
+                    ist = coupling.orbital
+                    jst = coupling.projector
+                    lnum = coupling.radial_index
+                    p = coupling.multiplicity
+                    l = coupling.angular_momentum
+                    coefficient = coupling.coefficient
+                    radial = SumNL0[lnum,p,l+1,L+1]
+                    radial_derivative = SumNLr0[lnum,p,l+1,L+1]
+                    VNAiαjβ[ist,jst] += Ylm_conj*coefficient*radial
+                    VNAriαjβ[ist,jst] += Ylm_conj*coefficient*radial_derivative
+                    VNAtiαjβ[ist,jst] += dYlmdtheta_conj*coefficient*radial
+                    VNApiαjβ[ist,jst] += dYlmdphi_conj*coefficient*radial
                 end
             end
         end
@@ -281,34 +419,34 @@ function Set_ProExpn_VNA!(DS_VNA, HVNA, pao::Vector{PAO}, pspot::Vector{Pspot}, 
 
 
 
-        DS_VNA1 = DS_VNA[1][atom][Rn]
-        DS_VNA2 = DS_VNA[2][atom][Rn]
-        DS_VNA3 = DS_VNA[3][atom][Rn]
-        DS_VNA4 = DS_VNA[4][atom][Rn]
+        MPI_DS_VNA1 = MPI_DS_VNA[1][loop]
+        MPI_DS_VNA2 = MPI_DS_VNA[2][loop]
+        MPI_DS_VNA3 = MPI_DS_VNA[3][loop]
+        MPI_DS_VNA4 = MPI_DS_VNA[4][loop]
 
         @inbounds for ist = 1:NO0, jst = 1:VNATotal_Num
-            DS_VNA1[ist,jst] = 8*real(VNAiαjβ[ist,jst])
+            MPI_DS_VNA1[ist,jst] = 8*real(VNAiαjβ[ist,jst])
         end
 
         if Rn ≠ 1
             if abs(siT) < 1.0e-13
                 @inbounds for ist = 1:NO0, jst = 1:VNATotal_Num
-                    DS_VNA2[ist,jst] = -8*real(siT*coP*VNAriαjβ[ist,jst] + coT*coP/R*VNAtiαjβ[ist,jst])
-                    DS_VNA3[ist,jst] = -8*real(siT*siP*VNAriαjβ[ist,jst] + coT*siP/R*VNAtiαjβ[ist,jst])
-                    DS_VNA4[ist,jst] = -8*real(coT*VNAriαjβ[ist,jst] - siT/R*VNAtiαjβ[ist,jst])
+                    MPI_DS_VNA2[ist,jst] = -8*real(siT*coP*VNAriαjβ[ist,jst] + coT*coP/R*VNAtiαjβ[ist,jst])
+                    MPI_DS_VNA3[ist,jst] = -8*real(siT*siP*VNAriαjβ[ist,jst] + coT*siP/R*VNAtiαjβ[ist,jst])
+                    MPI_DS_VNA4[ist,jst] = -8*real(coT*VNAriαjβ[ist,jst] - siT/R*VNAtiαjβ[ist,jst])
                 end
             else
                 @inbounds for ist = 1:NO0, jst = 1:VNATotal_Num
-                    DS_VNA2[ist,jst] = -8*real(siT*coP*VNAriαjβ[ist,jst] + coT*coP/R*VNAtiαjβ[ist,jst] - siP/siT/R*VNApiαjβ[ist,jst])
-                    DS_VNA3[ist,jst] = -8*real(siT*siP*VNAriαjβ[ist,jst] + coT*siP/R*VNAtiαjβ[ist,jst] + coP/siT/R*VNApiαjβ[ist,jst])
-                    DS_VNA4[ist,jst] = -8*real(coT*VNAriαjβ[ist,jst] - siT/R*VNAtiαjβ[ist,jst])
+                    MPI_DS_VNA2[ist,jst] = -8*real(siT*coP*VNAriαjβ[ist,jst] + coT*coP/R*VNAtiαjβ[ist,jst] - siP/siT/R*VNApiαjβ[ist,jst])
+                    MPI_DS_VNA3[ist,jst] = -8*real(siT*siP*VNAriαjβ[ist,jst] + coT*siP/R*VNAtiαjβ[ist,jst] + coP/siT/R*VNApiαjβ[ist,jst])
+                    MPI_DS_VNA4[ist,jst] = -8*real(coT*VNAriαjβ[ist,jst] - siT/R*VNAtiαjβ[ist,jst])
                 end
             end
         else
             @inbounds for ist = 1:NO0, jst = 1:VNATotal_Num
-                DS_VNA2[ist,jst] = 0.0
-                DS_VNA3[ist,jst] = 0.0
-                DS_VNA4[ist,jst] = 0.0
+                MPI_DS_VNA2[ist,jst] = 0.0
+                MPI_DS_VNA3[ist,jst] = 0.0
+                MPI_DS_VNA4[ist,jst] = 0.0
             end
         end
     end
@@ -334,30 +472,24 @@ function Set_ProExpn_VNA!(DS_VNA, HVNA, pao::Vector{PAO}, pspot::Vector{Pspot}, 
 
     for loop = 1:MPI_size
         atom = MPI_atom[loop]
-        Rn = MPI_FNAN[loop]
         jatom = MPI_natn[loop]
-        @inbounds for ist = 1:Total_NumOrbs[atom], jst = 1:VNATotal_Num
+        NO0 = Total_NumOrbs[atom]
+        MPI_DS_VNA2 = MPI_DS_VNA[2][loop]
+        MPI_DS_VNA3 = MPI_DS_VNA[3][loop]
+        MPI_DS_VNA4 = MPI_DS_VNA[4][loop]
+        @inbounds for ist = 1:NO0, jst = 1:VNATotal_Num
             ene = VNAE[jatom][jst]
-            DS_VNA[2][atom][Rn][ist,jst] = ene*DS_VNA[2][atom][Rn][ist,jst]
-            DS_VNA[3][atom][Rn][ist,jst] = ene*DS_VNA[3][atom][Rn][ist,jst]
-            DS_VNA[4][atom][Rn][ist,jst] = ene*DS_VNA[4][atom][Rn][ist,jst]
+            MPI_DS_VNA2[ist,jst] = ene*MPI_DS_VNA2[ist,jst]
+            MPI_DS_VNA3[ist,jst] = ene*MPI_DS_VNA3[ist,jst]
+            MPI_DS_VNA4[ist,jst] = ene*MPI_DS_VNA4[ist,jst]
         end
     end
 
-
-    @inbounds for atom = 1:Natom, Rn = 1:FNAN[atom]+1
-        MPI.Allreduce!(DS_VNA[1][atom][Rn], MPI.SUM, comm)
-        MPI.Allreduce!(DS_VNA[2][atom][Rn], MPI.SUM, comm)
-        MPI.Allreduce!(DS_VNA[3][atom][Rn], MPI.SUM, comm)
-        MPI.Allreduce!(DS_VNA[4][atom][Rn], MPI.SUM, comm)
-    end
-
-
-    Set_HVNA!(VNAE, DS_VNA[1], HVNA, system_grid)
+    Set_HVNA!(VNAE, MPI_DS_VNA[1], MPI_HVNA, system_grid)
 end
 
 
-function Set_HVNA!(VNAE, DS_VNA, HVNA, system_grid::System_Grid)
+function Set_HVNA!(VNAE, MPI_DS_VNAforce1, MPI_HVNA, system_grid::System_Grid)
     
     comm = MPI.COMM_WORLD
     nprocs = MPI.Comm_size(comm)
@@ -373,14 +505,36 @@ function Set_HVNA!(VNAE, DS_VNA, HVNA, system_grid::System_Grid)
 	natn = system_grid.natn
     Dis = system_grid.Dis
     RMI = system_grid.RMI
-    Atom_Cut1 = system_grid.Atom_Cut1
+    Atoms_Cut1 = system_grid.Atoms_Cut1
     VNATotal_Num = length(VNAE[begin])
+
+    DS_VNA = Vector{Vector{Matrix{Float64}}}(undef, Natom)
+	for atom = 1:Natom
+		NO0 = Total_NumOrbs[atom]
+		DS_VNA[atom] = Vector{Matrix{Float64}}(undef, FNAN[atom]+1)
+		for Rn = 1:FNAN[atom]+1
+			DS_VNA[atom][Rn] = zeros(Float64, NO0, VNATotal_Num)
+		end
+	end
+
+    for loop = 1:MPI_size
+        atom = MPI_atom[loop]
+        Rn = MPI_FNAN[loop]
+        NO0 = Total_NumOrbs[atom]
+        for ist = 1:NO0, jst = 1:VNATotal_Num
+            DS_VNA[atom][Rn][ist,jst] = MPI_DS_VNAforce1[loop][ist,jst]
+        end
+    end
+
+    for atom = 1:Natom
+        _packed_allreduce_matrices!(DS_VNA[atom], comm)
+    end
 
     max_orbitals = maximum(Total_NumOrbs)
     HVNA_temp = zeros(Float64, max_orbitals, max_orbitals)
     weighted_projector = zeros(Float64, max_orbitals, VNATotal_Num)
 
-
+    hst = 0
     for loop = 1:MPI_size
         atom = MPI_atom[loop]
         Rn = MPI_FNAN[loop]
@@ -405,21 +559,17 @@ function Set_HVNA!(VNAE, DS_VNA, HVNA, system_grid::System_Grid)
             end
         end
 
-        _HVNA = HVNA[atom][Rn]
-        rcut = Atom_Cut1[atom] + Atom_Cut1[jatom]
+        rcut = Atoms_Cut1[atom] + Atoms_Cut1[jatom]
         dmp = dampingF(rcut, Dis[atom][Rn])
         @inbounds for ist = 1:NO0, jst = 1:NO1
-            _HVNA[ist][jst] = dmp * HVNA_temp[ist, jst]
+            hst += 1
+            MPI_HVNA[hst] = dmp * HVNA_temp[ist, jst]
         end
-    end
-
-    @inbounds for atom = 1:Natom, Rn = 1:FNAN[atom]+1, ist = 1:Total_NumOrbs[atom]
-        MPI.Allreduce!(HVNA[atom][Rn][ist], MPI.SUM, comm)
     end
 end
 
 
-function Set_HVNA2_3!(HVNA2, HVNA2force, HVNA3force, pao::Vector{PAO}, pspot::Vector{Pspot}, system_grid::System_Grid)
+@timeit timer "VNA_HVNA2_3" function Set_HVNA2_3!(HVNA2, MPI_HVNA2force, MPI_HVNA3force, pao::Vector{PAO}, pspot::Vector{Pspot}, system_grid::System_Grid)
 
     comm = MPI.COMM_WORLD
     nprocs = MPI.Comm_size(comm)
@@ -427,8 +577,6 @@ function Set_HVNA2_3!(HVNA2, HVNA2force, HVNA3force, pao::Vector{PAO}, pspot::Ve
 
     
     Nspecies = length(pao)
-
-
     Lmax_Four_Int = 0
     for spe = 1:Nspecies
         Spe_MaxL_Basis = pao[spe].Spe_MaxL_Basis
@@ -516,12 +664,6 @@ function Set_HVNA2_3!(HVNA2, HVNA2force, HVNA3force, pao::Vector{PAO}, pspot::Ve
         end
     end
 
-    SumHVNA2 = zeros(Float64, 9, 4, 4, 4, 4)
-    SumHVNAr2 = zeros(Float64, 9, 4, 4, 4, 4)
-    SumHVNA3 = zeros(Float64, 9, 4, 4, 4, 4)
-    SumHVNAr3 = zeros(Float64, 9, 4, 4, 4, 4)
-
-
     fsize = maximum(Total_NumOrbs)
     VNA2iαjβ = zeros(ComplexF64, fsize, fsize)
     VNA2riαjβ = zeros(ComplexF64, fsize, fsize)
@@ -542,6 +684,31 @@ function Set_HVNA2_3!(HVNA2, HVNA2force, HVNA3force, pao::Vector{PAO}, pspot::Ve
 
     f = zeros(Float64, S3J_MAX_FACT)
     _Set_f_for_Gaunt!(f)
+    hvna_couplings = Vector{Vector{_HVNACoupling}}(undef, Nspecies)
+    for spe = 1:Nspecies
+        entries = _HVNACoupling[]
+        max_basis_l = pao[spe].Spe_MaxL_Basis
+        num_basis = pao[spe].Spe_Num_Basis
+        row = 0
+        for l = 0:max_basis_l, p = 1:num_basis[l+1], m = -l:l
+            row += 1
+            column = 0
+            for ll = 0:max_basis_l, pp = 1:num_basis[ll+1], mm = -ll:ll
+                column += 1
+                if l <= ll
+                    for L = 0:2*ll, M = -L:L
+                        if abs(ll-L) <= l <= ll+L && iszero(m-mm+M)
+                            coefficient = (-1.0)^abs(M)*Gaunt(f,l,m,ll,mm,L,-M)
+                            push!(entries, _HVNACoupling(row, column, L, M,
+                                                        pp, ll, p, l,
+                                                        coefficient))
+                        end
+                    end
+                end
+            end
+        end
+        hvna_couplings[spe] = entries
+    end
 
     fact2 = zeros(Float64, (2*Lmax_Four_Int+1)^2+1, (2*Lmax_Four_Int+1)^2+1)
     Set_SqrtFactorial_Ratio!(fact2)
@@ -559,14 +726,25 @@ function Set_HVNA2_3!(HVNA2, HVNA2force, HVNA3force, pao::Vector{PAO}, pspot::Ve
     end
     tempL = zeros(Float64, GL_Mesh)
     tmpH = zeros(ComplexF64, fsize)
+    radial_shells = [Vector{_HVNARadialShell}() for _ = 1:Nspecies, _ = 1:Nspecies]
 
 
     SH = zeros(Float64, 2)
     dSHt = zeros(Float64, 2)
     dSHp = zeros(Float64, 2)
+    cached_lmax = 2*Lmax_Four_Int
+    cached_msize = 2*cached_lmax + 1
+    Ylm2_cache = zeros(ComplexF64, cached_lmax + 1, cached_msize)
+    dYt2_cache = similar(Ylm2_cache)
+    dYp2_cache = similar(Ylm2_cache)
+    Ylm3_cache = similar(Ylm2_cache)
+    dYt3_cache = similar(Ylm2_cache)
+    dYp3_cache = similar(Ylm2_cache)
 
 
 
+    hst2 = 0
+    hst3 = 0
 
     for loop = 1:MPI_size
 
@@ -606,41 +784,66 @@ function Set_HVNA2_3!(HVNA2, HVNA2force, HVNA3force, pao::Vector{PAO}, pspot::Ve
         
 
         Lmax_Four_Int = 2*max(MaxL_Basis2, MaxL_Basis3)
-        for ik = 1:GL_Mesh
-            Calc_SphericalBesselj2!(Lmax_Four_Int, R*k1[ik], tsb, SphB_l, dSphB_l)
-            for l = 1:Lmax_Four_Int+1
-                SphB[l][ik] = SphB_l[l]
-                dSphB[l][ik] = dSphB_l[l]*k1[ik]
-            end
+        @inbounds for L = 0:Lmax_Four_Int, M = -L:L
+            indx0 = L-abs(M)+1
+            indx1 = L+abs(M)+1
+            mindex = M + cached_lmax + 1
+            Ylm_complex!(L,M,fact2[indx0,indx1],theta2,phi2,SH,dSHt,dSHp)
+            Ylm2_cache[L+1,mindex] = ComplexF64(SH[1], SH[2])
+            dYt2_cache[L+1,mindex] = ComplexF64(dSHt[1], dSHt[2])
+            dYp2_cache[L+1,mindex] = ComplexF64(dSHp[1], dSHp[2])
+            Ylm_complex!(L,M,fact2[indx0,indx1],theta3,phi3,SH,dSHt,dSHp)
+            Ylm3_cache[L+1,mindex] = ComplexF64(SH[1], SH[2])
+            dYt3_cache[L+1,mindex] = ComplexF64(dSHt[1], dSHt[2])
+            dYp3_cache[L+1,mindex] = ComplexF64(dSHp[1], dSHp[2])
         end
+        shells = radial_shells[ispe, jspe]
+        shell_index = _radial_shell_index(shells, R)
+        if iszero(shell_index)
+            SumHVNA2 = zeros(Float64, 9, 4, 4, 4, 4)
+            SumHVNAr2 = zeros(Float64, 9, 4, 4, 4, 4)
+            SumHVNA3 = zeros(Float64, 9, 4, 4, 4, 4)
+            SumHVNAr3 = zeros(Float64, 9, 4, 4, 4, 4)
+            for ik = 1:GL_Mesh
+                Calc_SphericalBesselj2!(Lmax_Four_Int, R*k1[ik], tsb,
+                                        SphB_l, dSphB_l)
+                @inbounds for l = 1:Lmax_Four_Int+1
+                    SphB[l][ik] = SphB_l[l]
+                    dSphB[l][ik] = dSphB_l[l]*k1[ik]
+                end
+            end
 
-            
-        for l = 0:MaxL_Basis2, p = 1:Num_Basis2[l+1], ll = 0:MaxL_Basis2, pp = 1:Num_Basis2[ll+1]
-            if l <= ll
-                Lmax_Four_Int = 2*ll
-                for L = 0:Lmax_Four_Int
-                    if abs(ll-L) <= l <= ll+L
-                        @. tempL = Spe_ProductRF_Bessel[ispe][l+1][p][ll+1][pp][L+1]*Spe_CrudeVNA_Bessel[jspe]
-                        @views SumHVNA2[L+1,pp,ll+1,p,l+1] = dot(SphB[L+1], tempL)
-                        @views SumHVNAr2[L+1,pp,ll+1,p,l+1] = dot(dSphB[L+1], tempL)
+            for l = 0:MaxL_Basis2, p = 1:Num_Basis2[l+1], ll = 0:MaxL_Basis2, pp = 1:Num_Basis2[ll+1]
+                if l <= ll
+                    for L = 0:2*ll
+                        if abs(ll-L) <= l <= ll+L
+                            @. tempL = Spe_ProductRF_Bessel[ispe][l+1][p][ll+1][pp][L+1]*Spe_CrudeVNA_Bessel[jspe]
+                            SumHVNA2[L+1,pp,ll+1,p,l+1] = dot(SphB[L+1], tempL)
+                            SumHVNAr2[L+1,pp,ll+1,p,l+1] = dot(dSphB[L+1], tempL)
+                        end
                     end
                 end
             end
-        end
 
-
-        for l = 0:MaxL_Basis3, p = 1:Num_Basis3[l+1], ll = 0:MaxL_Basis3, pp = 1:Num_Basis3[ll+1]
-            if l <= ll
-                Lmax_Four_Int = 2*ll
-                for L = 0:Lmax_Four_Int
-                    if abs(ll-L) <= l <= ll+L
-                        @. tempL = Spe_ProductRF_Bessel[jspe][l+1][p][ll+1][pp][L+1]*Spe_CrudeVNA_Bessel[ispe]
-                        @views SumHVNA3[L+1,pp,ll+1,p,l+1] = dot(SphB[L+1], tempL)
-                        @views SumHVNAr3[L+1,pp,ll+1,p,l+1] = dot(dSphB[L+1], tempL)
+            for l = 0:MaxL_Basis3, p = 1:Num_Basis3[l+1], ll = 0:MaxL_Basis3, pp = 1:Num_Basis3[ll+1]
+                if l <= ll
+                    for L = 0:2*ll
+                        if abs(ll-L) <= l <= ll+L
+                            @. tempL = Spe_ProductRF_Bessel[jspe][l+1][p][ll+1][pp][L+1]*Spe_CrudeVNA_Bessel[ispe]
+                            SumHVNA3[L+1,pp,ll+1,p,l+1] = dot(SphB[L+1], tempL)
+                            SumHVNAr3[L+1,pp,ll+1,p,l+1] = dot(dSphB[L+1], tempL)
+                        end
                     end
                 end
             end
+            push!(shells, _HVNARadialShell(R, SumHVNA2, SumHVNAr2, SumHVNA3, SumHVNAr3))
+            shell_index = length(shells)
         end
+        radial_shell = shells[shell_index]
+        SumHVNA2 = radial_shell.values2
+        SumHVNAr2 = radial_shell.derivatives2
+        SumHVNA3 = radial_shell.values3
+        SumHVNAr3 = radial_shell.derivatives3
 
         fill!(VNA2iαjβ, 0.0)
         fill!(VNA2riαjβ, 0.0)
@@ -651,74 +854,45 @@ function Set_HVNA2_3!(HVNA2, HVNA2force, HVNA3force, pao::Vector{PAO}, pspot::Ve
         fill!(VNA3piαjβ, 0.0)
 
 
-        ist = 0
-        for l = 0:MaxL_Basis2, p = 1:Num_Basis2[l+1], m = -l:l
-            jst = 0
-            ist += 1
-            for ll = 0:MaxL_Basis2, pp = 1:Num_Basis2[ll+1], mm = -ll:ll
-                jst += 1
-                if l <= ll
-                    Lmax_Four_Int = 2*ll
-                    for L = 0:Lmax_Four_Int, M = -L:L
-                        if abs(ll-L) <= l <= ll+L && iszero(m-mm+M)
-                                
-                            gaunt = (-1.0)^abs(M)*Gaunt(f,l,m,ll,mm,L,-M)
-
-                            indx0 = L-abs(M)+1
-                            indx1 = L+abs(M)+1
-                            Ylm_complex!(L,M,fact2[indx0,indx1],theta2,phi2,SH,dSHt,dSHp)
-                            Ylm = ComplexF64(SH[1], SH[2])
-                            dYlmdtheta = ComplexF64(dSHt[1], dSHt[2])
-                            dYlmdphi = ComplexF64(dSHp[1], dSHp[2])
-                                
-                            YC = Ylm * gaunt
-                            YCt = dYlmdtheta * gaunt
-                            YCp = dYlmdphi * gaunt
-
-                            VNA2iαjβ[ist,jst] += YC*SumHVNA2[L+1,pp,ll+1,p,l+1]
-                            VNA2riαjβ[ist,jst] += YC*SumHVNAr2[L+1,pp,ll+1,p,l+1]
-                            VNA2tiαjβ[ist,jst] += YCt*SumHVNA2[L+1,pp,ll+1,p,l+1]
-                            VNA2piαjβ[ist,jst] += YCp*SumHVNA2[L+1,pp,ll+1,p,l+1]
-                        end
-                    end
-                end
-            end
+        @inbounds for coupling in hvna_couplings[ispe]
+            ist = Int(coupling.row)
+            jst = Int(coupling.column)
+            L = Int(coupling.fourier_l)
+            M = Int(coupling.fourier_m)
+            pp = Int(coupling.pp)
+            ll = Int(coupling.ll)
+            p = Int(coupling.p)
+            l = Int(coupling.l)
+            mindex = M + cached_lmax + 1
+            gaunt = coupling.coefficient
+            YC = Ylm2_cache[L+1,mindex] * gaunt
+            YCt = dYt2_cache[L+1,mindex] * gaunt
+            YCp = dYp2_cache[L+1,mindex] * gaunt
+            radial = SumHVNA2[L+1,pp,ll+1,p,l+1]
+            VNA2iαjβ[ist,jst] += YC*radial
+            VNA2riαjβ[ist,jst] += YC*SumHVNAr2[L+1,pp,ll+1,p,l+1]
+            VNA2tiαjβ[ist,jst] += YCt*radial
+            VNA2piαjβ[ist,jst] += YCp*radial
         end
 
-
-
-        ist = 0
-        for l = 0:MaxL_Basis3, p = 1:Num_Basis3[l+1], m = -l:l
-            jst = 0
-            ist += 1
-            for ll = 0:MaxL_Basis3, pp = 1:Num_Basis3[ll+1], mm = -ll:ll
-                jst += 1
-                if l <= ll
-                    Lmax_Four_Int = 2*ll
-                    for L = 0:Lmax_Four_Int, M = -L:L
-                        if abs(ll-L) <= l <= ll+L && iszero(m-mm+M)
-                                
-                            gaunt = (-1.0)^abs(M)*Gaunt(f,l,m,ll,mm,L,-M)
-
-                            indx0 = L-abs(M)+1
-                            indx1 = L+abs(M)+1
-                            Ylm_complex!(L,M,fact2[indx0,indx1],theta3,phi3,SH,dSHt,dSHp)
-                                
-                            Ylm = ComplexF64(SH[1], SH[2])
-                            dYlmdtheta = ComplexF64(dSHt[1], dSHt[2])
-                            dYlmdphi = ComplexF64(dSHp[1], dSHp[2])
-                                
-                            YC = Ylm * gaunt
-                            YCt = dYlmdtheta * gaunt
-                            YCp = dYlmdphi * gaunt
-
-                            VNA3riαjβ[ist,jst] += YC*SumHVNAr3[L+1,pp,ll+1,p,l+1]
-                            VNA3tiαjβ[ist,jst] += YCt*SumHVNA3[L+1,pp,ll+1,p,l+1]
-                            VNA3piαjβ[ist,jst] += YCp*SumHVNA3[L+1,pp,ll+1,p,l+1]
-                        end
-                    end
-                end
-            end
+        @inbounds for coupling in hvna_couplings[jspe]
+            ist = Int(coupling.row)
+            jst = Int(coupling.column)
+            L = Int(coupling.fourier_l)
+            M = Int(coupling.fourier_m)
+            pp = Int(coupling.pp)
+            ll = Int(coupling.ll)
+            p = Int(coupling.p)
+            l = Int(coupling.l)
+            mindex = M + cached_lmax + 1
+            gaunt = coupling.coefficient
+            YCt = dYt3_cache[L+1,mindex] * gaunt
+            YCp = dYp3_cache[L+1,mindex] * gaunt
+            VNA3riαjβ[ist,jst] += Ylm3_cache[L+1,mindex]*gaunt*
+                                     SumHVNAr3[L+1,pp,ll+1,p,l+1]
+            radial = SumHVNA3[L+1,pp,ll+1,p,l+1]
+            VNA3tiαjβ[ist,jst] += YCt*radial
+            VNA3piαjβ[ist,jst] += YCp*radial
         end
 
 
@@ -798,75 +972,70 @@ function Set_HVNA2_3!(HVNA2, HVNA2force, HVNA3force, pao::Vector{PAO}, pspot::Ve
 
 
         HVNA20 = HVNA2[atom][Rn]
-        HVNA2force1 = HVNA2force[1][atom][Rn]
-        HVNA2force2 = HVNA2force[2][atom][Rn]
-        HVNA2force3 = HVNA2force[3][atom][Rn]
-        HVNA3force1 = HVNA3force[1][atom][Rn]
-        HVNA3force2 = HVNA3force[2][atom][Rn]
-        HVNA3force3 = HVNA3force[3][atom][Rn]
+        MPI_HVNA2force1 = MPI_HVNA2force[1]
+        MPI_HVNA2force2 = MPI_HVNA2force[2]
+        MPI_HVNA2force3 = MPI_HVNA2force[3]
+        MPI_HVNA3force1 = MPI_HVNA3force[1]
+        MPI_HVNA3force2 = MPI_HVNA3force[2]
+        MPI_HVNA3force3 = MPI_HVNA3force[3]
 
 
         @inbounds for ist = 1:NO2, jst = 1:NO2
-            HVNA20[ist][jst] = 8*real(VNA2iαjβ[ist,jst])
+            HVNA20[jst,ist] = 8*real(VNA2iαjβ[ist,jst])
         end
 
 
 		if Rn ≠ 1
             if abs(siT2) < 1.0e-13
                 @inbounds for ist = 1:NO2, jst = 1:NO2
-                    HVNA2force1[ist][jst] = -8*real(siT2*coP2*VNA2riαjβ[ist,jst] + coT2*coP2/R*VNA2tiαjβ[ist,jst])
-                    HVNA2force2[ist][jst] = -8*real(siT2*siP2*VNA2riαjβ[ist,jst] + coT2*siP2/R*VNA2tiαjβ[ist,jst])
-                    HVNA2force3[ist][jst] = -8*real(coT2*VNA2riαjβ[ist,jst] - siT2/R*VNA2tiαjβ[ist,jst])
+                    hst2 += 1
+                    MPI_HVNA2force1[hst2] = -8*real(siT2*coP2*VNA2riαjβ[ist,jst] + coT2*coP2/R*VNA2tiαjβ[ist,jst])
+                    MPI_HVNA2force2[hst2] = -8*real(siT2*siP2*VNA2riαjβ[ist,jst] + coT2*siP2/R*VNA2tiαjβ[ist,jst])
+                    MPI_HVNA2force3[hst2] = -8*real(coT2*VNA2riαjβ[ist,jst] - siT2/R*VNA2tiαjβ[ist,jst])
                 end
             else
                 @inbounds for ist = 1:NO2, jst = 1:NO2
-                    HVNA2force1[ist][jst] = -8*real(siT2*coP2*VNA2riαjβ[ist,jst] + coT2*coP2/R*VNA2tiαjβ[ist,jst] - siP2/siT2/R*VNA2piαjβ[ist,jst])
-                    HVNA2force2[ist][jst] = -8*real(siT2*siP2*VNA2riαjβ[ist,jst] + coT2*siP2/R*VNA2tiαjβ[ist,jst] + coP2/siT2/R*VNA2piαjβ[ist,jst])
-                    HVNA2force3[ist][jst] = -8*real(coT2*VNA2riαjβ[ist,jst] - siT2/R*VNA2tiαjβ[ist,jst])
+                    hst2 += 1
+                    MPI_HVNA2force1[hst2] = -8*real(siT2*coP2*VNA2riαjβ[ist,jst] + coT2*coP2/R*VNA2tiαjβ[ist,jst] - siP2/siT2/R*VNA2piαjβ[ist,jst])
+                    MPI_HVNA2force2[hst2] = -8*real(siT2*siP2*VNA2riαjβ[ist,jst] + coT2*siP2/R*VNA2tiαjβ[ist,jst] + coP2/siT2/R*VNA2piαjβ[ist,jst])
+                    MPI_HVNA2force3[hst2] = -8*real(coT2*VNA2riαjβ[ist,jst] - siT2/R*VNA2tiαjβ[ist,jst])
                 end
             end
 
             if abs(siT3) < 1.0e-13
                 @inbounds for ist = 1:NO3, jst = 1:NO3
-                    HVNA3force1[ist][jst] = -8*real(siT3*coP3*VNA3riαjβ[ist,jst] + coT3*coP3/R*VNA3tiαjβ[ist,jst])
-                    HVNA3force2[ist][jst] = -8*real(siT3*siP3*VNA3riαjβ[ist,jst] + coT3*siP3/R*VNA3tiαjβ[ist,jst])
-                    HVNA3force3[ist][jst] = -8*real(coT3*VNA3riαjβ[ist,jst] - siT3/R*VNA3tiαjβ[ist,jst])
+                    hst3 += 1
+                    MPI_HVNA3force1[hst3] = -8*real(siT3*coP3*VNA3riαjβ[ist,jst] + coT3*coP3/R*VNA3tiαjβ[ist,jst])
+                    MPI_HVNA3force2[hst3] = -8*real(siT3*siP3*VNA3riαjβ[ist,jst] + coT3*siP3/R*VNA3tiαjβ[ist,jst])
+                    MPI_HVNA3force3[hst3] = -8*real(coT3*VNA3riαjβ[ist,jst] - siT3/R*VNA3tiαjβ[ist,jst])
                 end
             else
                 @inbounds for ist = 1:NO3, jst = 1:NO3
-                    HVNA3force1[ist][jst] = -8*real(siT3*coP3*VNA3riαjβ[ist,jst] + coT3*coP3/R*VNA3tiαjβ[ist,jst] - siP3/siT3/R*VNA3piαjβ[ist,jst])
-                    HVNA3force2[ist][jst] = -8*real(siT3*siP3*VNA3riαjβ[ist,jst] + coT3*siP3/R*VNA3tiαjβ[ist,jst] + coP3/siT3/R*VNA3piαjβ[ist,jst])
-                    HVNA3force3[ist][jst] = -8*real(coT3*VNA3riαjβ[ist,jst] - siT3/R*VNA3tiαjβ[ist,jst])
+                    hst3 += 1
+                    MPI_HVNA3force1[hst3] = -8*real(siT3*coP3*VNA3riαjβ[ist,jst] + coT3*coP3/R*VNA3tiαjβ[ist,jst] - siP3/siT3/R*VNA3piαjβ[ist,jst])
+                    MPI_HVNA3force2[hst3] = -8*real(siT3*siP3*VNA3riαjβ[ist,jst] + coT3*siP3/R*VNA3tiαjβ[ist,jst] + coP3/siT3/R*VNA3piαjβ[ist,jst])
+                    MPI_HVNA3force3[hst3] = -8*real(coT3*VNA3riαjβ[ist,jst] - siT3/R*VNA3tiαjβ[ist,jst])
                 end
             end
         else
             @inbounds for ist = 1:NO2, jst = 1:NO2
-                HVNA2force1[ist][jst] = 0.0
-                HVNA2force2[ist][jst] = 0.0
-                HVNA2force3[ist][jst] = 0.0
+                hst2 += 1
+                MPI_HVNA2force1[hst2] = 0.0
+                MPI_HVNA2force2[hst2] = 0.0
+                MPI_HVNA2force3[hst2] = 0.0
             end
 
             @inbounds for ist = 1:NO3, jst = 1:NO3
-                HVNA3force1[ist][jst] = 0.0
-                HVNA3force2[ist][jst] = 0.0
-                HVNA3force3[ist][jst] = 0.0
+                hst3 += 1
+                MPI_HVNA3force1[hst3] = 0.0
+                MPI_HVNA3force2[hst3] = 0.0
+                MPI_HVNA3force3[hst3] = 0.0
             end
         end
     end
 
 
-
-
-    @inbounds for atom = 1:Natom, Rn = 1:FNAN[atom]+1, ist = 1:Total_NumOrbs[atom]
-        MPI.Allreduce!(HVNA2[atom][Rn][ist], MPI.SUM, comm)
-        MPI.Allreduce!(HVNA2force[1][atom][Rn][ist], MPI.SUM, comm)
-        MPI.Allreduce!(HVNA2force[2][atom][Rn][ist], MPI.SUM, comm)
-        MPI.Allreduce!(HVNA2force[3][atom][Rn][ist], MPI.SUM, comm)
-    end
-
-    @inbounds for atom = 1:Natom, Rn = 1:FNAN[atom]+1, ist = 1:Total_NumOrbs[natn[atom][Rn]]
-        MPI.Allreduce!(HVNA3force[1][atom][Rn][ist], MPI.SUM, comm)
-        MPI.Allreduce!(HVNA3force[2][atom][Rn][ist], MPI.SUM, comm)
-        MPI.Allreduce!(HVNA3force[3][atom][Rn][ist], MPI.SUM, comm)
+    @inbounds for atom = 1:Natom
+        _packed_allreduce_matrices!(HVNA2[atom], comm)
     end
 end

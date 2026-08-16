@@ -5,11 +5,13 @@
     myrank = MPI.Comm_rank(comm)
 
     material = cwf_setup.material
+    Nspin = material.Nspin
     SpinPol = material.SpinPol
     Latvecs = material.Latvecs
     Natom = material.Natom
     Nspecies = material.Nspecies
     atom2spe = material.atom2spe
+    TCpyCell = material.TCpyCell
     Gxyz = material.Gxyz
     Atoms_pao = material.Atoms_pao
     Total_NumOrbs = material.Total_NumOrbs
@@ -26,7 +28,7 @@
         pao[spe] = Read_PAO(0.0, Spe_symbol[spe], Spe_cutoff[spe], Spe_orb[spe], Spe_extra[spe])
     end
         
-    ucell = UCell(Latvecs, Natom, atom2spe, Gxyz, Atoms_Cut1, Ngrid, Grid_Origin; Total_NumOrbs)
+    ucell = UCell(Nspin, TCpyCell, Latvecs, Natom, atom2spe, Gxyz, Atoms_Cut1, Ngrid, Grid_Origin, Total_NumOrbs)
     Orbs_Grid = Set_Orbitals_Grid(pao, ucell)
 
 

@@ -5,15 +5,13 @@ function Set_dOrbitals_Grid(pao::Vector{PAO}, ucell::UCell)
     Total_NumOrbs = system_grid.Total_NumOrbs
     GridN_Atom = ucell.GridN_Atom
 
-    dOrbs_Grid = Vector{Vector{Vector{Vector{Float64}}}}(undef, 3)
+    dOrbs_Grid = Vector{PackedOrbitalsGrid}(undef, 3)
     for xyz = 1:3
-        dOrbs_Grid[xyz] = Vector{Vector{Vector{Float64}}}(undef, Natom)
+        packed = Vector{Matrix{Float64}}(undef, Natom)
         for atom = 1:Natom
-            dOrbs_Grid[xyz][atom] = Vector{Vector{Float64}}(undef, GridN_Atom[atom])
-            for Nc = 1:GridN_Atom[atom]
-                dOrbs_Grid[xyz][atom][Nc] = zeros(Float64, Total_NumOrbs[atom])
-            end
+            packed[atom] = zeros(Float64, Total_NumOrbs[atom], GridN_Atom[atom])
         end
+        dOrbs_Grid[xyz] = PackedOrbitalsGrid(packed)
     end
     Set_dOrbitals_Grid!(dOrbs_Grid, pao, ucell)
 

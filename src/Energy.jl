@@ -87,10 +87,10 @@ Mandatory arguments:
     atom2spe = system_grid.atom2spe
     GridVol = system_grid.GridVol
     SpinPol = Ham.SpinPol
-    Hkin = Ham.Hkin
-	HVNA = Ham.HVNA
-	HNL = Ham.HNL
-    iHNL = Ham.iHNL
+    MPI_Hkin = Ham.MPI_Hkin
+	MPI_HVNA = Ham.MPI_HVNA
+	MPI_HNL = Ham.MPI_HNL
+    MPI_iHNL = Ham.MPI_iHNL
 
     Core_Charge = zeros(Float64, Natom)
 	for atom = 1:Natom
@@ -99,9 +99,9 @@ Mandatory arguments:
 	end
 
 
-    Enl = Calc_Enl(SpinPol, DM, iDM, HNL, iHNL, system_grid)
-    Ekin = Calc_Ekin(SpinPol, DM, Hkin, system_grid)
-    Ena = Calc_Ena(SpinPol, DM, HVNA, system_grid)
+    Enl = Calc_Enl(SpinPol, DM, iDM, MPI_HNL, MPI_iHNL, system_grid)
+    Ekin = Calc_Ekin(SpinPol, DM, MPI_Hkin, system_grid)
+    Ena = Calc_Ena(SpinPol, DM, MPI_HVNA, system_grid)
     EH0, EH0Force = Calc_EH0(pao, pspot, system_grid)
     EH1 = Calc_EH1(SpinPol, GridVol, ADensity_Grid, Density_Grid, dVHart_Grid)
     Exc, ExcForce = Calc_EXC(SpinPol, pao, pspot, system_grid, ADensity_Grid, PCCDensity_Grid, Density_Grid)
@@ -472,76 +472,144 @@ end
 end
 
 
-@timeit timer "Calc_Ekin" function Calc_Ekin(SpinPol::String, DM, Hkin, system_grid::System_Grid)
+@timeit timer "Calc_Ekin" function Calc_Ekin(SpinPol::String, DM, MPI_Hkin, system_grid::System_Grid)
 
-    Natom = system_grid.Natom
-    FNAN = system_grid.FNAN
-    natn = system_grid.natn
-    Total_NumOrbs = system_grid.Total_NumOrbs
+    comm = MPI.COMM_WORLD
+    nprocs = MPI.Comm_size(comm)
+    myrank = MPI.Comm_rank(comm)
 
-    Ekin = 0.0
-    if SpinPol == "off"
-        Ekin += Sum_DMdotH(DM[1], Hkin, Natom, FNAN, Total_NumOrbs, natn)
-        Ekin = 2*Ekin
-    elseif SpinPol ∈ ("on", "nc")
-        Ekin += Sum_DMdotH(DM[1], Hkin, Natom, FNAN, Total_NumOrbs, natn)
-        Ekin += Sum_DMdotH(DM[2], Hkin, Natom, FNAN, Total_NumOrbs, natn)
-    else
+    if SpinPol ∉ ("off", "on", "nc")
         error("please check SpinPol")
     end
 
+    MPI_Hsize = system_grid.MPI_Hsize
+    MPHks = system_grid.MPHks
+    myHsize = MPI_Hsize[myrank+1]
+    HksNum = MPHks[myrank+1]
+
+    Ekin = 0.0
+    if SpinPol == "off"
+        DM1 = DM[1]
+        for hst = 1:myHsize
+            Ekin += DM1[hst+HksNum]*MPI_Hkin[hst]
+        end
+        Ekin = 2*Ekin
+    elseif SpinPol ∈ ("on", "nc")
+        DM1 = DM[1]
+        DM2 = DM[2]
+        for hst = 1:myHsize
+            Ekin += (DM1[hst+HksNum] + DM2[hst+HksNum])*MPI_Hkin[hst]
+        end
+    end
+    Ekin = MPI.Allreduce(Ekin, MPI.SUM, comm)
 
     return Ekin
 end
 
 
-@timeit timer "Calc_Ena" function Calc_Ena(SpinPol::String, DM, HVNA, system_grid::System_Grid)
-    
-    Natom = system_grid.Natom
-    FNAN = system_grid.FNAN
-    natn = system_grid.natn
-    Total_NumOrbs = system_grid.Total_NumOrbs
+@timeit timer "Calc_Ena" function Calc_Ena(SpinPol::String, DM, MPI_HVNA, system_grid::System_Grid)
 
-    Ena = 0.0
-    if SpinPol == "off"
-        Ena += Sum_DMdotH(DM[1], HVNA, Natom, FNAN, Total_NumOrbs, natn)
-        Ena = 2*Ena
-    elseif SpinPol ∈ ("on", "nc")
-        Ena += Sum_DMdotH(DM[1], HVNA, Natom, FNAN, Total_NumOrbs, natn)
-        Ena += Sum_DMdotH(DM[2], HVNA, Natom, FNAN, Total_NumOrbs, natn)
-    else
+    comm = MPI.COMM_WORLD
+    nprocs = MPI.Comm_size(comm)
+    myrank = MPI.Comm_rank(comm)
+
+    if SpinPol ∉ ("off", "on", "nc")
         error("please check SpinPol")
     end
 
+    MPI_Hsize = system_grid.MPI_Hsize
+    MPHks = system_grid.MPHks
+    myHsize = MPI_Hsize[myrank+1]
+    HksNum = MPHks[myrank+1]
+
+    Ena = 0.0
+    if SpinPol == "off"
+        DM1 = DM[1]
+        for hst = 1:myHsize
+            Ena += DM1[hst+HksNum]*MPI_HVNA[hst]
+        end
+        Ena = 2*Ena
+    elseif SpinPol ∈ ("on", "nc")
+        DM1 = DM[1]
+        DM2 = DM[2]
+        for hst = 1:myHsize
+            Ena += (DM1[hst+HksNum] + DM2[hst+HksNum])*MPI_HVNA[hst]
+        end
+    end
+    Ena = MPI.Allreduce(Ena, MPI.SUM, comm)
 
     return Ena
 end
 
 
-@timeit timer "Calc_Enl" function Calc_Enl(SpinPol::String, DM, iDM, HNL, iHNL, system_grid::System_Grid)
-       
-    Natom = system_grid.Natom
-    FNAN = system_grid.FNAN
-    natn = system_grid.natn
-    Total_NumOrbs = system_grid.Total_NumOrbs
+@timeit timer "Calc_Enl" function Calc_Enl(SpinPol::String, DM, iDM, MPI_HNL, MPI_iHNL, system_grid::System_Grid)
 
-    Enl = 0.0
-    if SpinPol == "off"
-        Enl += Sum_DMdotH(DM[1], HNL[1], Natom, FNAN, Total_NumOrbs, natn)
-        Enl = 2*Enl
-    elseif SpinPol == "on"
-        Enl += Sum_DMdotH(DM[1], HNL[1], Natom, FNAN, Total_NumOrbs, natn)
-        Enl += Sum_DMdotH(DM[2], HNL[1], Natom, FNAN, Total_NumOrbs, natn)
-    elseif SpinPol == "nc"
-        Enl +=   Sum_DMdotH( DM[1], HNL[1], Natom, FNAN, Total_NumOrbs, natn)
-        Enl -=   Sum_DMdotH(iDM[1],iHNL[1], Natom, FNAN, Total_NumOrbs, natn)
-        Enl +=   Sum_DMdotH( DM[2], HNL[2], Natom, FNAN, Total_NumOrbs, natn)
-        Enl -=   Sum_DMdotH(iDM[2],iHNL[2], Natom, FNAN, Total_NumOrbs, natn)
-        Enl += 2*Sum_DMdotH( DM[3], HNL[3], Natom, FNAN, Total_NumOrbs, natn)
-        Enl -= 2*Sum_DMdotH( DM[4],iHNL[3], Natom, FNAN, Total_NumOrbs, natn)
-    else
+    comm = MPI.COMM_WORLD
+    nprocs = MPI.Comm_size(comm)
+    myrank = MPI.Comm_rank(comm)
+
+    if SpinPol ∉ ("off", "on", "nc")
         error("please check SpinPol")
     end
+
+    MPI_size = system_grid.MPI_size
+    MPI_atom = system_grid.MPI_atom
+    MPI_FNAN = system_grid.MPI_FNAN
+    MPI_natn = system_grid.MPI_natn
+    Total_NumOrbs = system_grid.Total_NumOrbs
+    MPI_Hsize = system_grid.MPI_Hsize
+    MPHks = system_grid.MPHks
+    myHsize = MPI_Hsize[myrank+1]
+    HksNum = MPHks[myrank+1]
+    
+    Enl = 0.0
+    if SpinPol == "off"
+        DM1 = DM[1]
+        MPI_HNL1 = MPI_HNL[1]
+        for hst = 1:myHsize
+            Enl += DM1[hst+HksNum]*MPI_HNL1[hst]
+        end
+        Enl = 2*Enl
+    elseif SpinPol == "on"
+        DM1 = DM[1]
+        DM2 = DM[2]
+        MPI_HNL1 = MPI_HNL[1]
+        for hst = 1:myHsize
+            Enl += (DM1[hst+HksNum] + DM2[hst+HksNum])*MPI_HNL1[hst]
+        end
+    elseif SpinPol == "nc"
+        DM1 = DM[1]
+        DM2 = DM[2]
+        DM3 = DM[3]
+        DM4 = DM[4]
+        iDM1 = iDM[1]
+        iDM2 = iDM[2]
+        MPI_HNL1 = MPI_HNL[1]
+        MPI_HNL2 = MPI_HNL[2]
+        MPI_HNL3 = MPI_HNL[3]
+        MPI_iHNL1 = MPI_iHNL[1]
+        MPI_iHNL2 = MPI_iHNL[2]
+        MPI_iHNL3 = MPI_iHNL[3]
+
+        hst = 0
+        for loop = 1:MPI_size
+            atom = MPI_atom[loop]
+            Rn = MPI_FNAN[loop]
+            jatom = MPI_natn[loop]
+            NO0 = Total_NumOrbs[atom]
+            NO1 = Total_NumOrbs[jatom]
+            @inbounds for ist = 1:NO0, jst = 1:NO1
+                hst += 1
+                Enl +=  DM1[hst+HksNum]*MPI_HNL1[hst]
+                Enl -= iDM1[atom][Rn][ist][jst]*MPI_iHNL1[hst]
+                Enl +=  DM2[hst+HksNum]*MPI_HNL2[hst]
+                Enl -= iDM2[atom][Rn][ist][jst]*MPI_iHNL2[hst]
+                Enl += 2*DM3[hst+HksNum]*MPI_HNL3[hst]
+                Enl -= 2*DM4[hst+HksNum]*MPI_iHNL3[hst]
+            end
+        end
+    end
+    Enl = MPI.Allreduce(Enl, MPI.SUM, comm)
     
 
     return Enl
@@ -645,7 +713,7 @@ function Calc_EXC2(pao::Vector{PAO}, pspot::Vector{Pspot}, system_grid::System_G
     natn = system_grid.natn
     ncn = system_grid.ncn
     FNAN = system_grid.FNAN
-    Atom_Cut1 = system_grid.Atom_Cut1
+    Atoms_Cut1 = system_grid.Atoms_Cut1
     Nspecies = length(pao)
 
 
@@ -688,7 +756,7 @@ function Calc_EXC2(pao::Vector{PAO}, pspot::Vector{Pspot}, system_grid::System_G
         fill!(sum_ry, 0.0)
         fill!(sum_rz, 0.0)
 
-        Rcut = Atom_Cut1[atom]
+        Rcut = Atoms_Cut1[atom]
         Sumr = 0.0
         
         for loop = 1:MPI_size
@@ -712,7 +780,7 @@ function Calc_EXC2(pao::Vector{PAO}, pspot::Vector{Pspot}, system_grid::System_G
                     jatom = natn[atom][Rn]
                     cell = ncn[atom][Rn]+1
                     jspe = atom2spe[jatom]
-                    r2cut = Atom_Cut1[jatom]^2
+                    r2cut = Atoms_Cut1[jatom]^2
                     
                     Spe_Num_Mesh_PAO = pao[jspe].Spe_Num_Mesh_PAO
                     Spe_PAO_XV = pao[jspe].Spe_PAO_XV

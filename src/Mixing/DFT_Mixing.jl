@@ -17,7 +17,12 @@ mutable struct RMM_DIISH_Mixing <: Ham_Mixing
     FNAN::Vector{Int32}
     natn::Vector{Vector{Int32}}
     Total_NumOrbs::Vector{Int32}
+    MPI_size::Int32
+    MPI_atom::Vector{Int32}
+    MPI_natn::Vector{Int32}
     Total_Hsize::Int32
+    MPI_Hsize::Vector{Int32}
+    MPHks::Vector{Int32}
     ChemP::Float64
     NormRD::Vector{Float64}
     HisEele::Vector{Float64}
@@ -41,6 +46,9 @@ Mandatory arguments:
 """
 function DFT_Mixing(Nspin, dft_options::DFT_Options, system_grid::System_Grid)
     
+    comm = MPI.COMM_WORLD
+    myrank = MPI.Comm_rank(comm)
+
     SCF_max = dft_options.SCF_max
     Mixing_method = dft_options.Mixing_method
     Num_Mixing_Pulay = dft_options.Num_Mixing_Pulay
@@ -50,9 +58,14 @@ function DFT_Mixing(Nspin, dft_options::DFT_Options, system_grid::System_Grid)
     FNAN = system_grid.FNAN
     natn = system_grid.natn
     Total_NumOrbs = system_grid.Total_NumOrbs
+    MPI_size = system_grid.MPI_size
+    MPI_atom = system_grid.MPI_atom
+    MPI_natn = system_grid.MPI_natn
     Ngrid = system_grid.Ngrid
     Total_Hsize = system_grid.Total_Hsize
-
+    MPI_Hsize = system_grid.MPI_Hsize
+    myHsize = MPI_Hsize[myrank+1]
+    MPHks = system_grid.MPHks
 
 
     NormRD = zeros(Float64, SCF_max+2)
@@ -71,22 +84,18 @@ function DFT_Mixing(Nspin, dft_options::DFT_Options, system_grid::System_Grid)
         HisH = Vector{Array{Float64,2}}(undef, Num_Mixing_Pulay+1)
         ResH = Vector{Array{Float64,2}}(undef, Num_Mixing_Pulay+1)
         for his = 1:Num_Mixing_Pulay+1
-            HisH[his] = zeros(Float64, Total_Hsize, Nspin)
-            ResH[his] = zeros(Float64, Total_Hsize, Nspin)
+            HisH[his] = zeros(Float64, myHsize, Nspin)
+            ResH[his] = zeros(Float64, myHsize, Nspin)
         end
 
         return RMM_DIISH_Mixing(Mixing_method, SCF_max, false, 0, Latvecs, 2*pi*inv(Latvecs'),
-                                Natom, Nspin, FNAN, natn, Total_NumOrbs, Total_Hsize,
-                                0.0,
-                                NormRD, HisEele, 
-                                Density_xyz, 
-                                HisH, ResH,
-                                Ngrid)
+                                Natom, Nspin, FNAN, natn, Total_NumOrbs, MPI_size, MPI_atom, MPI_natn, Total_Hsize, MPI_Hsize, MPHks,
+                                0.0, NormRD, HisEele, Density_xyz,  HisH, ResH, Ngrid)
     end
 end
 
 
-function update_NormRD!( Norm, dft_mixing::Mixing )
+function update_NormRD!(Norm, dft_mixing::Mixing)
     
     SCF_max = dft_mixing.SCF_max
     for i = SCF_max:-1:2

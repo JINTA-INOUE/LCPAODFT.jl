@@ -4,6 +4,7 @@ abstract type CrystalBloch <: AbstractBloch end
 
 
 mutable struct Cluster_Electron <: ClusterBloch
+    cal_mode::Int32
     system::String
     SpinPol::String
     Spindeg::Int32
@@ -23,6 +24,7 @@ end
 
 
 mutable struct Crystal_Electron <: CrystalBloch
+    cal_mode::Int32
     system::String
     SpinPol::String
     Spindeg::Int32
@@ -58,7 +60,7 @@ Mandatory arguments:
 - `fsize`: the number of total Orbitals in unit cell
 - `system`: system name (`Cluster`, `Crystal`)
 """
-function Electron(kpoints::KPoints, SpinPol::String, E_Temp, Core_Charge, fsize::Integer, system::String)
+function Electron(kpoints::KPoints, cal_mode, SpinPol::String, E_Temp, Core_Charge, fsize, system::String)
 
     TotalZ = sum(Core_Charge)
 
@@ -83,16 +85,18 @@ function Electron(kpoints::KPoints, SpinPol::String, E_Temp, Core_Charge, fsize:
     end
 
 
+    Cnk_fsize = ifelse(cal_mode==1, Nfsize, 1)
+
     if system == "Cluster"
 
         FF = zeros(Float64, Nfsize, spinsize)
         Enk = zeros(Float64, Nfsize, spinsize)
         Cnk = Vector{Matrix{ComplexF64}}(undef, spinsize)
         for spin = 1:spinsize
-            Cnk[spin] = zeros(ComplexF64, Nfsize, Nfsize)
+            Cnk[spin] = zeros(ComplexF64, Cnk_fsize, Cnk_fsize)
         end
-        
-        return Cluster_Electron(system, SpinPol, Spindeg, 
+
+        return Cluster_Electron(cal_mode, system, SpinPol, Spindeg, 
                                 spinsize, fsize, Nfsize,
                                 E_Temp, Core_Charge, TotalZ, Nocc, 0.0, 0.0, 
                                 FF, Enk, Cnk)
@@ -107,11 +111,12 @@ function Electron(kpoints::KPoints, SpinPol::String, E_Temp, Core_Charge, fsize:
         for spin = 1:spinsize
             Cnk[spin] = Vector{Matrix{ComplexF64}}(undef, MPI_Nkpt)
             for ik = 1:MPI_Nkpt
-                Cnk[spin][ik] = zeros(ComplexF64, Nfsize, Nfsize)
+                Cnk[spin][ik] = zeros(ComplexF64, Cnk_fsize, Cnk_fsize)
             end
         end
-        
-        return Crystal_Electron(system, SpinPol, Spindeg, 
+
+
+        return Crystal_Electron(cal_mode, system, SpinPol, Spindeg, 
                                 spinsize, fsize, Nfsize, Nkpt, MPI_Nkpt,
                                 E_Temp, Core_Charge, TotalZ, Nocc, 0.0, 0.0, 
                                 FF, Enk, Cnk)
