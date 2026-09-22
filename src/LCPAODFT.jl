@@ -621,6 +621,7 @@ include("utils/sending_mail.jl")
                               cal_force, Ecut, SCF_max, xc_type, kmesh=DFT_kmesh, filename=scf_filename, fileout, verbosity)
         DFT(dft_setup)
 
+        #=
         println("Precompile Band_kpath ...")
         Band_kpath(filepath, kpath, kname)
         UnfoldBand_kpath(filepath, kpath, kname)
@@ -638,7 +639,7 @@ include("utils/sending_mail.jl")
         
         println("Precompile Boltz ...")
         boltz_setup = Boltz_Setup(Boltz_filepath, Boltz_kmesh, TDF_Erange, Temp; decomp)
-        Calc_Boltz(boltz_setup)
+        Calc_Boltz(boltz_setup)=#
     end
 end
 
