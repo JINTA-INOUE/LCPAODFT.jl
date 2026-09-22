@@ -271,3 +271,94 @@ function _boltz_report_distributed_memory(plan::BoltzHaloPlan, Nkpt, arrays...)
     end
     return nothing
 end
+
+
+"""A bounded group of tetrahedron cells and its unique vertex k points."""
+struct BoltzCellBlock
+    cell_range::UnitRange{Int}
+    global_kpoints::Vector{Int}
+    vertex_positions::Matrix{Int}
+end
+
+
+"""Build the next cell block without exceeding `max_vertices`."""
+function _boltz_next_cell_block(first_cell::Integer, last_cell::Integer,
+                                kmesh, max_vertices::Integer)
+    first = Int(first_cell)
+    last = Int(last_cell)
+    first <= last || error("cannot build an empty Boltz cell block")
+    max_vertices >= 8 || error("a Boltz cell block needs at least 8 vertices")
+
+    position_by_kpoint = Dict{Int,Int}()
+    global_kpoints = Int[]
+    vertex_columns = NTuple{8,Int}[]
+    cell_vertices = Vector{Int}(undef, 8)
+    next_cell = first
+
+    while next_cell <= last
+        _boltz_cell_vertices!(cell_vertices, next_cell, kmesh)
+        new_vertices = 0
+        @inbounds for global_k in cell_vertices
+            new_vertices += haskey(position_by_kpoint, global_k) ? 0 : 1
+        end
+        if !isempty(vertex_columns) &&
+           length(global_kpoints) + new_vertices > max_vertices
+            break
+        end
+
+        positions = ntuple(Val(8)) do vertex
+            global_k = cell_vertices[vertex]
+            position = get(position_by_kpoint, global_k, 0)
+            if position == 0
+                push!(global_kpoints, global_k)
+                position = length(global_kpoints)
+                position_by_kpoint[global_k] = position
+            end
+            position
+        end
+        push!(vertex_columns, positions)
+        next_cell += 1
+    end
+
+    ncells = length(vertex_columns)
+    vertex_positions = Matrix{Int}(undef, 8, ncells)
+    @inbounds for cell = 1:ncells, vertex = 1:8
+        vertex_positions[vertex, cell] = vertex_columns[cell][vertex]
+    end
+    return BoltzCellBlock(first:(next_cell - 1), global_kpoints,
+                          vertex_positions), next_cell
+end
+
+
+"""Return fractional coordinates for arbitrary regular-grid k-point IDs."""
+function _boltz_kpoint_coordinates(global_kpoints, kmesh)
+    kmesh1, kmesh2, kmesh3 = Int.(kmesh)
+    coordinates = Vector{NTuple{3,Float64}}(undef, length(global_kpoints))
+    for (position, global_k) in enumerate(global_kpoints)
+        i, j, k = _boltz_kindices(global_k, kmesh2, kmesh3)
+        coordinates[position] = (
+            (i - 1) / kmesh1,
+            (j - 1) / kmesh2,
+            (k - 1) / kmesh3,
+        )
+    end
+    return coordinates
+end
+
+
+"""Choose a conservative vertex cap for the configured block memory."""
+function _boltz_max_block_vertices(boltz_setup::Boltz_Setup)
+    material = boltz_setup.material
+    Nwann = Int(material.Ngsize)
+    spinsize = material.SpinPol == "on" ? 2 : 1
+    bytes_per_vertex = spinsize * (32 * Nwann +
+        (boltz_setup.decomp ? 4 * Nwann * Nwann : 0))
+    budget_bytes = boltz_setup.kblock_memory_mb * 2^20
+    minimum_bytes = 8 * bytes_per_vertex
+    minimum_bytes <= budget_bytes || error(
+        "kblock_memory_mb=$(boltz_setup.kblock_memory_mb) is too small; " *
+        "one tetrahedron cell needs at least " *
+        "$(ceil(Int, minimum_bytes / 2.0^20)) MiB of k-resolved payload",
+    )
+    return max(8, budget_bytes ÷ bytes_per_vertex)
+end

@@ -10,6 +10,7 @@ using StaticArrays
 using JSON
 using SMTPClient
 using Printf
+using FortranFiles
 using Dates
 using MPI
 using PrecompileTools
@@ -52,8 +53,8 @@ export Radial_kmin
 
 
 # For Set_Density_Grid, Set_Hamiltonian
-const density_block_size = 64
-const ham_block_size = 64
+const density_block_size = 512
+const ham_block_size = 512
 
 
 # For VNA
@@ -425,6 +426,9 @@ export DFT
 # For Cube
 include("postprocess/Cube/Print_Density.jl")
 include("postprocess/Cube/Calc_psi.jl")
+# include("postprocess/Cube/Generate_HWF.jl")
+include("postprocess/Cube/Calc_Spread_HWF.jl")
+include("postprocess/Cube/Generate_HWF_slab.jl")
 include("postprocess/Cube/Print_psi.jl")
 include("postprocess/Cube/Print_CubeData.jl")
 include("postprocess/Cube/Print_Cube.jl")
@@ -462,6 +466,30 @@ export Generate_CWF
 export Set_CWF_Grid
 export Write_HmnR_vs_R
 export CWF_model
+export Calc_WannierCenter
+
+
+# For Maximally localized Wannier functions
+include("postprocess/MLWF/MLWF_Setup.jl")
+include("postprocess/MLWF/MLWF_model.jl")
+include("postprocess/MLWF/Load_MLWF_model.jl")
+include("postprocess/MLWF/Read_chk.jl")
+include("postprocess/MLWF/Read_MLWF_Files.jl")
+include("postprocess/MLWF/Set_Outer_InnerNk.jl")
+include("postprocess/MLWF/Calc_MLWF_Amnk.jl")
+include("postprocess/MLWF/Generate_MLWF_Mmnkb.jl")
+include("postprocess/MLWF/Generate_MLWF_eig.jl")
+include("postprocess/MLWF/Set_MLWF_ExpnCoef.jl")
+include("postprocess/MLWF/Set_MLWF_Grid.jl")
+include("postprocess/MLWF/Generate_MLWF.jl")
+include("postprocess/MLWF/w90_utils.jl")
+include("postprocess/MLWF/chk2MLWF_model.jl")
+include("postprocess/MLWF/w90_tools.jl")
+export MLWF_Setup
+export Generate_MLWF
+export MLWF_model
+export chk2MLWF_model
+export w90_tools
 
 
 # For Hybrid Wannier functions
@@ -476,6 +504,7 @@ include("postprocess/Boltz/Calc_Vnk.jl")
 include("postprocess/Boltz/Calc_EVec.jl")
 include("postprocess/Boltz/Calc_TDF.jl")
 include("postprocess/Boltz/Calc_TDF_decomp.jl")
+include("postprocess/Boltz/Calc_TDF_streaming.jl")
 include("postprocess/Boltz/Calc_Sigma.jl")
 include("postprocess/Boltz/Calc_Sigma_decomp.jl")
 include("postprocess/Boltz/Calc_SigmaS.jl")
@@ -491,9 +520,13 @@ export Calc_Boltz
 
 
 # For Band Dispersion
+include("postprocess/Band/Band_utils.jl")
 include("postprocess/Band/Write_Band.jl")
 include("postprocess/Band/Band_kpath.jl")
+include("postprocess/Band/Write_UnfoldBand.jl")
+include("postprocess/Band/UnfoldBand_kpath.jl")
 export Band_kpath
+export UnfoldBand_kpath
 
 
 # For Density of State
@@ -542,24 +575,23 @@ include("utils/sending_mail.jl")
     scf_filename = "Cdia_precompile"
     fileout = true
     cal_force = true
-    cal_mode = 1
     verbosity = 1
 
 
     # For Band
-    filepath = "$scf_filename.jld2"
+    filepath = joinpath(PACKAGE_ROOT, "$scf_filename.jld2")
     kpath = [[0.5,0.75,0.25], [0.5,0.5,0.5], [0.0,0.0,0.0], [0.5,0.5,0.0], [0.5,0.75,0.25], [0.375,0.75,0.375]]
     kname = ["W", "L", "G", "X", "W", "K"]
 
     # For Dos
-    kmesh = (1,1,1)
-    Erange = [-25.0,0.0]
+    Dos_kmesh = (1,1,1)
+    Dos_Erange = [-25.0,0.0]
     mode = "all"
 
     # For CWF
-    Guide_index = [[1,3,4,5], [1,3,4,5]]
-    Dis_Energy = [-26.0, -25.0, 0.0, 16.0]
-    kmesh = (3,3,3)
+    CWF_Guide_index = [[1,3,4,5], [1,3,4,5]]
+    CWF_Dis_Energy = [-25.0, -25.0, 16.0, 16.0]
+    CWF_kmesh = (3,3,3)
     weight_type = "Poly"
     cwf_filename = "Cdia_AO_Poly"
     CWF_HmnR = true
@@ -568,10 +600,16 @@ include("utils/sending_mail.jl")
     CWF_Plot_Cube = [1]
     CWF_Plot_SuperCells = [1,1,1]
 
+    # For MLWF
+    MLWF_Guide_index = [[1,3,4,5], [1,3,4,5]]
+    MLWF_Dis_Energy = [-25.0, -25.0, 15.0, 15.0]
+    MLWF_kmesh = (3,3,3)
+    mlwf_filename = "Cdia_MLWF"
+
     # For Boltz
     Boltz_filepath = "$cwf_filename.CWF.jld2"
     TDF_Erange = [-25.0, 0.0]      # eV unit
-    kmesh = (1,1,1)
+    Boltz_kmesh = (1,1,1)
     Temp = 300.0
     decomp = false
 
@@ -580,21 +618,26 @@ include("utils/sending_mail.jl")
 
         println("Precompile DFT ...")
         dft_setup = DFT_Setup(Latvecs, Atoms_orb, Atoms_symbol, Atoms_pos, system; 
-                              cal_force, cal_mode, Ecut, SCF_max, xc_type, kmesh=DFT_kmesh, filename=scf_filename, fileout, verbosity)
+                              cal_force, Ecut, SCF_max, xc_type, kmesh=DFT_kmesh, filename=scf_filename, fileout, verbosity)
         DFT(dft_setup)
 
         println("Precompile Band_kpath ...")
         Band_kpath(filepath, kpath, kname)
+        UnfoldBand_kpath(filepath, kpath, kname)
 
         println("Precompile Dos ...")
-        DosMain(filepath, kmesh, Erange; mode)
+        DosMain(filepath, Dos_kmesh, Dos_Erange; mode)
 
         println("Precompile CWF ...")
-        cwf_setup = CWF_Setup(filepath, Guide_index, Dis_Energy; CWF_HmnR, CWF_Wannier, CWF2MLWF, CWF_Plot_Cube, CWF_Plot_SuperCells, filename=cwf_filename, weight_type, Ecut, kmesh)
+        cwf_setup = CWF_Setup(filepath, CWF_Guide_index, CWF_Dis_Energy; CWF_HmnR, CWF_Wannier, CWF2MLWF, CWF_Plot_Cube, CWF_Plot_SuperCells, filename=cwf_filename, weight_type, Ecut, kmesh=CWF_kmesh)
         Generate_CWF(cwf_setup)
+
+        println("Precompile MLWF ...")
+        mlwf_setup = MLWF_Setup(filepath, MLWF_Guide_index, MLWF_Dis_Energy, MLWF_kmesh; filename=mlwf_filename)
+        Generate_MLWF(mlwf_setup)
         
         println("Precompile Boltz ...")
-        boltz_setup = Boltz_Setup(Boltz_filepath, kmesh, TDF_Erange, Temp; decomp)
+        boltz_setup = Boltz_Setup(Boltz_filepath, Boltz_kmesh, TDF_Erange, Temp; decomp)
         Calc_Boltz(boltz_setup)
     end
 end

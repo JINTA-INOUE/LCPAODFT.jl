@@ -22,6 +22,7 @@ struct System_Grid
     MPI_FNAN::Vector{Int32}
     MPI_natn::Vector{Int32}
     MPI_ncn::Vector{Int32}
+    MPI_Hoffset::Vector{Int64}
     Atoms_Cut1::Vector{Float64}
     Total_NumOrbs::Vector{Int32}
     MP::Vector{Int32}
@@ -47,88 +48,310 @@ end
 
 
 
-function _split_weighted_contiguous(weights::AbstractVector{<:Real}, nparts::Integer)
+"""
+Assign atom-pair work to MPI ranks.
+
+Pairs sharing the same two atoms are considered together. Several deterministic
+orders are tried; the partition with the smallest atom-grid memory footprint is
+selected while respecting work and pair-count balance limits.
+"""
+function _split_weighted_vertex_cut(pair_atoms::AbstractVector{<:Integer},
+                                    pair_neighbors::AbstractVector{<:Integer},
+                                    pair_cells::AbstractVector{<:Integer},
+                                    weights::AbstractVector{<:Real},
+                                    atom_memory::AbstractVector{<:Real},
+                                    nparts::Integer;
+                                    max_load_ratio::Real=1.05,
+                                    max_pair_count_ratio::Real=1.40,
+                                    balance_weight::Real=0.05)
     nitems = length(weights)
-    nitems >= nparts || throw(ArgumentError("number of work items must be at least the number of MPI ranks"))
-    cumulative = cumsum(Float64.(weights))
-    total = cumulative[end]
-    ranges = Vector{UnitRange{Int}}(undef, nparts)
-    first_index = 1
-    for rank = 1:nparts-1
-        target = total*rank/nparts
-        boundary = searchsortedfirst(cumulative, target)
-        last_allowed = nitems - (nparts - rank)
-        boundary = clamp(boundary, first_index, last_allowed)
-        if boundary < last_allowed
-            previous_error = boundary == first_index ? Inf : abs(cumulative[boundary-1] - target)
-            current_error = abs(cumulative[boundary] - target)
-            boundary -= previous_error < current_error ? 1 : 0
-            boundary = max(boundary, first_index)
-        end
-        ranges[rank] = first_index:boundary
-        first_index = boundary + 1
+    nitems >= nparts || throw(ArgumentError(
+        "number of work items must be at least the number of MPI ranks"))
+    length(pair_atoms) == nitems == length(pair_neighbors) == length(pair_cells) ||
+        throw(ArgumentError("atom-pair work arrays must have the same length"))
+
+    total_work = sum(Float64, weights)
+    target_work = total_work/nparts
+    load_limit = max_load_ratio*target_work
+    target_pair_count = nitems/nparts
+    pair_count_limit = max(ceil(Int, max_pair_count_ratio*target_pair_count), 1)
+    memory_scale = max(sum(Float64, atom_memory), 1.0)
+
+    # Periodic images and the two directions of the same physical atom pair
+    # form one affinity group.  Records remain individually assignable so a
+    # large group cannot force an excessive load imbalance.
+    groups = Dict{Tuple{Int32,Int32},Vector{Int}}()
+    for item in eachindex(weights)
+        atom = Int32(pair_atoms[item])
+        jatom = Int32(pair_neighbors[item])
+        key = (min(atom, jatom), max(atom, jatom))
+        push!(get!(groups, key, Int[]), item)
     end
-    ranges[end] = first_index:nitems
-    return ranges
+    all_group_keys = collect(keys(groups))
+    group_work = Dict(key => sum(Float64(weights[item]) for item in groups[key])
+                      for key in all_group_keys)
+    for items in values(groups)
+        sort!(items; by=item -> (-Float64(weights[item]),
+                                  pair_atoms[item], pair_neighbors[item],
+                                  pair_cells[item]))
+    end
+
+    function pair_priority(key, trial)
+        value = UInt64(key[1]) | (UInt64(key[2]) << 32)
+        value += UInt64(trial)*0x9e3779b97f4a7c15
+        value = xor(value, value >> 30)*0xbf58476d1ce4e5b9
+        value = xor(value, value >> 27)*0x94d049bb133111eb
+        return xor(value, value >> 31)
+    end
+
+    candidate_orders = Vector{Vector{Tuple{Int32,Int32}}}()
+    for key_function in (
+        key -> (key[1], key[2]),
+        key -> (key[2], key[1]),
+        key -> (key[1] + key[2], key[1], key[2]),
+        key -> (key[2] - key[1], key[1], key[2]),
+        key -> (-group_work[key], key[1], key[2]),
+        key -> (-group_work[key], -key[1], -key[2]),
+    )
+        push!(candidate_orders, sort(copy(all_group_keys); by=key_function))
+    end
+    for trial = 1:8
+        push!(candidate_orders, sort(copy(all_group_keys);
+            by=key -> (-group_work[key], pair_priority(key, trial))))
+    end
+    for trial = 9:32
+        push!(candidate_orders, sort(copy(all_group_keys);
+            by=key -> pair_priority(key, trial)))
+    end
+
+    function partition_for_order(group_keys)
+        buckets = [Int[] for _ = 1:nparts]
+        loads = zeros(Float64, nparts)
+        present = falses(nparts, length(atom_memory))
+
+        for key in group_keys, item in groups[key]
+            atom = Int(pair_atoms[item])
+            jatom = Int(pair_neighbors[item])
+            work = Float64(weights[item])
+
+            feasible = Int[]
+            for rank = 1:nparts
+                if loads[rank] + work <= load_limit + eps(load_limit) &&
+                   length(buckets[rank]) < pair_count_limit
+                    push!(feasible, rank)
+                end
+            end
+            isempty(feasible) && append!(feasible, 1:nparts)
+
+            best_rank = feasible[1]
+            best_score = (Inf, Inf, typemax(Int))
+            for rank in feasible
+                added_memory = present[rank, atom] ? 0.0 : atom_memory[atom]
+                if atom != jatom && !present[rank, jatom]
+                    added_memory += atom_memory[jatom]
+                end
+                projected_load = (loads[rank] + work)/target_work
+                score = (added_memory/memory_scale +
+                         balance_weight*projected_load^2,
+                         projected_load, rank)
+                if score < best_score
+                    best_rank = rank
+                    best_score = score
+                end
+            end
+
+            push!(buckets[best_rank], item)
+            loads[best_rank] += work
+            present[best_rank, atom] = true
+            present[best_rank, jatom] = true
+        end
+
+        # Empty ranks are undesirable even for unusually indivisible
+        # workloads. Moving one light record is sufficient.
+        for empty_rank in findall(isempty, buckets)
+            donor = argmax(length.(buckets))
+            length(buckets[donor]) > 1 || error("unable to give every MPI rank work")
+            donor_weights = [Float64(weights[item]) for item in buckets[donor]]
+            donor_position = argmin(donor_weights)
+            item = splice!(buckets[donor], donor_position)
+            push!(buckets[empty_rank], item)
+            loads[donor] -= Float64(weights[item])
+            loads[empty_rank] += Float64(weights[item])
+        end
+
+        fill!(present, false)
+        for rank = 1:nparts, item in buckets[rank]
+            present[rank, pair_atoms[item]] = true
+            present[rank, pair_neighbors[item]] = true
+        end
+        rank_memory = [sum(atom_memory[atom] for atom in axes(present, 2)
+                           if present[rank, atom]) for rank = 1:nparts]
+        max_load = maximum(loads)/target_work
+        max_pair_count = maximum(length, buckets)/target_pair_count
+        work_overload = max(max_load - max_load_ratio, 0.0)
+        count_overload = max(max_pair_count - max_pair_count_ratio, 0.0)
+        total_overload = work_overload + count_overload
+        partition_score = (total_overload > sqrt(eps(Float64)) ? 1 : 0,
+                           total_overload, sum(rank_memory), maximum(rank_memory),
+                           max_load, max_pair_count)
+        return buckets, loads, partition_score
+    end
+
+    best_buckets = Vector{Vector{Int}}()
+    best_loads = Float64[]
+    best_partition_score = nothing
+    for group_order in candidate_orders
+        buckets, loads, partition_score = partition_for_order(group_order)
+        if isnothing(best_partition_score) || partition_score < best_partition_score
+            best_buckets = buckets
+            best_loads = loads
+            best_partition_score = partition_score
+        end
+    end
+
+    # A deterministic local order keeps equal atom pairs adjacent during all
+    # matrix and real-space grid integrations.
+    for bucket in best_buckets
+        sort!(bucket; by=item -> (
+            min(pair_atoms[item], pair_neighbors[item]),
+            max(pair_atoms[item], pair_neighbors[item]),
+            pair_atoms[item], pair_neighbors[item], pair_cells[item]))
+    end
+
+    return best_buckets, best_loads
 end
 
 
-function split_system_grid(Natom, FNAN, natn, ncn, Total_NumOrbs; GridN_Atom=nothing)
+function split_system_grid(Natom, FNAN, natn, ncn, Total_NumOrbs;
+                           GridN_Atom=nothing, CpyCell=nothing,
+                           GridListAtom=nothing, CellListAtom=nothing,
+                           atv_ijk=nothing, max_load_ratio=1.05,
+                           max_pair_count_ratio=1.40)
 
     comm = MPI.COMM_WORLD
     nprocs = MPI.Comm_size(comm)
     myrank = MPI.Comm_rank(comm)
 
-    Nloop = sum(FNAN.+1)
-    OneD2atom = zeros(Int32, Nloop)
-    OneD2FNAN = zeros(Int32, Nloop)
-    OneD2natn = zeros(Int32, Nloop)
-    OneD2ncn = zeros(Int32, Nloop)
-    work_weights = zeros(Float64, Nloop)
+    pair_count = sum(FNAN .+ 1)
+    pair_atoms = zeros(Int32, pair_count)
+    pair_neighbor_indices = zeros(Int32, pair_count)
+    pair_neighbors = zeros(Int32, pair_count)
+    pair_cells = zeros(Int32, pair_count)
+    pair_hamiltonian_offsets = zeros(Int64, pair_count)
+    pair_work = zeros(Float64, pair_count)
 
-    counts = 1
-    for atom = 1:Natom, Rn = 1:FNAN[atom]+1
-        OneD2atom[counts] = atom
-        OneD2FNAN[counts] = Rn
-        OneD2natn[counts] = natn[atom][Rn]
-        OneD2ncn[counts] = ncn[atom][Rn]
-        orbital_work = Total_NumOrbs[atom]*Total_NumOrbs[natn[atom][Rn]]
-        grid_work = isnothing(GridN_Atom) ? 1 : min(GridN_Atom[atom], GridN_Atom[natn[atom][Rn]])
-        work_weights[counts] = max(orbital_work*grid_work, 1)
-        counts += 1
+    pair = 1
+    hamiltonian_offset = Int64(0)
+    for atom = 1:Natom, neighbor_index = 1:FNAN[atom]+1
+        neighbor = natn[atom][neighbor_index]
+        pair_atoms[pair] = atom
+        pair_neighbor_indices[pair] = neighbor_index
+        pair_neighbors[pair] = neighbor
+        pair_cells[pair] = ncn[atom][neighbor_index]
+        pair_hamiltonian_offsets[pair] = hamiltonian_offset
+
+        orbital_work = Total_NumOrbs[atom]*Total_NumOrbs[neighbor]
+        grid_work = isnothing(GridN_Atom) ? 1 :
+            min(GridN_Atom[atom], GridN_Atom[neighbor])
+        pair_work[pair] = max(orbital_work*grid_work, 1)
+
+        hamiltonian_offset += orbital_work
+        pair += 1
     end
 
+    overlap_inputs_available = !isnothing(CpyCell) &&
+        !isnothing(GridN_Atom) && !isnothing(GridListAtom) &&
+        !isnothing(CellListAtom) && !isnothing(atv_ijk)
+    if nprocs > 1 && overlap_inputs_available
+        overlap_counts = zeros(Int32, pair_count)
+        if myrank == 0
+            Count_AtomOverlap_Grid!(overlap_counts, CpyCell, pair_atoms,
+                pair_neighbors, pair_cells, GridN_Atom, GridListAtom,
+                CellListAtom, atv_ijk)
+        end
+        MPI.Bcast!(overlap_counts, 0, comm)
+        for pair in eachindex(pair_work)
+            orbital_work = Total_NumOrbs[pair_atoms[pair]]*
+                           Total_NumOrbs[pair_neighbors[pair]]
+            pair_work[pair] = max(
+                orbital_work*max(overlap_counts[pair], 1), 1)
+        end
+    end
 
-    
+    atom_memory = isnothing(GridN_Atom) ? ones(Float64, Natom) :
+        Float64.(Total_NumOrbs).*Float64.(GridN_Atom)
+    buckets, _ = _split_weighted_vertex_cut(pair_atoms, pair_neighbors,
+        pair_cells, pair_work, atom_memory, nprocs;
+        max_load_ratio, max_pair_count_ratio)
+    local_pairs = buckets[myrank+1]
+    MPI_size = length(local_pairs)
 
-    myrange = _split_weighted_contiguous(work_weights, nprocs)
-    MPI_size = length(myrange[myrank+1])
+    MPI_atom = pair_atoms[local_pairs]
+    MPI_FNAN = pair_neighbor_indices[local_pairs]
+    MPI_natn = pair_neighbors[local_pairs]
+    MPI_ncn = pair_cells[local_pairs]
+    MPI_Hoffset = pair_hamiltonian_offsets[local_pairs]
 
-    MPI_atom = OneD2atom[myrange[myrank+1]]
-    MPI_FNAN = OneD2FNAN[myrange[myrank+1]]
-    MPI_natn = OneD2natn[myrange[myrank+1]]
-    MPI_ncn = OneD2ncn[myrange[myrank+1]]
-
-    
     MPI_Hsize = zeros(Int32, nprocs)
     MPHks = zeros(Int32, nprocs)
 
-    myHsize = 0
-    for loop = 1:MPI_size, _ = 1:Total_NumOrbs[MPI_atom[loop]], _ = 1:Total_NumOrbs[MPI_natn[loop]]
-        myHsize += 1
-    end
+    myHsize = sum(Total_NumOrbs[MPI_atom[pair]]*
+                  Total_NumOrbs[MPI_natn[pair]]
+                  for pair in eachindex(MPI_atom))
     MPI_Hsize[myrank+1] = myHsize
     Total_Hsize = MPI.Allreduce(myHsize, MPI.SUM, comm)
     MPI.Allreduce!(MPI_Hsize, MPI.SUM, comm)
 
-    Sum = 0
-    for id = 1:nprocs
-        MPHks[id] = Sum
-        Sum += MPI_Hsize[id]
+    rank_offset = 0
+    for rank = 1:nprocs
+        MPHks[rank] = rank_offset
+        rank_offset += MPI_Hsize[rank]
     end
 
+    return Total_Hsize, MPI_Hsize, MPHks, pair_count, MPI_size,
+           MPI_atom, MPI_FNAN, MPI_natn, MPI_ncn, MPI_Hoffset
+end
 
-    return Total_Hsize, MPI_Hsize, MPHks, Nloop, MPI_size, MPI_atom, MPI_FNAN, MPI_natn, MPI_ncn
+
+"""Assemble a rank-local atom-pair vector in canonical `(atom, Rn)` order."""
+function assemble_canonical!(global_data::AbstractVector, local_data::AbstractVector,
+                             system_grid::System_Grid, comm=MPI.COMM_WORLD)
+    MPI_atom = system_grid.MPI_atom
+    MPI_natn = system_grid.MPI_natn
+    MPI_Hoffset = system_grid.MPI_Hoffset
+    Total_NumOrbs = system_grid.Total_NumOrbs
+
+    fill!(global_data, zero(eltype(global_data)))
+    local_offset = 0
+    @inbounds for loop in eachindex(MPI_atom)
+        block_size = Total_NumOrbs[MPI_atom[loop]]*Total_NumOrbs[MPI_natn[loop]]
+        copyto!(global_data, MPI_Hoffset[loop] + 1,
+                local_data, local_offset + 1, block_size)
+        local_offset += block_size
+    end
+    local_offset == length(local_data) || error("rank-local Hamiltonian size mismatch")
+    MPI.Allreduce!(global_data, MPI.SUM, comm)
+    return global_data
+end
+
+
+"""Extract canonical atom-pair blocks into the rank-local calculation order."""
+function extract_canonical!(local_data::AbstractVector, global_data::AbstractVector,
+                            system_grid::System_Grid)
+    MPI_atom = system_grid.MPI_atom
+    MPI_natn = system_grid.MPI_natn
+    MPI_Hoffset = system_grid.MPI_Hoffset
+    Total_NumOrbs = system_grid.Total_NumOrbs
+
+    local_offset = 0
+    @inbounds for loop in eachindex(MPI_atom)
+        block_size = Total_NumOrbs[MPI_atom[loop]]*Total_NumOrbs[MPI_natn[loop]]
+        copyto!(local_data, local_offset + 1,
+                global_data, MPI_Hoffset[loop] + 1, block_size)
+        local_offset += block_size
+    end
+    local_offset == length(local_data) || error("rank-local Hamiltonian size mismatch")
+    return local_data
 end
 
 
@@ -136,7 +359,6 @@ end
 @timeit timer "UCell" function UCell(Nspin, TCpyCell, Latvecs, Natom, atom2spe, Gxyz, Atoms_Cut1, Ngrid, Grid_Origin, Total_NumOrbs; verbosity=1)
 
     comm = MPI.COMM_WORLD
-    nprocs = MPI.Comm_size(comm)
     myrank = MPI.Comm_rank(comm)
 
     myrank == 0 && println("<UCell>  Setup Grid ...")
@@ -176,7 +398,9 @@ end
 
     # split element for MPI
     # one dimensionalization Natom, FNAN, natn, ncn
-    Total_Hsize, MPI_Hsize, MPHks, Nloop, MPI_size, MPI_atom, MPI_FNAN, MPI_natn, MPI_ncn = split_system_grid(Natom, FNAN, natn, ncn, Total_NumOrbs; GridN_Atom)
+    Total_Hsize, MPI_Hsize, MPHks, Nloop, MPI_size, MPI_atom, MPI_FNAN, MPI_natn, MPI_ncn, MPI_Hoffset = split_system_grid(
+        Natom, FNAN, natn, ncn, Total_NumOrbs;
+        GridN_Atom, CpyCell, GridListAtom, CellListAtom, atv_ijk)
     
 
 
@@ -184,7 +408,7 @@ end
                               atv, atv_ijk, Gxyz, GridVol, Grid_Origin,
                               FNAN, natn, ncn, Dis, RMI, 
                               Total_Hsize, MPI_Hsize, MPHks, Nloop, MPI_size, 
-                              MPI_atom, MPI_FNAN, MPI_natn, MPI_ncn,
+                              MPI_atom, MPI_FNAN, MPI_natn, MPI_ncn, MPI_Hoffset,
                               Atoms_Cut1, Total_NumOrbs, MP, Ngrid)
     
 
@@ -210,7 +434,6 @@ end
 @timeit timer "UCell" function UCell(Nspin, Latvecs, Natom, atom2spe, Gxyz, Atoms_Cut1, Ngrid, Grid_Origin; Total_NumOrbs=nothing, verbosity=1)
 
     comm = MPI.COMM_WORLD
-    nprocs = MPI.Comm_size(comm)
     myrank = MPI.Comm_rank(comm)
 
     myrank == 0 && println("<UCell>  Setup Grid ...")
@@ -263,7 +486,9 @@ end
 
     # split element for MPI
     # one dimensionalization Natom, FNAN, natn, ncn
-    Total_Hsize, MPI_Hsize, MPHks, Nloop, MPI_size, MPI_atom, MPI_FNAN, MPI_natn, MPI_ncn = split_system_grid(Natom, FNAN, natn, ncn, Total_NumOrbs; GridN_Atom)
+    Total_Hsize, MPI_Hsize, MPHks, Nloop, MPI_size, MPI_atom, MPI_FNAN, MPI_natn, MPI_ncn, MPI_Hoffset = split_system_grid(
+        Natom, FNAN, natn, ncn, Total_NumOrbs;
+        GridN_Atom, CpyCell, GridListAtom, CellListAtom, atv_ijk)
     
 
 
@@ -271,7 +496,7 @@ end
                               atv, atv_ijk, Gxyz, GridVol, Grid_Origin,
                               FNAN, natn, ncn, Dis, RMI, 
                               Total_Hsize, MPI_Hsize, MPHks, Nloop, MPI_size, 
-                              MPI_atom, MPI_FNAN, MPI_natn, MPI_ncn,
+                              MPI_atom, MPI_FNAN, MPI_natn, MPI_ncn, MPI_Hoffset,
                               Atoms_Cut1, Total_NumOrbs, MP, Ngrid)
     
 
@@ -410,6 +635,66 @@ function Calc_AtomsGrid(Latvecs, Natom, CpyCell, Gxyz, Atoms_Cut1, Ngrid, Grid_O
     return GridN_Atom, GridListAtom, CellListAtom
 end
 
+
+
+function Count_AtomOverlap_Grid!(overlap_counts, CpyCell, pair_atoms,
+                                 pair_neighbors, pair_cells, GridN_Atom,
+                                 GridListAtom, CellListAtom, atv_ijk)
+    ratv = zeros(Int64, 2*CpyCell+4, 2*CpyCell+4, 2*CpyCell+4)
+    Generation_RATV!(CpyCell, ratv)
+
+    fill!(overlap_counts, 0)
+    for loop in eachindex(pair_atoms)
+        atom = pair_atoms[loop]
+        jatom = pair_neighbors[loop]
+        cell = pair_cells[loop]
+        l1, l2, l3 = atv_ijk[cell+1]
+
+        overlap_count = 0
+        Nc = 0
+        for Nh = 1:GridN_Atom[jatom]
+            GNh = GridListAtom[jatom][Nh]
+            GRh = CellListAtom[jatom][Nh]
+            ll1, ll2, ll3 = atv_ijk[GRh+1]
+            lll1 = l1 + ll1
+            lll2 = l2 + ll2
+            lll3 = l3 + ll3
+
+            if GridListAtom[atom][1] <= GNh
+                if GNh == 0
+                    Nc = 0
+                else
+                    while Nc != 0 && GNh <= GridListAtom[atom][Nc+1]
+                        Nc = max(Nc - 10, 0)
+                    end
+                end
+
+                if abs(lll1) <= CpyCell && abs(lll2) <= CpyCell &&
+                   abs(lll3) <= CpyCell
+                    GRh1 = ratv[lll1+CpyCell+1,
+                                 lll2+CpyCell+1,
+                                 lll3+CpyCell+1]
+                    found = false
+                    while !found && Nc < GridN_Atom[atom]
+                        GNc = GridListAtom[atom][Nc+1]
+                        GRc = CellListAtom[atom][Nc+1]
+                        if GNc == GNh && GRc == GRh1
+                            overlap_count += 1
+                            found = true
+                        elseif GNh < GNc
+                            found = true
+                        end
+                        Nc += 1
+                    end
+                    Nc = max(Nc - 1, 0)
+                end
+            end
+        end
+        overlap_counts[loop] = overlap_count
+    end
+
+    return overlap_counts
+end
 
 
 """

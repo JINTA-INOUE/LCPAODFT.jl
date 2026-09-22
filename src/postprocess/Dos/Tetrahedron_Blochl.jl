@@ -18,7 +18,7 @@ function OrderE0!(e, n)
     end
 end
 
-
+#=
 function OrderE!(e, a, n)
     for i = 1:n, j = i:n
         if e[j] < e[i]
@@ -98,3 +98,4 @@ function ATM_Spectrum(et, at, e)
 
     return spectrum
 end
+=#

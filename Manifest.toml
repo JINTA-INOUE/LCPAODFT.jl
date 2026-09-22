@@ -2,7 +2,7 @@
 
 julia_version = "1.12.6"
 manifest_format = "2.0"
-project_hash = "828c59f4c46b14433d79079219bbf656a1419409"
+project_hash = "8d2f3ef8e5665f6c48252c0c941272e60b3258c2"
 
 [[deps.AbstractFFTs]]
 deps = ["LinearAlgebra"]
@@ -126,6 +126,11 @@ version = "1.19.0"
 uuid = "7b1f6079-737a-58dc-b8bc-7a2ca5c1b5ee"
 version = "1.11.0"
 
+[[deps.FortranFiles]]
+git-tree-sha1 = "97069e9106dffe888562d974acf1d225cfbf8d4e"
+uuid = "c58ffaec-ab22-586d-bfc5-781a99fd0b10"
+version = "0.6.2"
+
 [[deps.HashArrayMappedTries]]
 git-tree-sha1 = "2eaa69a7cab70a52b9687c8bf950a5a93ec895ae"
 uuid = "076d061b-32b6-4027-95e0-9a2c6f6d7e74"
@@ -179,7 +184,7 @@ uuid = "ac6e5ff7-fb65-4e79-a425-ec3bc9c03011"
 version = "1.12.0"
 
 [[deps.LCPAODFT]]
-deps = ["Bessels", "Dates", "FFTW", "JLD2", "JSON", "LinearAlgebra", "MPI", "PrecompileTools", "Printf", "SMTPClient", "Spglib", "StaticArrays", "TimerOutputs"]
+deps = ["Bessels", "Dates", "FFTW", "JLD2", "JSON", "LinearAlgebra", "MKL", "MPI", "PrecompileTools", "Printf", "SMTPClient", "Spglib", "StaticArrays", "TimerOutputs"]
 path = "."
 uuid = "4f340965-e4ea-4fcf-8f31-8c71246d43fb"
 version = "1.0.0-DEV"

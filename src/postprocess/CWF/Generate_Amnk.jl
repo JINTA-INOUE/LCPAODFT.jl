@@ -1,4 +1,4 @@
-@timeit timer "Generate_Amnk" function Generate_Amnk(filename::String, SpinPol::String, BANDNUM, Nwann, mlwf_kpoints::MLWF_KPoints)
+@timeit timer "Generate_Amnk" function Generate_Amnk(filename::AbstractString, SpinPol::String, BANDNUM, Nwann, mlwf_kpoints::MLWF_KPoints)
 
     comm = MPI.COMM_WORLD
     nprocs = MPI.Comm_size(comm)
@@ -17,7 +17,7 @@
 end
 
 
-function Generate_Amnk_Spindeg1(filename::String, BANDNUM, Nwann, mlwf_kpoints::MLWF_KPoints)
+function Generate_Amnk_Spindeg1(filename::AbstractString, BANDNUM, Nwann, mlwf_kpoints::MLWF_KPoints)
 
     comm = MPI.COMM_WORLD
     nprocs = MPI.Comm_size(comm)
@@ -26,26 +26,23 @@ function Generate_Amnk_Spindeg1(filename::String, BANDNUM, Nwann, mlwf_kpoints::
     Nkpt = mlwf_kpoints.AllNkpt
     MPI_krange = mlwf_kpoints.MPI_krange
     MPkpts = mlwf_kpoints.MPkpts
-    work_dirname = pwd()*"/"*filename*"_work_cwf"
+    open(_cwf_seed_path(filename)*".amn", "w") do data_Amnk
+        @printf(data_Amnk, "2nd line: BANDNUM, KPTNUM, WANNUM, Nexts: band, wan, k, ReAmn, ImAmn\n")
+        @printf(data_Amnk, "%d %d %d\n", BANDNUM, Nkpt, Nwann)
 
-    data_Amnk = open(filename*".amn", "w")
-    @printf(data_Amnk, "2nd line: BANDNUM, KPTNUM, WANNUM, Nexts: band, wan, k, ReAmn, ImAmn\n")
-    @printf(data_Amnk, "%d %d %d\n", BANDNUM, Nkpt, Nwann)
-
-    for rank = 0:nprocs-1
-        MPI_Nkpt = length(MPI_krange[rank+1])
-        knum = MPkpts[rank+1]
-        work_file = work_dirname*"/"*filename*"_Amnk$rank.jld2"
-        data = jldopen(work_file, "r")
-        Amnk = data["Amnk"]
-        _Write_Amnk(data_Amnk, MPI_Nkpt, knum, Nwann, BANDNUM, Amnk[1])
-        close(data)
+        for rank = 0:nprocs-1
+            MPI_Nkpt = length(MPI_krange[rank+1])
+            knum = MPkpts[rank+1]
+            jldopen(_cwf_work_file(filename, "Amnk$rank"), "r") do file
+                Amnk = file["Amnk"]
+                _Write_Amnk(data_Amnk, MPI_Nkpt, knum, Nwann, BANDNUM, Amnk[1])
+            end
+        end
     end
-    close(data_Amnk)
 end
 
 
-function Generate_Amnk_Spindeg2(filename::String, BANDNUM, Nwann, mlwf_kpoints::MLWF_KPoints)
+function Generate_Amnk_Spindeg2(filename::AbstractString, BANDNUM, Nwann, mlwf_kpoints::MLWF_KPoints)
 
     comm = MPI.COMM_WORLD
     nprocs = MPI.Comm_size(comm)
@@ -54,27 +51,25 @@ function Generate_Amnk_Spindeg2(filename::String, BANDNUM, Nwann, mlwf_kpoints::
     Nkpt = mlwf_kpoints.AllNkpt
     MPI_krange = mlwf_kpoints.MPI_krange
     MPkpts = mlwf_kpoints.MPkpts
-    work_dirname = pwd()*"/"*filename*"_work_cwf"
+    seed = _cwf_seed_path(filename)
+    open(seed*"_1.amn", "w") do data_Amnk1
+        open(seed*"_2.amn", "w") do data_Amnk2
+            @printf(data_Amnk1, "2nd line: BANDNUM, KPTNUM, WANNUM, Nexts: band, wan, k, ReAmn, ImAmn\n")
+            @printf(data_Amnk1, "%d %d %d\n", BANDNUM, Nkpt, Nwann)
+            @printf(data_Amnk2, "2nd line: BANDNUM, KPTNUM, WANNUM, Nexts: band, wan, k, ReAmn, ImAmn\n")
+            @printf(data_Amnk2, "%d %d %d\n", BANDNUM, Nkpt, Nwann)
 
-    data_Amnk1 = open(filename*"_1.amn", "w")
-    data_Amnk2 = open(filename*"_2.amn", "w")
-    @printf(data_Amnk1, "2nd line: BANDNUM, KPTNUM, WANNUM, Nexts: band, wan, k, ReAmn, ImAmn\n")
-    @printf(data_Amnk1, "%d %d %d\n", BANDNUM, Nkpt, Nwann)
-    @printf(data_Amnk2, "2nd line: BANDNUM, KPTNUM, WANNUM, Nexts: band, wan, k, ReAmn, ImAmn\n")
-    @printf(data_Amnk2, "%d %d %d\n", BANDNUM, Nkpt, Nwann)
-
-    for rank = 0:nprocs-1
-        MPI_Nkpt = length(MPI_krange[rank+1])
-        knum = MPkpts[rank+1]
-        work_file = work_dirname*"/"*filename*"_Amnk$rank.jld2"
-        data = jldopen(work_file, "r")
-        Amnk = data["Amnk"]
-        _Write_Amnk(data_Amnk1, MPI_Nkpt, knum, Nwann, BANDNUM, Amnk[1])
-        _Write_Amnk(data_Amnk2, MPI_Nkpt, knum, Nwann, BANDNUM, Amnk[2])
-        close(data)
+            for rank = 0:nprocs-1
+                MPI_Nkpt = length(MPI_krange[rank+1])
+                knum = MPkpts[rank+1]
+                jldopen(_cwf_work_file(filename, "Amnk$rank"), "r") do file
+                    Amnk = file["Amnk"]
+                    _Write_Amnk(data_Amnk1, MPI_Nkpt, knum, Nwann, BANDNUM, Amnk[1])
+                    _Write_Amnk(data_Amnk2, MPI_Nkpt, knum, Nwann, BANDNUM, Amnk[2])
+                end
+            end
+        end
     end
-    close(data_Amnk1)
-    close(data_Amnk2)
 end
 
 

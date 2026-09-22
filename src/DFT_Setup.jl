@@ -368,7 +368,7 @@ function DFT_Setup(
     BLAS.set_num_threads(1)
     nthreads = Threads.nthreads()
     nblas = BLAS.get_num_threads()
-    MKL.set_num_threads(1)
+    # MKL.set_num_threads(1)
 
     if myrank == 0 && verbosity >= 1
         cpu_info = Sys.cpu_info()[1]
@@ -376,7 +376,6 @@ function DFT_Setup(
         println("")
         println("<DFT MPI process/BLAS>")
         println("\t$nprocs MPI processes and $nthreads threads, $nblas BLAS threads")
-        println("$(BLAS.get_config())")
         println("\t$(now())")
         println("")
     end

@@ -1,26 +1,40 @@
 function Load_CWF_model(filepath::String)
 
     data = jldopen(filepath, "r")
+    local spinsize, gsize, Ngsize, Latvecs, Recvecs
+    local SpinPol, SO_switch, kmesh, Dis_Energy, DMfunc
+    local NCell, cell_list, cell_list_ijk, HmnR
+    local ChemP, weight_type, scf_inputfile, cwf_inputfile
 
-    spinsize = data["spinsize"]
-    gsize = data["gsize"]
-    Ngsize = data["Ngsize"]
-    Latvecs = data["Latvecs"]
-    Recvecs = data["Recvecs"]
-    SpinPol = data["SpinPol"]
-    SO_switch = data["SO_switch"]
-    kmesh = data["kmesh"]
-    Dis_Energy = data["Dis_Energy"]
-    DMfunc = data["DMfunc"]
-    NCell = data["NCell"]
-    cell_list = data["cell_list"]
-    cell_list_ijk = data["cell_list_ijk"]
-    HmnR = data["HmnR"]
-    ChemP = data["ChemP"]
-    weight_type = data["weight_type"]
-    scf_inputfile = data["scf_inputfile"]
-    cwf_inputfile = data["cwf_inputfile"]
-    close(data)
+    try
+        spinsize = data["spinsize"]
+        gsize = data["gsize"]
+        Ngsize = data["Ngsize"]
+        Latvecs = data["Latvecs"]
+        Recvecs = data["Recvecs"]
+        SpinPol = data["SpinPol"]
+        SO_switch = data["SO_switch"]
+        kmesh = data["kmesh"]
+        Dis_Energy = data["Dis_Energy"]
+        DMfunc = data["DMfunc"]
+        NCell = data["NCell"]
+        cell_list = data["cell_list"]
+        cell_list_ijk = data["cell_list_ijk"]
+
+        HmnR_dataset = JLD2.get_dataset(data, "HmnR")
+        HmnR = if JLD2.ismmappable(HmnR_dataset)
+            JLD2.readmmap(HmnR_dataset)
+        else
+            data["HmnR"]
+        end
+
+        ChemP = data["ChemP"]
+        weight_type = data["weight_type"]
+        scf_inputfile = data["scf_inputfile"]
+        cwf_inputfile = data["cwf_inputfile"]
+    finally
+        close(data)
+    end
 
 
     return CWF_model(

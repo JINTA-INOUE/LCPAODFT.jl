@@ -31,10 +31,9 @@
     MPI_atom = system_grid.MPI_atom
     MPI_FNAN = system_grid.MPI_FNAN
     MPI_natn = system_grid.MPI_natn
-    MPI_ncn = system_grid.MPI_ncn
+	MPI_ncn = system_grid.MPI_ncn
     MPI_size = system_grid.MPI_size
-    MPHks = system_grid.MPHks
-    Hks_Num = MPHks[myrank+1]
+	MPI_Hoffset = system_grid.MPI_Hoffset
     
 
 
@@ -146,9 +145,11 @@
         end
 
         
+        pair_hst = MPI_Hoffset[loop]
         @inbounds for ist = 1:NO0, jst = 1:NO1
             hst += 1
-            OLP[Hks_Num+hst] = 8*real(OLPiαjβ[ist,jst])
+            pair_hst += 1
+            OLP[pair_hst] = 8*real(OLPiαjβ[ist,jst])
             MPI_Hkin[hst] = 4*real(Hkiniαjβ[ist,jst])
         end
     end

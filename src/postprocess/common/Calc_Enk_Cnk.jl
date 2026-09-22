@@ -70,29 +70,46 @@ function Calc_Enk_Cnk!(
     Hks = material.Hks
     iHks = material.iHks
     OLP = material.OLP
-    spinsize = ifelse(SpinPol=="on", 2, 1)
 
     MPI_Nkpt = kpoints.MPI_Nkpt
     MPI_kpts = kpoints.MPI_kpts
 
-    if SpinPol ∈ ("off", "on")
+    if SpinPol == "off"
         S = zeros(ComplexF64, fsize, fsize)
-        @inbounds for spin = 1:spinsize, ik = 1:MPI_Nkpt
-            H = Cnk[spin][ik]
-            HS_matrix!(S, H, OLP, Hks[spin], Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, MPI_kpts[ik])
+        @inbounds for ik = 1:MPI_Nkpt
+            H = Cnk[1][ik]
+            HS_matrix!(S, H, OLP, Hks[1], Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, MPI_kpts[ik])
             decomposition = eigen!(Hermitian(H), Hermitian(S))
-            @views Enk[:,knum+ik,1] .= decomposition.values
+            @views Enk[:,ik,1] .= decomposition.values
+        end
+    elseif SpinPol == "on"
+        S_base = zeros(ComplexF64, fsize, fsize)
+        S_work = zeros(ComplexF64, fsize, fsize)
+        @inbounds for ik = 1:MPI_Nkpt
+            H_up = Cnk[1][ik]
+            HS_matrix!(S_base, H_up, OLP, Hks[1], Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, MPI_kpts[ik])
+            copyto!(S_work, S_base)
+            decomposition_up = eigen!(Hermitian(H_up), Hermitian(S_work))
+            @views Enk[:,ik,1] .= decomposition_up.values
+
+            H_dn = Cnk[2][ik]
+            HS_matrix!(H_dn, Hks[2], Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, MPI_kpts[ik])
+            copyto!(S_work, S_base)
+            decomposition_dn = eigen!(Hermitian(H_dn), Hermitian(S_work))
+            @views Enk[:,ik,2] .= decomposition_dn.values
         end
     elseif SpinPol == "nc"
         tmpH = zeros(ComplexF64, fsize, fsize)
         S = zeros(ComplexF64, 2*fsize, 2*fsize)
-        H = zeros(ComplexF64, 2*fsize, 2*fsize)
         @inbounds for ik = 1:MPI_Nkpt
+            H = Cnk[1][ik]
             HS_matrix_NC!(H, Hks, iHks, Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, MPI_kpts[ik])
             HS_matrix!(tmpH, OLP, Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, MPI_kpts[ik])
-            @. S[1:fsize, 1:fsize] = tmpH
-            @. S[fsize+1:end, fsize+1:end] = tmpH
-            Enk[1,:,ik], Cnk[1][ik] = eigen(Hermitian(H), Hermitian(S))
+            fill!(S, 0.0)
+            @. @views S[1:fsize, 1:fsize] = tmpH
+            @. @views S[fsize+1:end, fsize+1:end] = tmpH
+            decomposition = eigen!(Hermitian(H), Hermitian(S))
+            @views Enk[:,ik,1] .= decomposition.values
         end
     end
 end
@@ -116,28 +133,46 @@ function Calc_Enk_Cnk!(
     Hks = material.Hks
     iHks = material.iHks
     OLP = material.OLP
-    spinsize = ifelse(SpinPol=="on", 2, 1)
 
     MPI_Nkpt = kpoints.MPI_Nkpt
     MPI_kpts = kpoints.MPI_kpts
 
-    if SpinPol ∈ ("off", "on")
+    if SpinPol == "off"
         S = zeros(ComplexF64, fsize, fsize)
-        H = zeros(ComplexF64, fsize, fsize)
-        @inbounds for spin = 1:spinsize, ik = 1:MPI_Nkpt
-            HS_matrix!(S, H, OLP, Hks[spin], Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, MPI_kpts[ik])
-            Enk[spin][ik], Cnk[spin][ik] = eigen(Hermitian(H), Hermitian(S))
+        @inbounds for ik = 1:MPI_Nkpt
+            H = Cnk[1][ik]
+            HS_matrix!(S, H, OLP, Hks[1], Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, MPI_kpts[ik])
+            decomposition = eigen!(Hermitian(H), Hermitian(S))
+            @views Enk[1][ik] .= decomposition.values
+        end
+    elseif SpinPol == "on"
+        S_base = zeros(ComplexF64, fsize, fsize)
+        S_work = zeros(ComplexF64, fsize, fsize)
+        @inbounds for ik = 1:MPI_Nkpt
+            H_up = Cnk[1][ik]
+            HS_matrix!(S_base, H_up, OLP, Hks[1], Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, MPI_kpts[ik])
+            copyto!(S_work, S_base)
+            decomposition_up = eigen!(Hermitian(H_up), Hermitian(S_work))
+            @views Enk[1][ik] .= decomposition_up.values
+
+            H_dn = Cnk[2][ik]
+            HS_matrix!(H_dn, Hks[2], Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, MPI_kpts[ik])
+            copyto!(S_work, S_base)
+            decomposition_dn = eigen!(Hermitian(H_dn), Hermitian(S_work))
+            @views Enk[2][ik] .= decomposition_dn.values
         end
     elseif SpinPol == "nc"
         tmpH = zeros(ComplexF64, fsize, fsize)
         S = zeros(ComplexF64, 2*fsize, 2*fsize)
-        H = zeros(ComplexF64, 2*fsize, 2*fsize)
         @inbounds for ik = 1:MPI_Nkpt
+            H = Cnk[1][ik]
             HS_matrix_NC!(H, Hks, iHks, Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, MPI_kpts[ik])
             HS_matrix!(tmpH, OLP, Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, MPI_kpts[ik])
-            @. S[1:fsize, 1:fsize] = tmpH
-            @. S[fsize+1:end, fsize+1:end] = tmpH
-            Enk[1][ik], Cnk[1][ik] = eigen(Hermitian(H), Hermitian(S))
+            fill!(S, 0.0)
+            @. @views S[1:fsize, 1:fsize] = tmpH
+            @. @views S[fsize+1:end, fsize+1:end] = tmpH
+            decomposition = eigen!(Hermitian(H), Hermitian(S))
+            @views Enk[1][ik] .= decomposition.values
         end
     end
 end
@@ -165,32 +200,50 @@ function Calc_Enk_Cnk!(
     kmesh = kpoints.kmesh
     kmesh1, kmesh2, kmesh3 = kmesh
     MPI_kpts = kpoints.MPI_kpts
-    spinsize = ifelse(SpinPol=="on", 2, 1)
     
 
-    if SpinPol ∈ ("off", "on")
+    if SpinPol == "off"
         S = zeros(ComplexF64, fsize, fsize)
-        H = zeros(ComplexF64, fsize, fsize)
-        @inbounds for spin = 1:spinsize
-            k = 0
-            for ik = 1:kmesh1, jk = 1:kmesh2, kk = 1:kmesh3
-                k += 1
-                HS_matrix!(S, H, OLP, Hks[spin], Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, MPI_kpts[k])
-                Enk[spin][ik][jk][kk], Cnk[spin][k] = eigen(Hermitian(H), Hermitian(S))
-            end
-        end
-    else
-        tmpH = zeros(ComplexF64, fsize, fsize)
-        S = zeros(ComplexF64, 2*fsize, 2*fsize)
-        H = zeros(ComplexF64, 2*fsize, 2*fsize)
         k = 0
         @inbounds for ik = 1:kmesh1, jk = 1:kmesh2, kk = 1:kmesh3
             k += 1
+            H = Cnk[spin][ik]
+            HS_matrix!(S, H, OLP, Hks[1], Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, MPI_kpts[k])
+            decomposition = eigen!(Hermitian(H), Hermitian(S))
+            @views Enk[spin][ik] .= decomposition.values
+        end
+    elseif SpinPol == "on"
+        S_base = zeros(ComplexF64, fsize, fsize)
+        S_work = zeros(ComplexF64, fsize, fsize)
+        k = 0
+        @inbounds for ik = 1:kmesh1, jk = 1:kmesh2, kk = 1:kmesh3
+            k += 1
+            H_up = Cnk[1][k]
+            HS_matrix!(S_base, H_up, OLP, Hks[1], Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, MPI_kpts[k])
+            copyto!(S_work, S_base)
+            decomposition_up = eigen!(Hermitian(H_up), Hermitian(S_work))
+            @views Enk[1][k] .= decomposition_up.values
+
+            H_dn = Cnk[2][k]
+            HS_matrix!(H_dn, Hks[2], Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, MPI_kpts[k])
+            copyto!(S_work, S_base)
+            decomposition_dn = eigen!(Hermitian(H_dn), Hermitian(S_work))
+            @views Enk[2][k] .= decomposition_dn.values
+        end
+    elseif SpinPol == "nc"
+        tmpH = zeros(ComplexF64, fsize, fsize)
+        S = zeros(ComplexF64, 2*fsize, 2*fsize)
+        k = 0
+        @inbounds for ik = 1:kmesh1, jk = 1:kmesh2, kk = 1:kmesh3
+            k += 1
+            H = Cnk[1][k]
             HS_matrix_NC!(H, Hks, iHks, Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, MPI_kpts[k])
             HS_matrix!(tmpH, OLP, Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, MPI_kpts[k])
-            @. S[1:fsize, 1:fsize] = tmpH
-            @. S[fsize+1:end, fsize+1:end] = tmpH
-            Enk[1][ik][jk][kk], Cnk[1][k] = eigen(Hermitian(H), Hermitian(S))
+            fill!(S, 0.0)
+            @. @views S[1:fsize, 1:fsize] = tmpH
+            @. @views S[fsize+1:end, fsize+1:end] = tmpH
+            decomposition = eigen!(Hermitian(H), Hermitian(S))
+            @views Enk[1][ik] .= decomposition.values
         end
     end
 end

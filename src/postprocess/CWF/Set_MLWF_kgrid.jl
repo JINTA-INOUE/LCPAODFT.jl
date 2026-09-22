@@ -139,16 +139,19 @@ end
     end
 
     shell_num = Shell_Structure!(klatt, tmp_M_s, tmp_bvector, MAXSHELL)
-    if shell_num == 0 && myrank == 0
-        printf("******************************Error********************************")
-        println("*    Can not find proper b vectors, please increase parameter     *")
-        println("*    MAXSHELL OR change Wannier.Kgrids.                           *")
-        println("******************************Error********************************")
-        println("***********************************INFO**************************************")
-        @printf("Reciprocal Lattices lengths are:%10.6f %10.6f %10.6f\n", Recvecs_len1, Recvecs_len2, Recvecs_len3)
-        @printf("The ratio among them are: b1:b2=%10.6f b1:b3=%10.6f b2:b3=%10.6f\n", Recvecs_len1/Recvecs_len2, Recvecs_len1/Recvecs_len3, Recvecs_len2/Recvecs_len3)
-        println("Message: Please try to set Wannier.Kgrid has the similar ratio as above.")
-        println("************************************INFO*************************************")
+    if shell_num == 0
+        if myrank == 0
+            println("******************************Error********************************")
+            println("*    Can not find proper b vectors, please increase parameter     *")
+            println("*    MAXSHELL OR change Wannier.Kgrids.                           *")
+            println("******************************Error********************************")
+            println("***********************************INFO**************************************")
+            @printf("Reciprocal Lattices lengths are:%10.6f %10.6f %10.6f\n", Recvecs_len1, Recvecs_len2, Recvecs_len3)
+            @printf("The ratio among them are: b1:b2=%10.6f b1:b3=%10.6f b2:b3=%10.6f\n", Recvecs_len1/Recvecs_len2, Recvecs_len1/Recvecs_len3, Recvecs_len2/Recvecs_len3)
+            println("Message: Please try to set Wannier.Kgrid has the similar ratio as above.")
+            println("************************************INFO*************************************")
+        end
+        error("No valid Wannier neighbour shells were found; increase MAXSHELL or change kmesh")
     end
 
 
@@ -156,18 +159,20 @@ end
     Reject_Shell = zeros(Int32, shell_num)
     tmp_wb = zeros(Float64, shell_num)
     find_w, shell_num, searched_shell = Cal_Weight_of_Shell!(klatt, tmp_M_s, tmp_bvector, shell_num, tmp_wb, Reject_Shell)
-    if find_w == 0 && myrank == 0
-        println("*************************** Error ****************************")
-        println("*    Weights for b vectors (totally $shell_num) are not found.      *")
-        println("*    Please increase MAXSHELL (presently it is $MAXSHELL) OR       *")
-        println("*    change Wannier.Kgrids and try again                     *")
-        println("*************************** Error ****************************")
-        println("***********************************INFO**************************************")
-        @printf("Reciprocal Lattices lengths are:%10.6f %10.6f %10.6f\n", Recvecs_len1, Recvecs_len2, Recvecs_len3)
-        @printf("The ratio among them are: b1:b2=%10.6f b1:b3=%10.6f b2:b3=%10.6f\n", Recvecs_len1/Recvecs_len2, Recvecs_len1/Recvecs_len3, Recvecs_len2/Recvecs_len3)
-        println("Message: Please try to set Wannier.Kgrid has the similar ratio as above.")
-        println("************************************INFO*************************************")
-        error("stop")
+    if find_w == 0
+        if myrank == 0
+            println("*************************** Error ****************************")
+            println("*    Weights for b vectors (totally $shell_num) are not found.      *")
+            println("*    Please increase MAXSHELL (presently it is $MAXSHELL) OR       *")
+            println("*    change Wannier.Kgrids and try again                     *")
+            println("*************************** Error ****************************")
+            println("***********************************INFO**************************************")
+            @printf("Reciprocal Lattices lengths are:%10.6f %10.6f %10.6f\n", Recvecs_len1, Recvecs_len2, Recvecs_len3)
+            @printf("The ratio among them are: b1:b2=%10.6f b1:b3=%10.6f b2:b3=%10.6f\n", Recvecs_len1/Recvecs_len2, Recvecs_len1/Recvecs_len3, Recvecs_len2/Recvecs_len3)
+            println("Message: Please try to set Wannier.Kgrid has the similar ratio as above.")
+            println("************************************INFO*************************************")
+        end
+        error("Wannier neighbour-shell weights were not found; increase MAXSHELL or change kmesh")
     else
         tot_bvector, bvector, frac_bv_int, frac_bv, wb = Set_bvectors(Recvecs, kmesh, shell_num, searched_shell, Reject_Shell, tmp_bvector, tmp_M_s, tmp_wb)
     end

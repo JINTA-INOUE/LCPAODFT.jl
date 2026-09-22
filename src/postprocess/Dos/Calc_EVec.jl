@@ -45,8 +45,7 @@ function Get_EVec_Collinear!(material::LCPAO_model, kpoints::DosKPoints,
     for spin = 1:spinsize, local_k = 1:MPI_Nkpt
         C = Cnk[spin][local_k]
 
-        HS_matrix!(S, OLP, Natom, Total_NumOrbs, MP, FNAN, natn, ncn,
-                   atv_ijk, MPI_kpts[local_k])
+        HS_matrix!(S, OLP, Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, MPI_kpts[local_k])
         @inbounds for band = iemin:iemax
             fill!(SD, 0.0f0)
             for atom = 1:Natom, jatom = 1:Natom

@@ -53,7 +53,6 @@ function get_ialpha_index(Spe_orbitals::String)
         error("please check input data")
     end
 
-
     Spe_MaxL_Basis = div(length(Spe_orbitals),2)-1
     Spe_Num_Basis = zeros(Int64, Spe_MaxL_Basis+1)
 
@@ -74,7 +73,6 @@ function get_ialpha_index(Spe_orbitals::String)
 
     return Spe_MaxL_Basis, Spe_Num_Basis
 end
-
 
 
 function Read_Spe_PAO_RWF!(filename, L, Spe_Num_Mesh_PAO, Spe_PAO_Mul, Spe_PAO_RWF)
@@ -245,24 +243,11 @@ Mandatory arguments:
 julia> Read_PAO(4.0, "C", 5.0, "s2p2d1", "")
 ```
 """
-@timeit timer "Read_PAO" function Read_PAO( 
-    Spe_Core_Charge, 
-    Atom_symbol::String, 
-    Atom_cutoff::Float64,
-    Atom_orb::String, 
-    Atom_extra::String;
-    verbosity::Int=1 )
-
-    comm = MPI.COMM_WORLD
-    nprocs = MPI.Comm_size(comm)
-    myrank = MPI.Comm_rank(comm)
+@timeit timer "Read_PAO" function Read_PAO(Spe_Core_Charge, Atom_symbol::String, Atom_cutoff::Float64, Atom_orb::String, Atom_extra::String)
 
     cache_key = (Float64(Spe_Core_Charge), Atom_symbol, Atom_cutoff, Atom_orb, Atom_extra)
     if haskey(PAO_CACHE, cache_key)
         pao = PAO_CACHE[cache_key]
-        if myrank == 0 && verbosity >= 1
-            Print_PAO(pao)
-        end
         return pao
     end
     
@@ -311,7 +296,7 @@ julia> Read_PAO(4.0, "C", 5.0, "s2p2d1", "")
             Spe_RF_Bessel[l+1][p] = zeros(Float64, NkGrid+1)
         end
     end
-    FT_PAO!( Spe_Atom_Cut1, Spe_MaxL_Basis, Spe_Num_Basis, Spe_PAO_RV, Spe_PAO_RWF, Spe_RF_Bessel)
+    FT_PAO!(Spe_Atom_Cut1, Spe_MaxL_Basis, Spe_Num_Basis, Spe_PAO_RV, Spe_PAO_RWF, Spe_RF_Bessel)
 
 
     pao = PAO( Atom_symbol, Atom_orb, Atom_extra,
@@ -321,10 +306,6 @@ julia> Read_PAO(4.0, "C", 5.0, "s2p2d1", "")
                Spe_PAO_Lmax, Spe_PAO_Mul,
                Spe_PAO_RWF, Spe_RF_Bessel,
                PAO_File_path*filename)
-
-    if myrank == 0 && verbosity>=1
-        Print_PAO(pao)
-    end
 
     PAO_CACHE[cache_key] = pao
     return pao

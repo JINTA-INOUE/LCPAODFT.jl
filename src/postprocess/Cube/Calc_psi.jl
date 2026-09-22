@@ -1,7 +1,9 @@
-function Calc_psi_HOMO(material::LCPAO_model, kpts::Vector{Vector{Float64}})
+function Calc_psi_HOMO(material::LCPAO_model, kpts)
 
     Natom = material.Natom
     SpinPol = material.SpinPol
+    spinsize = ifelse(SpinPol=="on", 2, 1)
+    Spindeg = ifelse(SpinPol=="off", 1, 2)
     FNAN = material.FNAN
     natn = material.natn
     ncn = material.ncn
@@ -13,40 +15,28 @@ function Calc_psi_HOMO(material::LCPAO_model, kpts::Vector{Vector{Float64}})
     OLP = material.OLP
     Hks = material.Hks
     iHks = material.iHks
-
     fsize = sum(Total_NumOrbs)
+    Nfsize = ifelse(SpinPol=="nc", 2*fsize, fsize)
     Nkpt = length(kpts)
 
-    if SpinPol ∈ ("off", "on")
-        Nfsize = fsize
-    elseif SpinPol == "nc"
-        Nfsize = 2*fsize
-    end
 
-    if SpinPol ∈ ("off", "nc")
-        spinsize = 1
-    elseif SpinPol == "on"
-        spinsize = 2
-    end
-
-    if SpinPol ∈ ("on", "nc")
-        Spindeg = 2
-    elseif SpinPol == "off"
-        Spindeg = 1
-    end
-
-
-
-    Enk = Vector{Vector{Vector{Float64}}}(undef, spinsize)
-    Cnk = Vector{Vector{Matrix{ComplexF64}}}(undef, spinsize)
-    for spin = 1:spinsize
+    Enk = Vector{Vector{Vector{Float64}}}(undef, Spindeg)
+    for spin = 1:Spindeg
         Enk[spin] = Vector{Vector{Float64}}(undef, Nkpt)
-        Cnk[spin] = Vector{Matrix{ComplexF64}}(undef, Nkpt)
         for k = 1:Nkpt
             Enk[spin][k] = zeros(Float64, Nfsize)
+        end
+    end
+
+
+    Cnk = Vector{Vector{Matrix{ComplexF64}}}(undef, spinsize)
+    for spin = 1:spinsize
+        Cnk[spin] = Vector{Matrix{ComplexF64}}(undef, Nkpt)
+        for k = 1:Nkpt
             Cnk[spin][k] = zeros(ComplexF64, Nfsize, Nfsize)
         end
     end
+
 
 
     if SpinPol ∈ ("off", "on")
@@ -54,7 +44,6 @@ function Calc_psi_HOMO(material::LCPAO_model, kpts::Vector{Vector{Float64}})
         H = zeros(ComplexF64, fsize, fsize)
         for spin = 1:spinsize, ik = 1:Nkpt
             HS_matrix!(S, H, OLP, Hks[spin], Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, kpts[ik])
-
             Enk[spin][ik], Cnk[spin][ik] = eigen(Hermitian(H), Hermitian(S))
         end
     else
@@ -68,6 +57,7 @@ function Calc_psi_HOMO(material::LCPAO_model, kpts::Vector{Vector{Float64}})
             @. S[fsize+1:end, fsize+1:end] = tmpH
             Enk[1][ik], Cnk[1][ik] = eigen(Hermitian(H), Hermitian(S))
         end
+        Enk[2] = deepcopy(Enk[1])
     end
 
 
@@ -97,6 +87,59 @@ function Calc_psi_HOMO(material::LCPAO_model, kpts::Vector{Vector{Float64}})
         end
     end
 
+    for ik = 1:Nkpt, spin = 1:spinsize
+        @show ik, spin, Bulk_HOMO[ik][spin]
+    end
+
+    for ik = 1:Nkpt, spin = 1:spinsize
+        mu = Bulk_HOMO[ik][spin]
+        ene = (Enk[spin][ik][mu]-ChemP)*eV2Hartree
+        @show ik, spin, mu, ene
+    end
+
+    #=
+    for ik = 1:Nkpt, spin = 1:spinsize
+        Bulk_HOMO[ik][spin] += 1
+    end
+
+    for ik = 1:Nkpt, spin = 1:spinsize
+        @show ik, spin, Bulk_HOMO[ik][spin]
+    end
+
+    for ik = 1:Nkpt, spin = 1:spinsize
+        mu = Bulk_HOMO[ik][spin]
+        ene = (Enk[spin][ik][mu]-ChemP)*eV2Hartree
+        @show ik, spin, mu, ene
+    end
+
+    for ik = 1:Nkpt, spin = 1:spinsize
+        Bulk_HOMO[ik][spin] += 1
+    end
+
+    for ik = 1:Nkpt, spin = 1:spinsize
+        @show ik, spin, Bulk_HOMO[ik][spin]
+    end
+
+    for ik = 1:Nkpt, spin = 1:spinsize
+        mu = Bulk_HOMO[ik][spin]
+        ene = (Enk[spin][ik][mu]-ChemP)*eV2Hartree
+        @show ik, spin, mu, ene
+    end
+
+    for ik = 1:Nkpt, spin = 1:spinsize
+        Bulk_HOMO[ik][spin] += 1
+    end
+
+    for ik = 1:Nkpt, spin = 1:spinsize
+        @show ik, spin, Bulk_HOMO[ik][spin]
+    end
+
+    for ik = 1:Nkpt, spin = 1:spinsize
+        mu = Bulk_HOMO[ik][spin]
+        ene = (Enk[spin][ik][mu]-ChemP)*eV2Hartree
+        @show ik, spin, mu, ene
+    end
+    =#
 
 
 
@@ -144,10 +187,12 @@ function Calc_psi_HOMO(material::LCPAO_model, kpts::Vector{Vector{Float64}})
 end
 
 
-function Calc_hwfs_HOMO(material::LCPAO_model, Umjk)
+function Calc_hwfs_HOMO(material::LCPAO_model, Cnk, Umjk)
 
     Natom = material.Natom
     SpinPol = material.SpinPol
+    spinsize = ifelse(SpinPol=="on", 2, 1)
+    Spindeg = ifelse(SpinPol=="off", 1, 2)
     FNAN = material.FNAN
     natn = material.natn
     ncn = material.ncn
@@ -161,24 +206,8 @@ function Calc_hwfs_HOMO(material::LCPAO_model, Umjk)
     Hks = material.Hks
     iHks = material.iHks
     fsize = sum(Total_NumOrbs)
+    Nfsize = ifelse(SpinPol=="nc", 2*fsize, fsize)
 
-    if SpinPol ∈ ("off", "on")
-        Nfsize = fsize
-    elseif SpinPol == "nc"
-        Nfsize = 2*fsize
-    end
-
-    if SpinPol ∈ ("off", "nc")
-        spinsize = 1
-    elseif SpinPol == "on"
-        spinsize = 2
-    end
-
-    if SpinPol ∈ ("on", "nc")
-        Spindeg = 2
-    elseif SpinPol == "off"
-        Spindeg = 1
-    end
 
     if SpinPol == "off"
         Nocc = Int64(div(Valence_Electrons,2))
@@ -190,41 +219,13 @@ function Calc_hwfs_HOMO(material::LCPAO_model, Umjk)
 
 
 
-    Enk = zeros(Float64, spinsize, Nfsize)
-    Cnk = Vector{Matrix{ComplexF64}}(undef, spinsize)
-    for spin = 1:spinsize
-        Cnk[spin] = zeros(ComplexF64, Nfsize, Nfsize)
-    end
-
-
-    kpts = zeros(Float64, 3)
-    if SpinPol ∈ ("off", "on")
-        S = zeros(ComplexF64, fsize, fsize)
-        H = zeros(ComplexF64, fsize, fsize)
-        for spin = 1:spinsize
-            HS_matrix!(S, H, OLP, Hks[spin], Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, kpts)
-            Enk[spin,:], Cnk[spin] = eigen(Hermitian(H), Hermitian(S))
-        end
-    else
-        tmpH = zeros(ComplexF64, fsize, fsize)
-        S = zeros(ComplexF64, 2*fsize, 2*fsize)
-        H = zeros(ComplexF64, 2*fsize, 2*fsize)
-        HS_matrix_NC!(tmpH, H, Hks, iHks, Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, kpts)
-        HS_matrix!(tmpH, OLP, Natom, Total_NumOrbs, MP, FNAN, natn, ncn, atv_ijk, kpts)
-        @. S[1:fsize, 1:fsize] = tmpH
-        @. S[fsize+1:end, fsize+1:end] = tmpH
-        Enk[1,:], Cnk[1] = eigen(Hermitian(H), Hermitian(S))
-    end
-
-
-    # Calc C̃j,iα(k) =  ∑_{μ} Ujμ(k)Cμ,iα(k) (|hjk> = ∑_{μ} Ujμ(k)|ψμk>)
     Umjk2 = Vector{Matrix{ComplexF64}}(undef, spinsize)
     for spin = 1:spinsize
         Umjk2[spin] = zeros(ComplexF64, Nocc, Nocc)
     end
 
     for spin = 1:spinsize, j = 1:Nocc, μ = 1:Nocc
-        Umjk2[spin][μ,j] = Umjk[spin][j,μ]
+        Umjk2[spin][μ,j] = Umjk[spin][1][j,μ]
     end
 
 
@@ -236,7 +237,7 @@ function Calc_hwfs_HOMO(material::LCPAO_model, Umjk)
     for spin = 1:spinsize, ist = 1:Nfsize, j = 1:Nocc
         Sum = 0.0 + im*0.0
         for μ = 1:Nocc
-            Sum += Cnk[spin][ist,μ]*Umjk2[spin][μ,j]
+            Sum += Cnk[spin][1][ist,μ]*Umjk2[spin][μ,j]
         end
         Cnk2[spin][ist,j] = Sum
     end

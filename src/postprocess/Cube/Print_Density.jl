@@ -49,19 +49,19 @@ function Print_Density(filename, SpinPol, Atoms_Symbol, system_grid, ADensity_Gr
 
     if SpinPol ∈ ("on", "nc")
         println("<Print_Density> $filename.den0.cube")
-        file = open(filename*".tden.cube", "w")
+        file = open(filename*".den0.cube", "w")
         Print_CubeTitle(file, Natom, Gxyz, gLatvecs, Grid_Origin, Atoms_Symbol, Ngrid)
         Print_CubeData(file, Density_Grid[1], Ngrid)
         close(file)
 
         println("<Print_Density> $filename.den1.cube")
-        file = open(filename*".tden.cube", "w")
+        file = open(filename*".den1.cube", "w")
         Print_CubeTitle(file, Natom, Gxyz, gLatvecs, Grid_Origin, Atoms_Symbol, Ngrid)
         Print_CubeData(file, Density_Grid[2], Ngrid)
         close(file)
 
         println("<Print_Density> $filename.sden.cube")
-        file = open(filename*".tden.cube", "w")
+        file = open(filename*".sden.cube", "w")
         Print_CubeTitle(file, Natom, Gxyz, gLatvecs, Grid_Origin, Atoms_Symbol, Ngrid)
         Print_CubeData(file, Density_Grid[2]-Density_Grid[1], Ngrid)
         close(file)

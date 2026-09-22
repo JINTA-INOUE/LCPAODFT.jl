@@ -9,6 +9,44 @@
 end
 
 
+@timeit timer "Calc_Sigma_decomp_moments" function Calc_Sigma_decomp(
+    boltz_setup::Boltz_Setup, TDF_Energy,
+    moments::BoltzDecompMoments)
+
+    material = boltz_setup.material
+    Nwann = Int(material.Ngsize)
+    SpinPol = material.SpinPol
+    spinsize = SpinPol == "on" ? 2 : 1
+    ncomponents = boltz_setup.plane_type ? 3 : 6
+    sigma = zeros(Float64, Nwann, spinsize, ncomponents)
+    conversion = elem_charge_SI^3 / hbar_SI^2 * 1.0e-5
+
+    for itemp in eachindex(boltz_setup.Temp),
+        imu in eachindex(boltz_setup.muE)
+
+        @inbounds for component = 1:ncomponents, spin = 1:spinsize,
+                      orbital = 1:Nwann
+            sigma[orbital, spin, component] =
+                moments.L0[orbital, spin, component, itemp, imu] *
+                conversion
+        end
+
+        mu = boltz_setup.muE[imu]
+        temperature = boltz_setup.Temp[itemp]
+        if boltz_setup.plane_type
+            Write_Sigma_decomp_2D(
+                boltz_setup.filename, boltz_setup.mat_type, SpinPol,
+                Nwann, mu, temperature, sigma)
+        else
+            Write_Sigma_decomp_3D(
+                boltz_setup.filename, boltz_setup.mat_type, SpinPol,
+                Nwann, mu, temperature, sigma)
+        end
+    end
+    return nothing
+end
+
+
 function Calc_Sigma_decomp_2D(boltz_setup::Boltz_Setup, TDF_Energy, TDF_decomp)
 
     material = boltz_setup.material

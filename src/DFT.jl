@@ -44,8 +44,12 @@ function DFT(dft_setup::DFT_Setup)
     pao = Vector{PAO}(undef, Nspecies)
     pspot = Vector{Pspot}(undef, Nspecies)
     for spe = 1:Nspecies
-        pspot[spe] = Read_VPS(Spe_symbol[spe], Spe_extra[spe], xc_type, SO_switch; verbosity)
-        pao[spe] = Read_PAO(pspot[spe].Spe_Core_Charge, Spe_symbol[spe], Spe_cutoff[spe], Spe_orb[spe], Spe_extra[spe]; verbosity)
+        pspot[spe] = Read_VPS(Spe_symbol[spe], Spe_extra[spe], xc_type, SO_switch)
+        pao[spe] = Read_PAO(pspot[spe].Spe_Core_Charge, Spe_symbol[spe], Spe_cutoff[spe], Spe_orb[spe], Spe_extra[spe])
+        if myrank == 0 && verbosity>=1
+            Print_PAO(pao[spe])
+            Print_Pspot(pspot[spe])
+        end
     end
 
     

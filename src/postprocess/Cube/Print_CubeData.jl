@@ -36,8 +36,10 @@ end
 
 function Print_CubeData_1DTitle(file::IOStream, kpts, EigenValue, ChemP)
     @printf(file, "# Absolute eigenvalue=%10.7f (Hartree)  Relative eigenvalue=%10.7f (Hartree)\n", EigenValue, EigenValue-ChemP)
+    @printf(file, "# Absolute eigenvalue=%10.7f (eV)  Relative eigenvalue=%10.7f (eV)\n", EigenValue*eV2Hartree, (EigenValue-ChemP)*eV2Hartree)
     @printf(file, "# Chemical Potential=%10.7f (Hartree)\n", ChemP)
     @printf(file, "# kpoints=%10.7f %10.7f %10.7f\n", kpts[1], kpts[2], kpts[3])
+    @printf(file, "\n")
 end
 
 

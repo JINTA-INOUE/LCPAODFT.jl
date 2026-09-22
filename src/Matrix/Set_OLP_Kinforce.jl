@@ -6,7 +6,6 @@
 	Total_NumOrbs = system_grid.Total_NumOrbs
     Total_Hsize = system_grid.Total_Hsize
 
-
     Hkin_force = Vector{Vector{Vector{Vector{Vector{Float64}}}}}(undef, 3)
     for xyz = 1:3
         Hkin_force[xyz] = Vector{Vector{Vector{Vector{Float64}}}}(undef, Natom)
@@ -76,12 +75,11 @@ function Set_OLP_Kinforce!(OLP_force, Hkin_force, pao::Vector{PAO}, system_grid:
     MPI_FNAN = system_grid.MPI_FNAN
     MPI_natn = system_grid.MPI_natn
     MPI_ncn = system_grid.MPI_ncn
+    MPI_Hoffset = system_grid.MPI_Hoffset
     Total_Hsize = system_grid.Total_Hsize
     MPI_Hsize = system_grid.MPI_Hsize
-    MPHks = system_grid.MPHks
     MPI_size = system_grid.MPI_size
     myHsize = MPI_Hsize[myrank+1]
-    HksNum = MPHks[myrank+1]
 
     natn = system_grid.natn
     FNAN = system_grid.FNAN
@@ -182,6 +180,7 @@ function Set_OLP_Kinforce!(OLP_force, Hkin_force, pao::Vector{PAO}, system_grid:
 
         NO0 = Total_NumOrbs[atom]
         NO1 = Total_NumOrbs[jatom]
+        global_hst = MPI_Hoffset[loop]
             
         Lmax_Four_Int = 2*max(iMaxL_Basis, jMaxL_Basis)
 
@@ -293,9 +292,10 @@ function Set_OLP_Kinforce!(OLP_force, Hkin_force, pao::Vector{PAO}, system_grid:
             if abs(siT) < 1.0e-13
                 for ist = 1:NO0, jst = 1:NO1
                     hst += 1
-                    OLP_force[1][HksNum+hst] = -8*real(siT*coP*OLPriαjβ[ist,jst] + coT*coP/R*OLPtiαjβ[ist,jst])
-                    OLP_force[2][HksNum+hst] = -8*real(siT*siP*OLPriαjβ[ist,jst] + coT*siP/R*OLPtiαjβ[ist,jst])
-                    OLP_force[3][HksNum+hst] = -8*real(coT*OLPriαjβ[ist,jst] - siT/R*OLPtiαjβ[ist,jst])
+                    global_hst += 1
+                    OLP_force[1][global_hst] = -8*real(siT*coP*OLPriαjβ[ist,jst] + coT*coP/R*OLPtiαjβ[ist,jst])
+                    OLP_force[2][global_hst] = -8*real(siT*siP*OLPriαjβ[ist,jst] + coT*siP/R*OLPtiαjβ[ist,jst])
+                    OLP_force[3][global_hst] = -8*real(coT*OLPriαjβ[ist,jst] - siT/R*OLPtiαjβ[ist,jst])
                     Hkinforce1D[1][hst] = -4*real(siT*coP*Hkinriαjβ[ist,jst] + coT*coP/R*Hkintiαjβ[ist,jst])
                     Hkinforce1D[2][hst] = -4*real(siT*siP*Hkinriαjβ[ist,jst] + coT*siP/R*Hkintiαjβ[ist,jst])
                     Hkinforce1D[3][hst] = -4*real(coT*Hkinriαjβ[ist,jst] - siT/R*Hkintiαjβ[ist,jst])
@@ -303,9 +303,10 @@ function Set_OLP_Kinforce!(OLP_force, Hkin_force, pao::Vector{PAO}, system_grid:
             else
                 for ist = 1:NO0, jst = 1:NO1
                     hst += 1
-                    OLP_force[1][HksNum+hst] = -8*real(siT*coP*OLPriαjβ[ist,jst] + coT*coP/R*OLPtiαjβ[ist,jst] - siP/siT/R*OLPpiαjβ[ist,jst])
-                    OLP_force[2][HksNum+hst] = -8*real(siT*siP*OLPriαjβ[ist,jst] + coT*siP/R*OLPtiαjβ[ist,jst] + coP/siT/R*OLPpiαjβ[ist,jst])
-                    OLP_force[3][HksNum+hst] = -8*real(coT*OLPriαjβ[ist,jst] - siT/R*OLPtiαjβ[ist,jst])
+                    global_hst += 1
+                    OLP_force[1][global_hst] = -8*real(siT*coP*OLPriαjβ[ist,jst] + coT*coP/R*OLPtiαjβ[ist,jst] - siP/siT/R*OLPpiαjβ[ist,jst])
+                    OLP_force[2][global_hst] = -8*real(siT*siP*OLPriαjβ[ist,jst] + coT*siP/R*OLPtiαjβ[ist,jst] + coP/siT/R*OLPpiαjβ[ist,jst])
+                    OLP_force[3][global_hst] = -8*real(coT*OLPriαjβ[ist,jst] - siT/R*OLPtiαjβ[ist,jst])
                     Hkinforce1D[1][hst] = -4*real(siT*coP*Hkinriαjβ[ist,jst] + coT*coP/R*Hkintiαjβ[ist,jst] - siP/siT/R*Hkinpiαjβ[ist,jst])
                     Hkinforce1D[2][hst] = -4*real(siT*siP*Hkinriαjβ[ist,jst] + coT*siP/R*Hkintiαjβ[ist,jst] + coP/siT/R*Hkinpiαjβ[ist,jst])
                     Hkinforce1D[3][hst] = -4*real(coT*Hkinriαjβ[ist,jst] - siT/R*Hkintiαjβ[ist,jst])
@@ -314,9 +315,10 @@ function Set_OLP_Kinforce!(OLP_force, Hkin_force, pao::Vector{PAO}, system_grid:
         else
             for ist = 1:NO0, jst = 1:NO1
                 hst += 1
-                OLP_force[1][HksNum+hst] = 0.0
-                OLP_force[2][HksNum+hst] = 0.0
-                OLP_force[3][HksNum+hst] = 0.0
+                global_hst += 1
+                OLP_force[1][global_hst] = 0.0
+                OLP_force[2][global_hst] = 0.0
+                OLP_force[3][global_hst] = 0.0
                 Hkinforce1D[1][hst] = 0.0
                 Hkinforce1D[2][hst] = 0.0
                 Hkinforce1D[3][hst] = 0.0
@@ -333,7 +335,7 @@ function Set_OLP_Kinforce!(OLP_force, Hkin_force, pao::Vector{PAO}, system_grid:
 
     Hkinforce1Dxyz = zeros(Float64, Total_Hsize)
     for i = 1:3
-        MPI.Allgatherv!(Hkinforce1D[i], VBuffer(Hkinforce1Dxyz, MPI_Hsize), comm)
+        assemble_canonical!(Hkinforce1Dxyz, Hkinforce1D[i], system_grid, comm)
         hst = 0
         for atom = 1:Natom, Rn = 1:FNAN[atom]+1, ist = 1:Total_NumOrbs[atom], jst = 1:Total_NumOrbs[natn[atom][Rn]]
             hst += 1

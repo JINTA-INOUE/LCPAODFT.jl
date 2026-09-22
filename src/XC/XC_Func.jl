@@ -43,11 +43,10 @@ mutable struct XC_GGA_PBE <: GGA
 end
 
 
-
 function XC_Func(xc_type::String, SpinPol::String, Nspin, Ngrid, gLatvecs)
 
     xc_type = uppercase(xc_type)
-	if xc_type ∉ ("LDA", "LSDA", "GGA_PBE")
+	if xc_type ∉ ("LDA", "LSDA", "GGA_PBE", "GGA-PBE")
 		println("xc_type is $(xc_type) ")
 		error("please check xc_type name")
 	end
@@ -84,7 +83,7 @@ function XC_Func(xc_type::String, SpinPol::String, Nspin, Ngrid, gLatvecs)
 
         return XC_LSDA(xc_type, SpinPol, Nspin, Ngrid, Vxc_Grid)
 
-    elseif xc_type == "GGA_PBE"
+    elseif xc_type ∈ ("GGA_PBE", "GGA-PBE")
 
         # For dDen_Grid, dEXC_dGD calculation
         Diff_Coef = Calc_Diff_Coef(gLatvecs)

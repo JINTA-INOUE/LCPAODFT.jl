@@ -1,5 +1,4 @@
-function DosMain(filepath::String, kmesh, Erange::Vector{Float64};
-                 mode::String="Dos", de_Dos=0.01)
+function DosMain(filepath::String, kmesh, Erange::Vector{Float64}; mode::String="Dos", de_Dos=0.01)
 
     Threads.nthreads() == 1 || error(
         "MPI-flat DosMain requires exactly one Julia thread per MPI process; " *
@@ -10,6 +9,7 @@ function DosMain(filepath::String, kmesh, Erange::Vector{Float64};
     nprocs = MPI.Comm_size(comm)
     myrank = MPI.Comm_rank(comm)
     BLAS.set_num_threads(1)
+    MKL.set_num_threads(1)
     start_time = time()
 
     length(kmesh) == 3 || error("kmesh must contain three dimensions")
@@ -74,16 +74,12 @@ function DosMain(filepath::String, kmesh, Erange::Vector{Float64};
     end
 
     if mode == "all"
-        Calc_DosMain(filename, material, Enk, halo_plan, neg, kmesh,
-                     Dos_Erange; de_Dos)
-        Calc_PDosMain(filename, material, Enk, EVec, halo_plan, neg, kmesh,
-                      Dos_Erange; de_Dos)
+        Calc_DosMain(filename, material, Enk, halo_plan, neg, kmesh, Dos_Erange; de_Dos)
+        Calc_PDosMain(filename, material, Enk, EVec, halo_plan, neg, kmesh, Dos_Erange; de_Dos)
     elseif mode == "dos"
-        Calc_DosMain(filename, material, Enk, halo_plan, neg, kmesh,
-                     Dos_Erange; de_Dos)
+        Calc_DosMain(filename, material, Enk, halo_plan, neg, kmesh, Dos_Erange; de_Dos)
     else
-        Calc_PDosMain(filename, material, Enk, EVec, halo_plan, neg, kmesh,
-                      Dos_Erange; de_Dos)
+        Calc_PDosMain(filename, material, Enk, EVec, halo_plan, neg, kmesh, Dos_Erange; de_Dos)
     end
 
     MPI.Barrier(comm)

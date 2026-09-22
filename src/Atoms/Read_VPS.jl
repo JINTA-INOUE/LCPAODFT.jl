@@ -296,23 +296,11 @@ julia> Read_VPS("C", "", "LDA", false)
 julia> Read_VPS("Fe", "S", "LDA", false)
 ```
 """
-@timeit timer "Read_VPS" function Read_VPS( 
-    Atom_symbol::String, 
-    Atom_extra::String, 
-    xc_type::String, 
-    SO_switch::Bool;
-    verbosity = 1)
-
-    comm = MPI.COMM_WORLD
-    nprocs = MPI.Comm_size(comm)
-    myrank = MPI.Comm_rank(comm)
+@timeit timer "Read_VPS" function Read_VPS(Atom_symbol::String, Atom_extra::String, xc_type::String, SO_switch::Bool)
 
     cache_key = (Atom_symbol, Atom_extra, xc_type, SO_switch)
     if haskey(PSPOT_CACHE, cache_key)
         pspot = PSPOT_CACHE[cache_key]
-        if myrank == 0 && verbosity >= 1
-            Print_Pspot(pspot)
-        end
         return pspot
     end
 
@@ -359,10 +347,6 @@ julia> Read_VPS("Fe", "S", "LDA", false)
                    Spe_VPS_XV, Spe_VPS_RV, Spe_Vcore,
                    is_pcc, Spe_Atomic_PCC,
                    VPS_File_path*filename )
-
-    if myrank == 0 && verbosity>=1
-        Print_Pspot(pspot)
-    end
             
                 
     PSPOT_CACHE[cache_key] = pspot

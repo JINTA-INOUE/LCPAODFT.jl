@@ -10,7 +10,6 @@ function Calc_Ngrid(Ecut, Latvecs)
     @views Ns1 = temp/norm(cross(Latvecs[2,:], Latvecs[3,:]))
     @views Ns2 = temp/norm(cross(Latvecs[3,:], Latvecs[1,:]))
     @views Ns3 = temp/norm(cross(Latvecs[1,:], Latvecs[2,:]))
-    
 
     Ngrid1 = _Calc_Ngrid(Ns1)
     Ngrid2 = _Calc_Ngrid(Ns2)

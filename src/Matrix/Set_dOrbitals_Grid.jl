@@ -1,21 +1,8 @@
 function Set_dOrbitals_Grid(pao::Vector{PAO}, ucell::UCell)
-    
-    system_grid = ucell.system_grid
-    Natom = system_grid.Natom
-    Total_NumOrbs = system_grid.Total_NumOrbs
-    GridN_Atom = ucell.GridN_Atom
-
-    dOrbs_Grid = Vector{PackedOrbitalsGrid}(undef, 3)
-    for xyz = 1:3
-        packed = Vector{Matrix{Float64}}(undef, Natom)
-        for atom = 1:Natom
-            packed[atom] = zeros(Float64, Total_NumOrbs[atom], GridN_Atom[atom])
-        end
-        dOrbs_Grid[xyz] = PackedOrbitalsGrid(packed)
-    end
+    atoms = _rank_orbital_atoms(ucell.system_grid)
+    dOrbs_Grid = [_empty_orbitals_grid(
+        atoms, ucell.system_grid.Total_NumOrbs, ucell.GridN_Atom) for _ = 1:3]
     Set_dOrbitals_Grid!(dOrbs_Grid, pao, ucell)
-
-
     return dOrbs_Grid
 end
 
@@ -23,7 +10,6 @@ end
 function Set_dOrbitals_Grid!(dOrbs_Grid, pao::Vector{PAO}, ucell::UCell)
     
     system_grid = ucell.system_grid
-    Natom = system_grid.Natom
     Nspecies = length(pao)
     Latvecs = system_grid.Latvecs
     atv = system_grid.atv
@@ -76,7 +62,7 @@ function Set_dOrbitals_Grid!(dOrbs_Grid, pao::Vector{PAO}, ucell::UCell)
     dPz = 0.0
 
 
-    for atom = 1:Natom
+    for (local_atom, atom) in pairs(dOrbs_Grid[1].atoms)
         
         spe = atom2spe[atom]
         Spe_MaxL_Basis = pao[spe].Spe_MaxL_Basis
@@ -353,9 +339,9 @@ function Set_dOrbitals_Grid!(dOrbs_Grid, pao::Vector{PAO}, ucell::UCell)
                 dchidtheta = RF[l+1][p]*dAFQ[l+1][m]
                 dchidphi = RF[l+1][p]*dAFP[l+1][m]
     
-                dOrbs_Grid[1][atom][xyz][ist] = -dRx*dchidr - dQx*dchidtheta - dPx*dchidphi
-                dOrbs_Grid[2][atom][xyz][ist] = -dRy*dchidr - dQy*dchidtheta - dPy*dchidphi
-                dOrbs_Grid[3][atom][xyz][ist] = -dRz*dchidr - dQz*dchidtheta - dPz*dchidphi
+                dOrbs_Grid[1].data[local_atom][ist, xyz] = -dRx*dchidr - dQx*dchidtheta - dPx*dchidphi
+                dOrbs_Grid[2].data[local_atom][ist, xyz] = -dRy*dchidr - dQy*dchidtheta - dPy*dchidphi
+                dOrbs_Grid[3].data[local_atom][ist, xyz] = -dRz*dchidr - dQz*dchidtheta - dPz*dchidphi
             end
         end
     end

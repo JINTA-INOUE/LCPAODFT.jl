@@ -1,56 +1,75 @@
 struct PackedOrbitalsGrid
+    atoms::Vector{Int32}
     data::Vector{Matrix{Float64}}
 end
 
-struct _PackedAtomOrbitals{M<:AbstractMatrix{Float64}}
-    data::M
-end
-
-struct _PackedOrbitalColumn{M<:AbstractMatrix{Float64}}
-    data::M
-    column::Int
-end
-
 Base.length(grid::PackedOrbitalsGrid) = length(grid.data)
-@inline Base.getindex(grid::PackedOrbitalsGrid, atom::Integer) = _PackedAtomOrbitals(@inbounds grid.data[Int(atom)])
-Base.length(atom::_PackedAtomOrbitals) = size(atom.data, 2)
-@inline Base.getindex(atom::_PackedAtomOrbitals, column::Integer) = _PackedOrbitalColumn(atom.data, Int(column))
-Base.length(column::_PackedOrbitalColumn) = size(column.data, 1)
-@inline Base.getindex(column::_PackedOrbitalColumn, orbital::Integer) = @inbounds column.data[Int(orbital), column.column]
-@inline function Base.setindex!(column::_PackedOrbitalColumn, value, orbital::Integer)
-    @inbounds column.data[Int(orbital), column.column] = value
-    return value
-end
 
-
-@timeit timer "Set_Orbitals_Grid" function Set_Orbitals_Grid(pao::Vector{PAO}, ucell::UCell)
-    
-    system_grid = ucell.system_grid
-    Natom = system_grid.Natom
-    Total_NumOrbs = system_grid.Total_NumOrbs
-    GridN_Atom = ucell.GridN_Atom
-    
-    packed = Vector{Matrix{Float64}}(undef, Natom)
-    for atom = 1:Natom
-        packed[atom] = zeros(Float64, Total_NumOrbs[atom], GridN_Atom[atom])
+@inline function _local_atom_index(grid::PackedOrbitalsGrid, atom::Integer)
+    global_atom = Int32(atom)
+    local_atom = searchsortedfirst(grid.atoms, global_atom)
+    if local_atom > length(grid.atoms) || grid.atoms[local_atom] != global_atom
+        throw(BoundsError(grid, atom))
     end
-    Orbs_Grid = PackedOrbitalsGrid(packed)
-    Set_Orbitals_Grid!(Orbs_Grid, pao, ucell)
+    return local_atom
+end
+@inline atom_matrix(grid::PackedOrbitalsGrid, atom::Integer) = @inbounds grid.data[_local_atom_index(grid, atom)]
 
-    
-    return Orbs_Grid
+"""Sorted atoms whose orbital grids are needed by the current MPI rank."""
+function _rank_orbital_atoms(system_grid::System_Grid)
+    return sort!(unique(vcat(system_grid.MPI_atom, system_grid.MPI_natn)))
+end
+
+function _empty_orbitals_grid(atoms::Vector{Int32}, total_orbitals, grid_points)
+    data = [zeros(Float64, total_orbitals[atom], grid_points[atom])
+            for atom in atoms]
+    return PackedOrbitalsGrid(atoms, data)
+end
+
+@inline function _set_real_harmonics!(values::Vector{Vector{Float64}},
+                                      max_l::Integer,
+                                      theta::Float64, phi::Float64)
+    max_l <= 3 || error("PAO angular momentum l > 3 is not supported")
+    for l = 0:max_l
+        if l == 0
+            values[1][1] = Ylm_real(0, 0, theta, phi)
+        elseif l == 1
+            values[2][1] = Ylm_real(1, 1, theta, phi)
+            values[2][2] = Ylm_real(1, -1, theta, phi)
+            values[2][3] = Ylm_real(1, 0, theta, phi)
+        elseif l == 2
+            values[3][1] = Ylm_real(2, 0, theta, phi)
+            values[3][2] = Ylm_real(2, 2, theta, phi)
+            values[3][3] = Ylm_real(2, -2, theta, phi)
+            values[3][4] = Ylm_real(2, 1, theta, phi)
+            values[3][5] = Ylm_real(2, -1, theta, phi)
+        else
+            values[4][1] = Ylm_real(3, 0, theta, phi)
+            values[4][2] = Ylm_real(3, 1, theta, phi)
+            values[4][3] = Ylm_real(3, -1, theta, phi)
+            values[4][4] = Ylm_real(3, 2, theta, phi)
+            values[4][5] = Ylm_real(3, -2, theta, phi)
+            values[4][6] = Ylm_real(3, 3, theta, phi)
+            values[4][7] = Ylm_real(3, -3, theta, phi)
+        end
+    end
+    return nothing
+end
+
+@timeit timer "Set_Orbitals_Grid" function Set_Orbitals_Grid(
+    pao::Vector{PAO}, ucell::UCell)
+    atoms = _rank_orbital_atoms(ucell.system_grid)
+    orbitals_grid = _empty_orbitals_grid(
+        atoms, ucell.system_grid.Total_NumOrbs, ucell.GridN_Atom)
+    Set_Orbitals_Grid!(orbitals_grid, pao, ucell)
+    return orbitals_grid
 end
 
 
-function Set_Orbitals_Grid!(Orbs_Grid, pao::Vector{PAO}, ucell::UCell)
-    
-    comm = MPI.COMM_WORLD
-    nprocs = MPI.Comm_size(comm)
-    myrank = MPI.Comm_rank(comm)
+function Set_Orbitals_Grid!(orbitals_grid::PackedOrbitalsGrid,
+                            pao::Vector{PAO}, ucell::UCell)
 
     system_grid = ucell.system_grid
-    Natom = system_grid.Natom
-    Nspecies = length(pao)
     Latvecs = system_grid.Latvecs
     atv = system_grid.atv
     Grid_Origin = system_grid.Grid_Origin
@@ -68,11 +87,8 @@ function Set_Orbitals_Grid!(Orbs_Grid, pao::Vector{PAO}, ucell::UCell)
 	gLatvecs[3,:] = Latvecs[3,:]/Ngrid3
 
 
-    pmax = 4
-    maxSpe_MaxL_Basis = 0
-    for spe = 1:Nspecies
-        maxSpe_MaxL_Basis = max(maxSpe_MaxL_Basis, pao[spe].Spe_MaxL_Basis)
-    end
+    maxSpe_MaxL_Basis = maximum(species.Spe_MaxL_Basis for species in pao)
+    pmax = maximum(maximum(species.Spe_Num_Basis) for species in pao)
 
     RF = Vector{Vector{Float64}}(undef, maxSpe_MaxL_Basis+1)
     AF = Vector{Vector{Float64}}(undef, maxSpe_MaxL_Basis+1)
@@ -82,7 +98,8 @@ function Set_Orbitals_Grid!(Orbs_Grid, pao::Vector{PAO}, ucell::UCell)
     end
 
 
-    for atom = 1:Natom
+    for (local_atom, atom) in pairs(orbitals_grid.atoms)
+        atom_orbitals = orbitals_grid.data[local_atom]
 
         spe = atom2spe[atom]
         Spe_MaxL_Basis = pao[spe].Spe_MaxL_Basis
@@ -238,39 +255,15 @@ function Set_Orbitals_Grid!(Orbs_Grid, pao::Vector{PAO}, ucell::UCell)
                 end
             end
             
-            # multiple real spherical harmics function Ylm
+            # Real spherical harmonics in the PAO orbital ordering.
             if po == 0
-                for l = 0:Spe_MaxL_Basis
-                    if l == 0
-                        AF[1][1] = Ylm_real(0,0,theta,phi)      # s
-                    elseif l == 1
-                        AF[2][1] = Ylm_real(1,1,theta,phi)      # px
-                        AF[2][2] = Ylm_real(1,-1,theta,phi)     # py
-                        AF[2][3] = Ylm_real(1,0,theta,phi)      # pz
-                    elseif l == 2
-                        AF[3][1] = Ylm_real(2,0,theta,phi)      # dz^2
-                        AF[3][2] = Ylm_real(2,2,theta,phi)      # dx^2-y^2
-                        AF[3][3] = Ylm_real(2,-2,theta,phi)     # dxy
-                        AF[3][4] = Ylm_real(2,1,theta,phi)      # dxz
-                        AF[3][5] = Ylm_real(2,-1,theta,phi)     # dyz
-                    elseif l == 3
-                        AF[4][1] = Ylm_real(3,0,theta,phi)      # z^3
-                        AF[4][2] = Ylm_real(3,1,theta,phi)      # xz^2
-                        AF[4][3] = Ylm_real(3,-1,theta,phi)     # yz^2
-                        AF[4][4] = Ylm_real(3,2,theta,phi)      # z(x^2-y^2)
-                        AF[4][5] = Ylm_real(3,-2,theta,phi)     # xyz
-                        AF[4][6] = Ylm_real(3,3,theta,phi)      # x(x^2-3y^2)
-                        AF[4][7] = Ylm_real(3,-3,theta,phi)     # y(3x^2-y^2)
-                    else
-                        error("not support PAO l > 4")
-                    end
-                end
+                _set_real_harmonics!(AF, Spe_MaxL_Basis, theta, phi)
             end
 
             ist = 0
             @inbounds for l = 0:Spe_MaxL_Basis, p = 1:Spe_Num_Basis[l+1], m = 1:2*l+1
                 ist += 1
-                Orbs_Grid[atom][xyz][ist] = RF[l+1][p]*AF[l+1][m]
+                atom_orbitals[ist, xyz] = RF[l+1][p]*AF[l+1][m]
             end
         end
     end

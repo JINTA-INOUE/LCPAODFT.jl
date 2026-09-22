@@ -66,7 +66,7 @@ end
     MPI_FNAN = system_grid.MPI_FNAN
     MPI_natn = system_grid.MPI_natn
 
-    Set_ProExpn_VNA!(MPI_DS_VNA, MPI_HVNA, pao, pspot, system_grid)
+    @timeit timer "VNA_Projector" Set_ProExpn_VNA!(MPI_DS_VNA, MPI_HVNA, pao, pspot, system_grid)
 
     HVNA = Vector{Vector{Matrix{Float64}}}(undef, Natom)
 	for atom = 1:Natom
@@ -135,7 +135,7 @@ end
 end
 
 
-@timeit timer "VNA_Projector" function Set_ProExpn_VNA!(MPI_DS_VNA, MPI_HVNA, pao::Vector{PAO}, pspot::Vector{Pspot}, system_grid::System_Grid)
+function Set_ProExpn_VNA!(MPI_DS_VNA, MPI_HVNA, pao::Vector{PAO}, pspot::Vector{Pspot}, system_grid::System_Grid)
     
     comm = MPI.COMM_WORLD
     nprocs = MPI.Comm_size(comm)
@@ -805,8 +805,7 @@ end
             SumHVNA3 = zeros(Float64, 9, 4, 4, 4, 4)
             SumHVNAr3 = zeros(Float64, 9, 4, 4, 4, 4)
             for ik = 1:GL_Mesh
-                Calc_SphericalBesselj2!(Lmax_Four_Int, R*k1[ik], tsb,
-                                        SphB_l, dSphB_l)
+                Calc_SphericalBesselj2!(Lmax_Four_Int, R*k1[ik], tsb, SphB_l, dSphB_l)
                 @inbounds for l = 1:Lmax_Four_Int+1
                     SphB[l][ik] = SphB_l[l]
                     dSphB[l][ik] = dSphB_l[l]*k1[ik]

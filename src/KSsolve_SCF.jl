@@ -64,8 +64,6 @@ function KSsolve_SCF!(
     myrank == 0 && println("<Set_AdenPCC_Grid>  Calculation of the Initial Density Grid")
     ADensity_Grid, PCCDensity_Grid, Density_Grid = Set_AdenPCC_Grid(SpinPol, Init_Atoms_Nspin, Init_Atoms_Angle, pao, pspot, ucell)
 
-
-
     dVHart_Grid = zeros(Float64, NN)
 	Vpot_Grid = Vector{Vector{Float64}}(undef, Nspin)
 	for spin = 1:Nspin
@@ -194,7 +192,7 @@ function KSsolve_SCF!(
 
         if Mixing_method == "RMM-DIISH"
             dft_mixing.ChemP = electron.ChemP
-            Mixing_H!(SCF_iter, MPI_Hks, Hks, dft_options, dft_mixing)
+            Mixing_H!(SCF_iter, MPI_Hks, Hks, dft_options, dft_mixing, system_grid)
         end
 
 
@@ -399,8 +397,6 @@ function KSsolve_SCF!(
         WriteFile!(mulliken_charge, dft_setup, system_grid, dipole_moment, energy, force, DM_Vec, iDM, OLP_Vec, Hks_Vec, iHks)
     end
     MPI.Barrier(comm)
-    
-
     
     
     if verbosity>=1

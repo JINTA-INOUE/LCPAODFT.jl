@@ -30,13 +30,12 @@
 
     #=
     myrank == 0 && println("<Calc_WannierCenter>")
-    work_dirname = pwd()*"/"*filename*"_work_cwf"
-    work_file = work_dirname*"/"*filename*"_Amnk$myrank.jld2"
+    work_file = _cwf_work_file(filename, "Amnk$myrank")
     data = jldopen(work_file, "r")
     Amnk = data["Amnk"]
     close(data)
 
-    work_file = work_dirname*"/"*filename*"_Mmnkb$myrank.jld2"
+    work_file = _cwf_work_file(filename, "Mmnkb$myrank")
     data = jldopen(work_file, "r")
     Mmnkb = data["Mmnkb"]
     close(data)

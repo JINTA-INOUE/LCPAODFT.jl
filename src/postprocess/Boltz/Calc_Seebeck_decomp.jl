@@ -9,6 +9,141 @@
 end
 
 
+@timeit timer "Calc_Seebeck_decomp_moments" function Calc_Seebeck_decomp(
+    boltz_setup::Boltz_Setup, TDF_Energy,
+    moments::BoltzDecompMoments)
+
+    if boltz_setup.plane_type
+        _Calc_Seebeck_decomp_moments_2D(boltz_setup, moments)
+    else
+        _Calc_Seebeck_decomp_moments_3D(boltz_setup, moments)
+    end
+    return nothing
+end
+
+
+function _Calc_Seebeck_decomp_moments_2D(
+    boltz_setup::Boltz_Setup, moments::BoltzDecompMoments)
+
+    material = boltz_setup.material
+    Nwann = Int(material.Ngsize)
+    SpinPol = material.SpinPol
+    spinsize = SpinPol == "on" ? 2 : 1
+    sigma22 = zeros(Float64, 2, 2)
+    inv_sigma22 = similar(sigma22)
+    sigmaS22 = similar(sigma22)
+    Seebeck22 = similar(sigma22)
+    Seebeck = zeros(Float64, Nwann, spinsize, 4)
+
+    for itemp in eachindex(boltz_setup.Temp),
+        imu in eachindex(boltz_setup.muE)
+
+        fill!(Seebeck, 0.0)
+        for spin = 1:spinsize
+            sigma22[1, 1] = moments.total_L0[spin, 1, itemp, imu]
+            sigma22[1, 2] = moments.total_L0[spin, 2, itemp, imu]
+            sigma22[2, 1] = sigma22[1, 2]
+            sigma22[2, 2] = moments.total_L0[spin, 3, itemp, imu]
+            determinant = Seebeck_inv2!(sigma22, inv_sigma22)
+            if iszero(abs(determinant))
+                fill!(inv_sigma22, 0.0)
+            else
+                inv_sigma22 ./= determinant
+            end
+
+            for orbital = 1:Nwann
+                sigmaS22[1, 1] = moments.L1[
+                    orbital, spin, 1, itemp, imu]
+                sigmaS22[1, 2] = moments.L1[
+                    orbital, spin, 2, itemp, imu]
+                sigmaS22[2, 1] = sigmaS22[1, 2]
+                sigmaS22[2, 2] = moments.L1[
+                    orbital, spin, 3, itemp, imu]
+                LinearAlgebra.matmul2x2!(
+                    Seebeck22, 'N', 'N', inv_sigma22, sigmaS22)
+                Seebeck[orbital, spin, 1] = -Seebeck22[1, 1]
+                Seebeck[orbital, spin, 2] = -Seebeck22[1, 2]
+                Seebeck[orbital, spin, 3] = -Seebeck22[2, 1]
+                Seebeck[orbital, spin, 4] = -Seebeck22[2, 2]
+            end
+        end
+
+        Write_Seebeck_decomp_2D(
+            boltz_setup.filename, boltz_setup.mat_type, SpinPol, Nwann,
+            boltz_setup.muE[imu], boltz_setup.Temp[itemp], Seebeck)
+    end
+    return nothing
+end
+
+
+function _Calc_Seebeck_decomp_moments_3D(
+    boltz_setup::Boltz_Setup, moments::BoltzDecompMoments)
+
+    material = boltz_setup.material
+    Nwann = Int(material.Ngsize)
+    SpinPol = material.SpinPol
+    spinsize = SpinPol == "on" ? 2 : 1
+    sigma33 = zeros(Float64, 3, 3)
+    inv_sigma33 = similar(sigma33)
+    sigmaS33 = similar(sigma33)
+    Seebeck33 = similar(sigma33)
+    Seebeck = zeros(Float64, Nwann, spinsize, 9)
+
+    for itemp in eachindex(boltz_setup.Temp),
+        imu in eachindex(boltz_setup.muE)
+
+        fill!(Seebeck, 0.0)
+        for spin = 1:spinsize
+            sigma33[1, 1] = moments.total_L0[spin, 1, itemp, imu]
+            sigma33[1, 2] = moments.total_L0[spin, 2, itemp, imu]
+            sigma33[2, 1] = sigma33[1, 2]
+            sigma33[2, 2] = moments.total_L0[spin, 3, itemp, imu]
+            sigma33[1, 3] = moments.total_L0[spin, 4, itemp, imu]
+            sigma33[3, 1] = sigma33[1, 3]
+            sigma33[2, 3] = moments.total_L0[spin, 5, itemp, imu]
+            sigma33[3, 2] = sigma33[2, 3]
+            sigma33[3, 3] = moments.total_L0[spin, 6, itemp, imu]
+            determinant = Seebeck_inv3!(sigma33, inv_sigma33)
+            if iszero(abs(determinant))
+                fill!(inv_sigma33, 0.0)
+            else
+                inv_sigma33 ./= determinant
+            end
+
+            for orbital = 1:Nwann
+                sigmaS33[1, 1] = moments.L1[
+                    orbital, spin, 1, itemp, imu]
+                sigmaS33[1, 2] = moments.L1[
+                    orbital, spin, 2, itemp, imu]
+                sigmaS33[2, 1] = sigmaS33[1, 2]
+                sigmaS33[2, 2] = moments.L1[
+                    orbital, spin, 3, itemp, imu]
+                sigmaS33[1, 3] = moments.L1[
+                    orbital, spin, 4, itemp, imu]
+                sigmaS33[3, 1] = sigmaS33[1, 3]
+                sigmaS33[2, 3] = moments.L1[
+                    orbital, spin, 5, itemp, imu]
+                sigmaS33[3, 2] = sigmaS33[2, 3]
+                sigmaS33[3, 3] = moments.L1[
+                    orbital, spin, 6, itemp, imu]
+                LinearAlgebra.matmul3x3!(
+                    Seebeck33, 'N', 'N', inv_sigma33, sigmaS33)
+                @inbounds for row = 1:3, column = 1:3
+                    output = (row - 1) * 3 + column
+                    Seebeck[orbital, spin, output] =
+                        -Seebeck33[row, column]
+                end
+            end
+        end
+
+        Write_Seebeck_decomp_3D(
+            boltz_setup.filename, boltz_setup.mat_type, SpinPol, Nwann,
+            boltz_setup.muE[imu], boltz_setup.Temp[itemp], Seebeck)
+    end
+    return nothing
+end
+
+
 function Calc_Seebeck_decomp_2D(boltz_setup::Boltz_Setup, TDF_Energy, TDF_decomp)
 
     material = boltz_setup.material
@@ -258,4 +393,3 @@ function Calc_Seebeck_decomp_3D(boltz_setup::Boltz_Setup, TDF_Energy, TDF_decomp
         Write_Seebeck_decomp_3D(filename, mat_type, SpinPol, Nwann, mu, Temp[iTemp], Seebeck)
     end
 end
-

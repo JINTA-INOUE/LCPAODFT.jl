@@ -1,4 +1,306 @@
 @timeit timer "Calc_Amnk" function Calc_Amnk(MinN, BANDNUM, Enk, Cnk, cwf_setup::CWF_Setup, kpoints::KPoints)
+    material = cwf_setup.material
+    SpinPol = material.SpinPol
+    spinsize = cwf_setup.spinsize
+    Ngsize = cwf_setup.Ngsize
+    MPI_Nkpt = kpoints.MPI_Nkpt
+
+    Amnk = Vector{Vector{Vector{Vector{ComplexF64}}}}(undef, spinsize)
+    for spin = 1:spinsize
+        Amnk[spin] = Vector{Vector{Vector{ComplexF64}}}(undef, MPI_Nkpt)
+        for ik = 1:MPI_Nkpt
+            Amnk[spin][ik] = Vector{Vector{ComplexF64}}(undef, BANDNUM)
+            for μ = 1:BANDNUM
+                Amnk[spin][ik][μ] = zeros(ComplexF64, Ngsize)
+            end
+        end
+    end
+
+    if SpinPol ∈ ("off", "on")
+        Calc_Amnk_Col!(MinN, BANDNUM, Amnk, Enk, Cnk, cwf_setup, kpoints)
+    else
+        Calc_Amnk_NonCol!(MinN, BANDNUM, Amnk, Enk, Cnk, cwf_setup, kpoints)
+    end
+
+
+    return Amnk
+end
+
+
+function _build_amn_projection!(projection, kpoint, material::LCPAO_model, Guide_index)
+    FNAN = material.FNAN
+    natn = material.natn
+    ncn = material.ncn
+    atv_ijk = material.atv_ijk
+    MP = material.MP
+    Total_NumOrbs = material.Total_NumOrbs
+    OLP = material.OLP
+    ka, kb, kc = kpoint
+
+    fill!(projection, 0.0)
+    pst = 0
+    @inbounds for patom in eachindex(Guide_index)
+        guides = Guide_index[patom]
+        for Rn = 1:FNAN[patom]+1
+            jatom = natn[patom][Rn]
+            cell = ncn[patom][Rn] + 1
+            l1, l2, l3 = atv_ijk[cell]
+            phase = cispi(-2*(ka*l1 + kb*l2 + kc*l3))
+            Bnum = MP[jatom]
+            NO1 = Total_NumOrbs[jatom]
+
+            for (p, proj) in pairs(guides)
+                overlap = OLP[patom][Rn][proj]
+                column = pst + p
+                @simd for jβ = 1:NO1
+                    projection[Bnum+jβ, column] += phase * overlap[jβ]
+                end
+            end
+        end
+        pst += length(guides)
+    end
+
+    return projection
+end
+
+
+function _store_weighted_amn!(Amnk_ik, Awork, energies, MinN, ChemP, Dis_Energy, weight_type)
+    BANDNUM, Ngsize = size(Awork)
+
+    if weight_type == "fermi"
+        @inbounds for μ = 1:BANDNUM
+            weight = CWF_weight(energies[μ+MinN-1], ChemP, Dis_Energy)
+            destination = Amnk_ik[μ]
+            @simd for pst = 1:Ngsize
+                destination[pst] = weight * Awork[μ,pst]
+            end
+        end
+    else
+        @inbounds for μ = 1:BANDNUM
+            weight = CWF_weight2(energies[μ+MinN-1], ChemP, Dis_Energy)
+            destination = Amnk_ik[μ]
+            @simd for pst = 1:Ngsize
+                destination[pst] = weight * Awork[μ,pst]
+            end
+        end
+    end
+
+    return Amnk_ik
+end
+
+
+function Calc_Amnk_Col!(MinN, BANDNUM, Amnk, Enk, Cnk, cwf_setup::CWF_Setup, kpoints::KPoints)
+    material = cwf_setup.material
+    Total_NumOrbs = material.Total_NumOrbs
+    ChemP = material.ChemP
+    spinsize = cwf_setup.spinsize
+    gsize = cwf_setup.gsize
+    Guide_index = cwf_setup.Guide_index
+    Dis_Energy = cwf_setup.Dis_Energy
+    weight_type = cwf_setup.weight_type
+    MPI_Nkpt = kpoints.MPI_Nkpt
+    MPI_kpts = kpoints.MPI_kpts
+    fsize = sum(Total_NumOrbs)
+    bands = MinN:MinN+BANDNUM-1
+
+    projection = zeros(ComplexF64, fsize, gsize)
+    Awork = zeros(ComplexF64, BANDNUM, gsize)
+
+    @inbounds for ik = 1:MPI_Nkpt
+        _build_amn_projection!(projection, MPI_kpts[ik], material, Guide_index)
+        for spin = 1:spinsize
+            Cbands = view(Cnk[spin][ik], :, bands)
+            mul!(Awork, adjoint(Cbands), projection)
+            _store_weighted_amn!(Amnk[spin][ik], Awork, Enk[spin][ik], MinN, ChemP, Dis_Energy, weight_type)
+        end
+    end
+
+    return Amnk
+end
+
+
+function Calc_Amnk_NonCol!(MinN, BANDNUM, Amnk, Enk, Cnk, cwf_setup::CWF_Setup, kpoints::KPoints)
+    material = cwf_setup.material
+    Total_NumOrbs = material.Total_NumOrbs
+    fsize = sum(Total_NumOrbs)
+    ChemP = material.ChemP
+    gsize = cwf_setup.gsize
+    Guide_index = cwf_setup.Guide_index
+    Dis_Energy = cwf_setup.Dis_Energy
+    weight_type = cwf_setup.weight_type
+    MPI_Nkpt = kpoints.MPI_Nkpt
+    MPI_kpts = kpoints.MPI_kpts
+    bands = MinN:MinN+BANDNUM-1
+
+    projection = zeros(ComplexF64, fsize, gsize)
+    Awork = zeros(ComplexF64, BANDNUM, 2*gsize)
+
+    @inbounds for ik = 1:MPI_Nkpt
+        _build_amn_projection!(projection, MPI_kpts[ik], material, Guide_index)
+        Cnk_ik = Cnk[1][ik]
+        Cbands_up = view(Cnk_ik, 1:fsize, bands)
+        Cbands_dn = view(Cnk_ik, fsize+1:2*fsize, bands)
+        mul!(view(Awork, :, 1:gsize), adjoint(Cbands_up), projection)
+        mul!(view(Awork, :, gsize+1:2*gsize), adjoint(Cbands_dn), projection)
+        _store_weighted_amn!(Amnk[1][ik], Awork, Enk[1][ik], MinN, ChemP, Dis_Energy, weight_type)
+    end
+
+    return Amnk
+end
+
+
+@timeit timer "Calc_Amnk" function Calc_Amnk(MinN, BANDNUM, Enk, Cnk, cwf_setup::CWF_Setup_MO, kpoints::KPoints, CWF_Guiding_MOs)
+    material = cwf_setup.material
+    FNAN = material.FNAN
+    natn = material.natn
+    Total_NumOrbs = material.Total_NumOrbs
+    SpinPol = material.SpinPol
+    OLP = material.OLP
+
+    spinsize = cwf_setup.spinsize
+    Num_CWF_Grouped_Atoms = cwf_setup.Num_CWF_Grouped_Atoms
+    Num_CWF_MOs_Group = cwf_setup.Num_CWF_MOs_Group
+    CWF_Grouped_Atoms_EachNum = cwf_setup.CWF_Grouped_Atoms_EachNum
+    CWF_Grouped_Atoms = cwf_setup.CWF_Grouped_Atoms
+    MP3 = cwf_setup.MP3
+    Ngsize = cwf_setup.Ngsize
+    MPI_Nkpt = kpoints.MPI_Nkpt
+
+
+    OLPproj = Vector{Vector{Vector{Vector{Vector{Float64}}}}}(undef, Num_CWF_Grouped_Atoms)
+    for gidx = 1:Num_CWF_Grouped_Atoms
+        OLPproj[gidx] = Vector{Vector{Vector{Vector{Float64}}}}(undef, Num_CWF_MOs_Group[gidx])
+        for p = 1:Num_CWF_MOs_Group[gidx]
+            OLPproj[gidx][p] = Vector{Vector{Vector{Float64}}}(undef, CWF_Grouped_Atoms_EachNum[gidx])
+            for Lidx = 1:CWF_Grouped_Atoms_EachNum[gidx]
+                atom = CWF_Grouped_Atoms[gidx][Lidx]
+                OLPproj[gidx][p][Lidx] = Vector{Vector{Float64}}(undef, FNAN[atom]+1)
+                for Rn = 1:FNAN[atom]+1
+                    OLPproj[gidx][p][Lidx][Rn] = zeros(Float64, Total_NumOrbs[natn[atom][Rn]])
+                end
+            end
+        end
+    end
+
+
+    @inbounds for gidx = 1:Num_CWF_Grouped_Atoms, p = 1:Num_CWF_MOs_Group[gidx]
+        for Lidx = 1:CWF_Grouped_Atoms_EachNum[gidx]
+            atom = CWF_Grouped_Atoms[gidx][Lidx]
+            Anum = MP3[gidx][Lidx]
+
+            for Rn = 1:FNAN[atom]+1, jst = 1:Total_NumOrbs[natn[atom][Rn]]
+                Sum = 0.0
+                for ist = 1:Total_NumOrbs[atom]
+                    Sum += OLP[atom][Rn][ist][jst]*CWF_Guiding_MOs[gidx][p][Anum+ist]
+                end
+                OLPproj[gidx][p][Lidx][Rn][jst] = Sum
+            end
+        end
+    end
+
+    Amnk = Vector{Vector{Vector{Vector{ComplexF64}}}}(undef, spinsize)
+    for spin = 1:spinsize
+        Amnk[spin] = Vector{Vector{Vector{ComplexF64}}}(undef, MPI_Nkpt)
+        for ik = 1:MPI_Nkpt
+            Amnk[spin][ik] = Vector{Vector{ComplexF64}}(undef, BANDNUM)
+            for μ = 1:BANDNUM
+                Amnk[spin][ik][μ] = zeros(ComplexF64, Ngsize)
+            end
+        end
+    end
+
+
+    if SpinPol ∈ ("off", "on")
+        Calc_Amnk_Col!(MinN, BANDNUM, OLPproj, Amnk, Enk, Cnk, cwf_setup, kpoints)
+    else
+        error("not support yet.")
+        # Calc_Amnk_NonCol!(MinN, BANDNUM, OLPproj, Amnk, Enk, Cnk, cwf_setup, kpoints)
+    end
+
+
+    return Amnk
+end
+
+
+function _build_amn_projection!(projection, kpoint, material::LCPAO_model,
+                                OLPproj, cwf_setup::CWF_Setup_MO)
+    FNAN = material.FNAN
+    natn = material.natn
+    ncn = material.ncn
+    atv_ijk = material.atv_ijk
+    MP = material.MP
+    Total_NumOrbs = material.Total_NumOrbs
+    Num_CWF_Grouped_Atoms = cwf_setup.Num_CWF_Grouped_Atoms
+    Num_CWF_MOs_Group = cwf_setup.Num_CWF_MOs_Group
+    CWF_Grouped_Atoms_EachNum = cwf_setup.CWF_Grouped_Atoms_EachNum
+    CWF_Grouped_Atoms = cwf_setup.CWF_Grouped_Atoms
+    ka, kb, kc = kpoint
+
+    fill!(projection, 0.0)
+    pst = 0
+    @inbounds for gidx = 1:Num_CWF_Grouped_Atoms
+        for Lidx = 1:CWF_Grouped_Atoms_EachNum[gidx]
+            atom = CWF_Grouped_Atoms[gidx][Lidx]
+            for Rn = 1:FNAN[atom]+1
+                jatom = natn[atom][Rn]
+                cell = ncn[atom][Rn] + 1
+                l1, l2, l3 = atv_ijk[cell]
+                phase = cispi(-2*(ka*l1 + kb*l2 + kc*l3))
+                Bnum = MP[jatom]
+                NO1 = Total_NumOrbs[jatom]
+
+                for p = 1:Num_CWF_MOs_Group[gidx]
+                    overlap = OLPproj[gidx][p][Lidx][Rn]
+                    column = pst + p
+                    @simd for jβ = 1:NO1
+                        projection[Bnum+jβ, column] += phase * overlap[jβ]
+                    end
+                end
+            end
+        end
+        pst += Num_CWF_MOs_Group[gidx]
+    end
+
+    return projection
+end
+
+
+function Calc_Amnk_Col!(MinN, BANDNUM, OLPproj, Amnk, Enk, Cnk, cwf_setup::CWF_Setup_MO, kpoints::KPoints)
+    material = cwf_setup.material
+    Total_NumOrbs = material.Total_NumOrbs
+    ChemP = material.ChemP
+    spinsize = cwf_setup.spinsize
+    gsize = cwf_setup.gsize
+    Dis_Energy = cwf_setup.Dis_Energy
+    weight_type = cwf_setup.weight_type
+    MPI_Nkpt = kpoints.MPI_Nkpt
+    MPI_kpts = kpoints.MPI_kpts
+    fsize = sum(Total_NumOrbs)
+    bands = MinN:MinN+BANDNUM-1
+
+    projection = zeros(ComplexF64, fsize, gsize)
+    Awork = zeros(ComplexF64, BANDNUM, gsize)
+
+    @inbounds for ik = 1:MPI_Nkpt
+        _build_amn_projection!(projection, MPI_kpts[ik], material, OLPproj, cwf_setup)
+        for spin = 1:spinsize
+            Cbands = view(Cnk[spin][ik], :, bands)
+            mul!(Awork, adjoint(Cbands), projection)
+            _store_weighted_amn!(Amnk[spin][ik], Awork, Enk[spin][ik], MinN, ChemP, Dis_Energy, weight_type)
+        end
+    end
+
+    return Amnk
+end
+
+
+function Calc_Amnk_NonCol!(MinN, BANDNUM, OLPproj, Amnk, Enk, Cnk, cwf_setup::CWF_Setup_MO, kpoints::KPoints)
+
+end
+
+
+#=
+@timeit timer "Calc_Amnk" function Calc_Amnk(MinN, BANDNUM, Enk, Cnk, cwf_setup::CWF_Setup, kpoints::KPoints)
 
     comm = MPI.COMM_WORLD
     nprocs = MPI.Comm_size(comm)
@@ -21,7 +323,6 @@
             end
         end
     end
-
 
     if SpinPol == "off"
         Calc_Amnk_nonpol!(MinN, BANDNUM, Amnk, Enk, Cnk, cwf_setup, kpoints)
@@ -412,3 +713,4 @@ end
 function Calc_Amnk_NonCol!(MinN, BANDNUM, OLPproj, Amnk, Enk, Cnk, cwf_setup::CWF_Setup_MO, kpoints::KPoints)
 
 end
+=#

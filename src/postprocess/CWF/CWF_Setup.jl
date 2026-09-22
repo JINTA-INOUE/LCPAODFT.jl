@@ -188,6 +188,7 @@ function CWF_Setup(
     BLAS.set_num_threads(1)
     nthreads = Threads.nthreads()
     nblas = BLAS.get_num_threads()
+    MKL.set_num_threads(1)
 
     LCPAODFT.reset_timer!(LCPAODFT.timer)
 
@@ -211,7 +212,7 @@ function CWF_Setup(
             error("please check kBT")
         end
     end
-    @. Dis_Energy = Dis_Energy/27.2113845
+    @. Dis_Energy = Dis_Energy/eV2Hartree
 
     if !isnothing(kmesh)
         if kmesh[1] <= 0 || kmesh[2] <= 0 || kmesh[3] <= 0
@@ -399,6 +400,7 @@ function CWF_Setup(
     BLAS.set_num_threads(1)
     nthreads = Threads.nthreads()
     nblas = BLAS.get_num_threads()
+    MKL.set_num_threads(1)
 
     LCPAODFT.reset_timer!(LCPAODFT.timer)
 

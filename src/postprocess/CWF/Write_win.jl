@@ -1,4 +1,4 @@
-function Write_win(filename::String, kmesh, BANDNUM, WANNUM, material::LCPAO_model)
+function Write_win(filename::AbstractString, kmesh, BANDNUM, WANNUM, material::LCPAO_model)
 
     SpinPol = material.SpinPol
     spinsize = ifelse(SpinPol=="on", 2, 1)
@@ -31,11 +31,13 @@ function Write_win(filename::String, kmesh, BANDNUM, WANNUM, material::LCPAO_mod
     end
 
 
+    seed = _cwf_seed_path(filename)
+    mkpath(dirname(seed))
     for spin = 1:spinsize
         if SpinPol == "on"
-            data = open(filename*"_$spin.win", "w")
+            data = open(seed*"_$spin.win", "w")
         else
-            data = open(filename*".win", "w")
+            data = open(seed*".win", "w")
         end
 
         @printf(data, "num_bands %d\n", BANDNUM)
@@ -50,10 +52,8 @@ function Write_win(filename::String, kmesh, BANDNUM, WANNUM, material::LCPAO_mod
         @printf(data, "! dis_conv_tol = 1.0e-12\n")
         @printf(data, "! conv_tol = 1.0e-6\n")
         @printf(data, "\n")
-        @printf(data, "write_rmn  = false\n")
         @printf(data, "write_r2mn = false\n")
         @printf(data, "write_hr = false\n")
-        @printf(data, "write_u_matrices = false\n")
         @printf(data, "\n")
         @printf(data, "! iprint = 1\n")
         @printf(data, "! kmesh_tol = 1.0e-5\n")
@@ -79,14 +79,14 @@ function Write_win(filename::String, kmesh, BANDNUM, WANNUM, material::LCPAO_mod
         @printf(data, "\n")
         @printf(data, "mp_grid %d %d %d\n", kmesh1, kmesh2, kmesh3)
         @printf(data, "\n")
-        @printf(data, "begin_kpoints\n")
+        @printf(data, "begin kpoints\n")
         for i = 0:kmesh1-1, j = 0:kmesh2-1, k = 0:kmesh3-1
             k1 = ifelse(kmesh1==1, 0.0, i/kmesh1)
             k2 = ifelse(kmesh2==1, 0.0, j/kmesh2)
             k3 = ifelse(kmesh3==1, 0.0, k/kmesh3)
             @printf(data, "%18.14f %18.14f %18.14f\n", k1, k2, k3)
         end
-        @printf(data, "end_kpoints\n")
+        @printf(data, "end kpoints\n")
         close(data)
     end
 end

@@ -15,8 +15,13 @@ function select_model(filepath::String)
             model = 1
         end
     else
-        # Read CWF_model
-        model = 2
+        if file[2] ∈ ("CWF", "CWF_SOC")
+            model = 2   # Read CWF_model
+        elseif file[2] ∈ ("MLWF", "MLWF_SOC")
+            model = 3   # Read MLWF_model
+        else
+            error("please check filename")
+        end
     end
 
     return model

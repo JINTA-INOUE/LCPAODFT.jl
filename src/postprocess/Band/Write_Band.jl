@@ -1,34 +1,21 @@
 function Write_BANDDAT(filename::String, spin, kpath_start, kpath_end, kpath_Nk, Nkpath, Nfsize, Enk, ChemP, Recvecs)
 
-    size(Enk, 1) == Nfsize || error("unexpected number of band energies")
-    size(Enk, 2) >= spin || error("requested spin channel is unavailable")
-    size(Enk, 3) == sum(kpath_Nk) || error("unexpected number of k points")
-
     open("$filename.BANDDAT$(spin)", "w") do Band_file
         for μ = 1:Nfsize
             Sum = 0.0
             global_k = 0
             for ik = 1:Nkpath
-                k1_tmp = kpath_start[ik][1]
-                k2_tmp = kpath_start[ik][2]
-                k3_tmp = kpath_start[ik][3]
+                k1_tmp, k2_tmp, k3_tmp = kpath_start[ik]
                 klen = 0.0
                 for ipath = 1:kpath_Nk[ik]
                     global_k += 1
                     fraction = (ipath - 1) / (kpath_Nk[ik] - 1)
-                    k1 = kpath_start[ik][1] +
-                         (kpath_end[ik][1] - kpath_start[ik][1]) * fraction
-                    k2 = kpath_start[ik][2] +
-                         (kpath_end[ik][2] - kpath_start[ik][2]) * fraction
-                    k3 = kpath_start[ik][3] +
-                         (kpath_end[ik][3] - kpath_start[ik][3]) * fraction
+                    k1 = kpath_start[ik][1] + (kpath_end[ik][1] - kpath_start[ik][1])*fraction
+                    k2 = kpath_start[ik][2] + (kpath_end[ik][2] - kpath_start[ik][2])*fraction
+                    k3 = kpath_start[ik][3] + (kpath_end[ik][3] - kpath_start[ik][3])*fraction
 
-                    klen = norm(
-                        (k1 - k1_tmp) * Recvecs[1, :] +
-                        (k2 - k2_tmp) * Recvecs[2, :] +
-                        (k3 - k3_tmp) * Recvecs[3, :],
-                    )
-                    energy = (Enk[μ, spin, global_k] - ChemP) * eV2Hartree
+                    klen = norm((k1 - k1_tmp)*Recvecs[1,:] + (k2 - k2_tmp)*Recvecs[2,:] + (k3 - k3_tmp)*Recvecs[3,:])
+                    energy = (Enk[μ,spin,global_k] - ChemP)*eV2Hartree
                     @printf(Band_file, "%5.12f %5.12f\n", klen + Sum, energy)
                 end
                 Sum += klen

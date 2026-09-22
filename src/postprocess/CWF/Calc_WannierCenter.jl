@@ -1,20 +1,8 @@
 function check_CWF_norm(CWF_Plot_SuperCells, GridVol, Ngrid, Wannier_Orbs_Grid)
-    
-    Ngrid1, Ngrid2, Ngrid3 = Ngrid
-
     CWF_norm = 0.0
-    for l = 0:(2*CWF_Plot_SuperCells[1]+1)*Ngrid1-1
-        for m = 0:(2*CWF_Plot_SuperCells[2]+1)*Ngrid2-1
-            @inbounds for n = 0:(2*CWF_Plot_SuperCells[3]+1)*Ngrid3-1
-
-                GN = l*Ngrid2*(2*CWF_Plot_SuperCells[2]+1)*Ngrid3*(2*CWF_Plot_SuperCells[3]+1) + m*Ngrid3*(2*CWF_Plot_SuperCells[3]+1) + n + 1
-
-                wann = Wannier_Orbs_Grid[GN]
-                CWF_norm += abs2(wann)
-            end
-        end
+    @inbounds for GN in eachindex(Wannier_Orbs_Grid)
+        CWF_norm += abs2(Wannier_Orbs_Grid[GN])
     end
-
     return CWF_norm*GridVol
 end
 
@@ -28,20 +16,15 @@ function Calc_Pos_Omega(CWF_Plot_SuperCells, gLatvecs, GridVol, Ngrid, Wannier_O
     Sumz = 0.0
     Sumr2 = 0.0
 
+    output_n2 = (2*CWF_Plot_SuperCells[2]+1)*Ngrid2
+    output_n3 = (2*CWF_Plot_SuperCells[3]+1)*Ngrid3
     for l = 0:(2*CWF_Plot_SuperCells[1]+1)*Ngrid1-1
-        for m = 0:(2*CWF_Plot_SuperCells[2]+1)*Ngrid2-1
-            @inbounds for n = 0:(2*CWF_Plot_SuperCells[3]+1)*Ngrid3-1
-                GN = l*Ngrid2*(2*CWF_Plot_SuperCells[2]+1)*Ngrid3*(2*CWF_Plot_SuperCells[3]+1) + m*Ngrid3*(2*CWF_Plot_SuperCells[3]+1) + n + 1
-            
-                GNc = GN - 1
-                temp2 = Ngrid2*(2*CWF_Plot_SuperCells[2]+1)
-                temp3 = Ngrid3*(2*CWF_Plot_SuperCells[3]+1)
-                n1 = div(GNc, temp2*temp3)
-                n2 = div(GNc - n1*temp2*temp3, temp3)
-                n3 = GNc - n1*temp2*temp3 - n2*temp3
-                x = n1*gLatvecs[1,1] + n2*gLatvecs[2,1] + n3*gLatvecs[3,1]
-                y = n1*gLatvecs[1,2] + n2*gLatvecs[2,2] + n3*gLatvecs[3,2]
-                z = n1*gLatvecs[1,3] + n2*gLatvecs[2,3] + n3*gLatvecs[3,3]
+        for m = 0:output_n2-1
+            @inbounds for n = 0:output_n3-1
+                GN = (l*output_n2 + m)*output_n3 + n + 1
+                x = l*gLatvecs[1,1] + m*gLatvecs[2,1] + n*gLatvecs[3,1]
+                y = l*gLatvecs[1,2] + m*gLatvecs[2,2] + n*gLatvecs[3,2]
+                z = l*gLatvecs[1,3] + m*gLatvecs[2,3] + n*gLatvecs[3,3]
                 
                 wann = Wannier_Orbs_Grid[GN]
                 wann2 = abs2(wann)
@@ -68,7 +51,6 @@ function Calc_WannierCenter(cwf_setup::Union{CWF_Setup,CWF_Setup_MO}, filepath::
     data = jldopen(filepath, "r")
     SpinPol = data["SpinPol"]
     spinsize = data["spinsize"]
-    Nfsize = data["Nfsize"]
     CWF_Plot_SuperCells = data["CWF_Plot_SuperCells"]
     CWF_ExpnCoef = data["CWF_ExpnCoef"]
     close(data)
@@ -76,12 +58,12 @@ function Calc_WannierCenter(cwf_setup::Union{CWF_Setup,CWF_Setup_MO}, filepath::
 
     material = cwf_setup.material
     Nspin = material.Nspin
+    TCpyCell = material.TCpyCell
     Latvecs = material.Latvecs
     Natom = material.Natom
     Nspecies = material.Nspecies
     atom2spe = material.atom2spe
     Gxyz = material.Gxyz
-    TCpyCell = material.TCpyCell
     Atoms_pao = material.Atoms_pao
     Total_NumOrbs = material.Total_NumOrbs
     fsize = sum(Total_NumOrbs)
@@ -113,7 +95,7 @@ function Calc_WannierCenter(cwf_setup::Union{CWF_Setup,CWF_Setup_MO}, filepath::
 	gLatvecs[2,:] = Latvecs[2,:]/Ngrid2
 	gLatvecs[3,:] = Latvecs[3,:]/Ngrid3
 
-    CWF_GridN_Atom, CWF_GridListAtom, CWF_GridOrbs_Grid = CWF_UCell(cwf_setup, ucell)
+    CWF_GridN_Atom, CWF_GridListAtom, CWF_GridOrbs_Grid = Set_CWF_UCell(CWF_Plot_SuperCells, ucell)
 
     
     Plot_NCell = prod(2*CWF_Plot_SuperCells.+1)
@@ -130,19 +112,18 @@ function Calc_WannierCenter(cwf_setup::Union{CWF_Setup,CWF_Setup_MO}, filepath::
     if SpinPol ∈ ("off", "on")
         
         println("spin  orbital  norm   X(Ang^2)   Y(Ang^2)  Z(Ang^2)   omega(Ang^2)")
-        ExpnCoef = zeros(Float64, Nfsize)
         Wannier_Orbs_Grid = zeros(Float64, CWF_TNumGrid)
 
         for spin = 1:spinsize, proj in CWF_Plot_Cube
             fill!(Wannier_Orbs_Grid, 0.0)
             for cell = 1:Plot_NCell
-                @. ExpnCoef = CWF_ExpnCoef[spin][proj][cell]
+                ExpnCoef = CWF_ExpnCoef[spin][proj][cell]
                 for atom = 1:Natom
                     
                     cwf_proj = MP[atom]
                     NO0 = Total_NumOrbs[atom]
 
-                    _Calc_CWF_Grid8!(cwf_proj, NO0, CWF_GridN_Atom[cell][atom], CWF_GridOrbs_Grid[cell][atom], CWF_GridListAtom[cell][atom], Orbs_Grid[atom], ExpnCoef, Wannier_Orbs_Grid)
+                    _Calc_CWF_Grid8!(cwf_proj, NO0, CWF_GridN_Atom[cell][atom], CWF_GridOrbs_Grid[cell][atom], CWF_GridListAtom[cell][atom], Orbs_Grid.data[atom], ExpnCoef, Wannier_Orbs_Grid)
                 end
             end
 
@@ -171,7 +152,6 @@ function Calc_WannierCenter(cwf_setup::Union{CWF_Setup,CWF_Setup_MO}, filepath::
         CWF_Pos = zeros(Float64, 2, 3)
         CWF_R2 = zeros(Float64, 2)
         CWF_Omega = zeros(Float64, 2)
-        ExpnCoef = zeros(ComplexF64, Nfsize)
         Wannier_Orbs_Grid = zeros(ComplexF64, CWF_TNumGrid)
 
         for proj in CWF_Plot_Cube
@@ -180,13 +160,13 @@ function Calc_WannierCenter(cwf_setup::Union{CWF_Setup,CWF_Setup_MO}, filepath::
                 fill!(Wannier_Orbs_Grid, 0.0)
                 spin_site = ifelse(spin==1, 0, fsize)
                 for cell = 1:Plot_NCell
-                    @. ExpnCoef = CWF_ExpnCoef[proj][cell]
+                    ExpnCoef = CWF_ExpnCoef[proj][cell]
                     for atom = 1:Natom
                     
                         cwf_proj = MP[atom]
                         NO0 = Total_NumOrbs[atom]
 
-                        _Calc_CWF_Grid8!(spin_site+cwf_proj, NO0, CWF_GridN_Atom[cell][atom], CWF_GridOrbs_Grid[cell][atom], CWF_GridListAtom[cell][atom], Orbs_Grid[atom], ExpnCoef, Wannier_Orbs_Grid)
+                        _Calc_CWF_Grid8!(spin_site+cwf_proj, NO0, CWF_GridN_Atom[cell][atom], CWF_GridOrbs_Grid[cell][atom], CWF_GridListAtom[cell][atom], Orbs_Grid.data[atom], ExpnCoef, Wannier_Orbs_Grid)
                     end
                 end
 

@@ -482,23 +482,34 @@ end
         error("please check SpinPol")
     end
 
-    MPI_Hsize = system_grid.MPI_Hsize
-    MPHks = system_grid.MPHks
-    myHsize = MPI_Hsize[myrank+1]
-    HksNum = MPHks[myrank+1]
+    MPI_atom = system_grid.MPI_atom
+    MPI_natn = system_grid.MPI_natn
+    MPI_Hoffset = system_grid.MPI_Hoffset
+    Total_NumOrbs = system_grid.Total_NumOrbs
 
     Ekin = 0.0
+    hst = 0
     if SpinPol == "off"
         DM1 = DM[1]
-        for hst = 1:myHsize
-            Ekin += DM1[hst+HksNum]*MPI_Hkin[hst]
+        for loop in eachindex(MPI_atom)
+            block_size = Total_NumOrbs[MPI_atom[loop]]*Total_NumOrbs[MPI_natn[loop]]
+            dm_index = MPI_Hoffset[loop]
+            @inbounds for element = 1:block_size
+                hst += 1
+                Ekin += DM1[dm_index + element]*MPI_Hkin[hst]
+            end
         end
         Ekin = 2*Ekin
     elseif SpinPol ∈ ("on", "nc")
         DM1 = DM[1]
         DM2 = DM[2]
-        for hst = 1:myHsize
-            Ekin += (DM1[hst+HksNum] + DM2[hst+HksNum])*MPI_Hkin[hst]
+        for loop in eachindex(MPI_atom)
+            block_size = Total_NumOrbs[MPI_atom[loop]]*Total_NumOrbs[MPI_natn[loop]]
+            dm_index = MPI_Hoffset[loop]
+            @inbounds for element = 1:block_size
+                hst += 1
+                Ekin += (DM1[dm_index + element] + DM2[dm_index + element])*MPI_Hkin[hst]
+            end
         end
     end
     Ekin = MPI.Allreduce(Ekin, MPI.SUM, comm)
@@ -517,23 +528,34 @@ end
         error("please check SpinPol")
     end
 
-    MPI_Hsize = system_grid.MPI_Hsize
-    MPHks = system_grid.MPHks
-    myHsize = MPI_Hsize[myrank+1]
-    HksNum = MPHks[myrank+1]
+    MPI_atom = system_grid.MPI_atom
+    MPI_natn = system_grid.MPI_natn
+    MPI_Hoffset = system_grid.MPI_Hoffset
+    Total_NumOrbs = system_grid.Total_NumOrbs
 
     Ena = 0.0
+    hst = 0
     if SpinPol == "off"
         DM1 = DM[1]
-        for hst = 1:myHsize
-            Ena += DM1[hst+HksNum]*MPI_HVNA[hst]
+        for loop in eachindex(MPI_atom)
+            block_size = Total_NumOrbs[MPI_atom[loop]]*Total_NumOrbs[MPI_natn[loop]]
+            dm_index = MPI_Hoffset[loop]
+            @inbounds for element = 1:block_size
+                hst += 1
+                Ena += DM1[dm_index + element]*MPI_HVNA[hst]
+            end
         end
         Ena = 2*Ena
     elseif SpinPol ∈ ("on", "nc")
         DM1 = DM[1]
         DM2 = DM[2]
-        for hst = 1:myHsize
-            Ena += (DM1[hst+HksNum] + DM2[hst+HksNum])*MPI_HVNA[hst]
+        for loop in eachindex(MPI_atom)
+            block_size = Total_NumOrbs[MPI_atom[loop]]*Total_NumOrbs[MPI_natn[loop]]
+            dm_index = MPI_Hoffset[loop]
+            @inbounds for element = 1:block_size
+                hst += 1
+                Ena += (DM1[dm_index + element] + DM2[dm_index + element])*MPI_HVNA[hst]
+            end
         end
     end
     Ena = MPI.Allreduce(Ena, MPI.SUM, comm)
@@ -557,25 +579,34 @@ end
     MPI_FNAN = system_grid.MPI_FNAN
     MPI_natn = system_grid.MPI_natn
     Total_NumOrbs = system_grid.Total_NumOrbs
-    MPI_Hsize = system_grid.MPI_Hsize
-    MPHks = system_grid.MPHks
-    myHsize = MPI_Hsize[myrank+1]
-    HksNum = MPHks[myrank+1]
+    MPI_Hoffset = system_grid.MPI_Hoffset
     
     Enl = 0.0
     if SpinPol == "off"
         DM1 = DM[1]
         MPI_HNL1 = MPI_HNL[1]
-        for hst = 1:myHsize
-            Enl += DM1[hst+HksNum]*MPI_HNL1[hst]
+        hst = 0
+        for loop = 1:MPI_size
+            block_size = Total_NumOrbs[MPI_atom[loop]]*Total_NumOrbs[MPI_natn[loop]]
+            dm_index = MPI_Hoffset[loop]
+            @inbounds for element = 1:block_size
+                hst += 1
+                Enl += DM1[dm_index + element]*MPI_HNL1[hst]
+            end
         end
         Enl = 2*Enl
     elseif SpinPol == "on"
         DM1 = DM[1]
         DM2 = DM[2]
         MPI_HNL1 = MPI_HNL[1]
-        for hst = 1:myHsize
-            Enl += (DM1[hst+HksNum] + DM2[hst+HksNum])*MPI_HNL1[hst]
+        hst = 0
+        for loop = 1:MPI_size
+            block_size = Total_NumOrbs[MPI_atom[loop]]*Total_NumOrbs[MPI_natn[loop]]
+            dm_index = MPI_Hoffset[loop]
+            @inbounds for element = 1:block_size
+                hst += 1
+                Enl += (DM1[dm_index + element] + DM2[dm_index + element])*MPI_HNL1[hst]
+            end
         end
     elseif SpinPol == "nc"
         DM1 = DM[1]
@@ -598,14 +629,16 @@ end
             jatom = MPI_natn[loop]
             NO0 = Total_NumOrbs[atom]
             NO1 = Total_NumOrbs[jatom]
+            dm_index = MPI_Hoffset[loop]
             @inbounds for ist = 1:NO0, jst = 1:NO1
                 hst += 1
-                Enl +=  DM1[hst+HksNum]*MPI_HNL1[hst]
+                dm_index += 1
+                Enl +=  DM1[dm_index]*MPI_HNL1[hst]
                 Enl -= iDM1[atom][Rn][ist][jst]*MPI_iHNL1[hst]
-                Enl +=  DM2[hst+HksNum]*MPI_HNL2[hst]
+                Enl +=  DM2[dm_index]*MPI_HNL2[hst]
                 Enl -= iDM2[atom][Rn][ist][jst]*MPI_iHNL2[hst]
-                Enl += 2*DM3[hst+HksNum]*MPI_HNL3[hst]
-                Enl -= 2*DM4[hst+HksNum]*MPI_iHNL3[hst]
+                Enl += 2*DM3[dm_index]*MPI_HNL3[hst]
+                Enl -= 2*DM4[dm_index]*MPI_iHNL3[hst]
             end
         end
     end

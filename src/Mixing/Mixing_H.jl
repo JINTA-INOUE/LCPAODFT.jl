@@ -1,4 +1,7 @@
-@timeit timer "Mixing_H!"  function Mixing_H!(SCF_iter, MPI_Hks, Hks, dft_options::DFT_Options, dft_mixing::Ham_Mixing)
+@timeit timer "Mixing_H!" function Mixing_H!(SCF_iter, MPI_Hks, Hks,
+                                               dft_options::DFT_Options,
+                                               dft_mixing::Ham_Mixing,
+                                               system_grid::System_Grid)
     
     comm = MPI.COMM_WORLD
     myrank = MPI.Comm_rank(comm)
@@ -7,13 +10,13 @@
     MPI_Hsize = dft_mixing.MPI_Hsize
     Start_Pulay_SCF = dft_options.Start_Pulay_SCF
     if SCF_iter <= Start_Pulay_SCF-1
-        Simple_Mixing_H!(SCF_iter, MPI_Hks, dft_options, dft_mixing)
+        Simple_Mixing_H!(SCF_iter, MPI_Hks, Hks, dft_options, dft_mixing)
     else
-        Pulay_Mixing_H!(SCF_iter, MPI_Hks, Hks, dft_options, dft_mixing)
+        Pulay_Mixing_H!(SCF_iter, MPI_Hks, Hks, dft_options, dft_mixing, system_grid)
     end
 
     for spin = 1:Nspin
-        MPI.Allgatherv!(MPI_Hks[spin], VBuffer(Hks[spin], MPI_Hsize), comm)
+        assemble_canonical!(Hks[spin], MPI_Hks[spin], system_grid, comm)
     end
 
     if SCF_iter == 1
@@ -22,7 +25,7 @@
 end
 
 
-function Simple_Mixing_H!(SCF_iter, MPI_Hks, dft_options::DFT_Options, dft_mixing::Ham_Mixing)
+function Simple_Mixing_H!(SCF_iter, MPI_Hks, Hks, dft_options::DFT_Options, dft_mixing::Ham_Mixing)
     
     comm = MPI.COMM_WORLD
     myrank = MPI.Comm_rank(comm)
@@ -78,7 +81,10 @@ function Simple_Mixing_H!(SCF_iter, MPI_Hks, dft_options::DFT_Options, dft_mixin
 end
 
 
-function Pulay_Mixing_H!(SCF_iter, MPI_Hks, Hks, dft_options::DFT_Options, dft_mixing::Ham_Mixing)
+function Pulay_Mixing_H!(SCF_iter, MPI_Hks, Hks,
+                         dft_options::DFT_Options,
+                         dft_mixing::Ham_Mixing,
+                         system_grid::System_Grid)
     
     comm = MPI.COMM_WORLD
     myrank = MPI.Comm_rank(comm)
@@ -114,7 +120,7 @@ function Pulay_Mixing_H!(SCF_iter, MPI_Hks, Hks, dft_options::DFT_Options, dft_m
     for atom = 1:Natom
         metric[atom] = zeros(Float64, Total_NumOrbs[atom])
     end
-    MPI.Allgatherv!(HisH[1], VBuffer(Hks[1], MPI_Hsize), comm)
+    assemble_canonical!(Hks[1], @view(HisH[1][:, 1]), system_grid, comm)
     get_metric!(Natom, FNAN, natn, Total_NumOrbs, metric, Hks[1], ChemP)
 
 

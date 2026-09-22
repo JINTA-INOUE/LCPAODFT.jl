@@ -12,6 +12,7 @@ struct Boltz_Setup
     TDF_Erange::Vector{Float64}
     TDF_dE::Float64
     Write_TDF::Bool
+    kblock_memory_mb::Int
 end
 
 
@@ -27,6 +28,7 @@ function Print_Boltz_Setup(boltz_setup::Boltz_Setup)
     println("\tTDF_Erange : $(boltz_setup.TDF_Erange)")
     println("\tTDF_dE : $(boltz_setup.TDF_dE)")
     println("\tWrite_TDF : $(boltz_setup.Write_TDF)")
+    println("\tkblock_memory_mb : $(boltz_setup.kblock_memory_mb)")
     println("\tfilename : $(boltz_setup.filename)")
 end
 
@@ -42,17 +44,16 @@ function Boltz_Setup(
     decomp::Bool=false,
     muE::Union{Real,AbstractVector{<:Real}}=[1000.0],
     Write_TDF::Bool=false,
+    kblock_memory_mb::Integer=512,
     filename=nothing)
 
-    Threads.nthreads() == 1 || error(
-        "MPI-flat Boltz requires exactly one Julia thread per MPI process; " *
-        "start Julia with --threads=1",
-    )
-    provided_thread_level = MPI.Init(; threadlevel=:single)
+    requested_thread_level = Threads.nthreads() == 1 ? :single : :funneled
+    provided_thread_level = MPI.Init(; threadlevel=requested_thread_level)
     comm = MPI.COMM_WORLD
     nprocs = MPI.Comm_size(comm)
     myrank = MPI.Comm_rank(comm)
     BLAS.set_num_threads(1)
+    MKL.set_num_threads(1)
     LCPAODFT.reset_timer!(LCPAODFT.timer)
 
     all(>(0), kmesh) || error("all kmesh dimensions must be positive")
@@ -60,6 +61,7 @@ function Boltz_Setup(
     TDF_Erange[1] < TDF_Erange[2] || error("TDF_Erange must be strictly increasing")
     TDF_dE > 0 || error("TDF_dE must be positive")
     tau > 0 || error("tau must be positive")
+    kblock_memory_mb > 0 || error("kblock_memory_mb must be positive")
     plane_type && kmesh[3] != 1 && error("plane_type=true requires kmesh[3] == 1")
 
     Temp = _Temp isa AbstractVector ? Float64.(_Temp) : [Float64(_Temp)]
@@ -78,8 +80,9 @@ function Boltz_Setup(
     model == 1 && error("transport is not supported for LCPAO models")
 
     if myrank == 0
-        println("<Boltz MPI-flat configuration>")
-        println("\t$nprocs MPI processes × 1 Julia thread")
+        println("<Boltz hybrid MPI/thread configuration>")
+        println("\t$nprocs MPI process(es) × " *
+                "$(Threads.nthreads()) Julia thread(s)")
         println("\t$(BLAS.get_num_threads()) BLAS thread per process")
         println("\tMPI thread level: $provided_thread_level")
     end
@@ -98,6 +101,7 @@ function Boltz_Setup(
         filepath, output_filename, material, mat_type,
         Tuple(Int32.(kmesh)), Float64(tau), plane_type, Temp, decomp,
         mu_values, TDF_Erange, Float64(TDF_dE), Write_TDF,
+        Int(kblock_memory_mb),
     )
 
     myrank == 0 && Print_Boltz_Setup(boltz_setup)

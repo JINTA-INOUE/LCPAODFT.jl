@@ -67,6 +67,8 @@ function Set_OLPpos!(OLPpos, Orbs_Grid, ucell::UCell)
         OLPpos1 = OLPpos[1][atom][Rn]
         OLPpos2 = OLPpos[2][atom][Rn]
         OLPpos3 = OLPpos[3][atom][Rn]
+        orbitals1 = atom_matrix(Orbs_Grid, atom)
+        orbitals2 = atom_matrix(Orbs_Grid, jatom)
 
         for Nog = 1:MPI_NumOLG[loop]
 
@@ -87,19 +89,17 @@ function Set_OLPpos!(OLPpos, Orbs_Grid, ucell::UCell)
 	        y = Cy + atv[cell][2] - Gxyz[atom][2]
 	        z = Cz + atv[cell][3] - Gxyz[atom][3]
 
-            Orbs_Grid1 = Orbs_Grid[atom][Nc]
-            Orbs_Grid2 = Orbs_Grid[jatom][Nh]
-
             tmpx = x*GridVol
             tmpy = y*GridVol
             tmpz = z*GridVol
 
             for ist = 1:NO0
-                phi1 = Orbs_Grid1[ist]
+                phi1 = orbitals1[ist, Nc]
                 @inbounds for jst = 1:NO1
-                    OLPpos1[ist][jst] += tmpx*Orbs_Grid2[jst]*phi1
-                    OLPpos2[ist][jst] += tmpy*Orbs_Grid2[jst]*phi1
-                    OLPpos3[ist][jst] += tmpz*Orbs_Grid2[jst]*phi1
+                    phi2 = orbitals2[jst, Nh]
+                    OLPpos1[ist][jst] += tmpx*phi2*phi1
+                    OLPpos2[ist][jst] += tmpy*phi2*phi1
+                    OLPpos3[ist][jst] += tmpz*phi2*phi1
                 end
             end
         end

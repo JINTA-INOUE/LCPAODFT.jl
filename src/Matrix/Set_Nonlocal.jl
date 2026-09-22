@@ -145,7 +145,6 @@
         y = Gxyz[jatom][2] + atv[cell][2] - Gxyz[atom][2]
         z = Gxyz[jatom][3] + atv[cell][3] - Gxyz[atom][3]
 
-
         R, theta, phi = xyz_to_spherical(x, y, z)
         R = ifelse(R < 1.0e-10, 1.0e-10, R)
         siT = sin(theta)
@@ -153,7 +152,6 @@
         siP = sin(phi)
         coP = cos(phi)
             
-
         jNum_RVPS = pspot[jspe].Spe_Num_RVPS
         jVPS_List = pspot[jspe].Spe_VPS_List
         VPS_j_dependency = pspot[jspe].VPS_j_dependency
@@ -172,6 +170,8 @@
 
         for so = 1:VPS_j_dependency+1
 
+            jNLRF_Bessel = NLRF_Bessel[jspe][so]
+
             fill!(NLPiαjβ, 0.0)
             fill!(NLPriαjβ, 0.0)
             fill!(NLPtiαjβ, 0.0)
@@ -184,12 +184,10 @@
                 @. dSphB3 = dSphB[L+1]*k3
 
                 for l = 0:iMaxL_Basis, p = 1:iNum_Basis[l+1], lnum = 1:jNum_RVPS
-                    @. tmpL = iRF_Bessel[l+1][p]*NLRF_Bessel[jspe][so][lnum]
+                    @. tmpL = iRF_Bessel[l+1][p]*jNLRF_Bessel[lnum]
                     SumNL0[lnum,p,l+1] = dot(SphB2, tmpL)*dk
                     SumNLr0[lnum,p,l+1] = dot(dSphB3, tmpL)*dk
                 end
-
-
 
                 for M = -L:L
                     indx0 = L-abs(M)+1
@@ -313,10 +311,8 @@
 
     for atom = 1:Natom
         matrices = Matrix{Float64}[]
-        for Rn = 1:FNAN[atom]+1
-            for so = 1:VPS_j_Num[natn[atom][Rn]]+1
-                push!(matrices, NLP[atom][Rn][so])
-            end
+        for Rn = 1:FNAN[atom]+1, so = 1:VPS_j_Num[natn[atom][Rn]]+1
+            push!(matrices, NLP[atom][Rn][so])
         end
         _packed_allreduce_matrices!(matrices, comm)
     end
