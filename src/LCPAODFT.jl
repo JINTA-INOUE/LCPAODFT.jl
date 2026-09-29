@@ -9,6 +9,7 @@ using Spglib
 using StaticArrays
 using JSON
 using SMTPClient
+using MKL
 using Printf
 using FortranFiles
 using Dates
