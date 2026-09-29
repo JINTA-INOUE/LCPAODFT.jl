@@ -84,7 +84,7 @@ function Calc_WannierCenter(cwf_setup::Union{CWF_Setup,CWF_Setup_MO}, filepath::
     end
         
     ucell = UCell(Nspin, TCpyCell, Latvecs, Natom, atom2spe, Gxyz, Atoms_Cut1, Ngrid, Grid_Origin, Total_NumOrbs)
-    Orbs_Grid = Set_Orbitals_Grid(pao, ucell)
+    Orbs_Grid = Set_Orbitals_Grid(pao, ucell; atoms=1:Natom)
 
     GridVol = ucell.system_grid.GridVol
     Ngrid = ucell.Ngrid
@@ -123,7 +123,7 @@ function Calc_WannierCenter(cwf_setup::Union{CWF_Setup,CWF_Setup_MO}, filepath::
                     cwf_proj = MP[atom]
                     NO0 = Total_NumOrbs[atom]
 
-                    _Calc_CWF_Grid8!(cwf_proj, NO0, CWF_GridN_Atom[cell][atom], CWF_GridOrbs_Grid[cell][atom], CWF_GridListAtom[cell][atom], Orbs_Grid.data[atom], ExpnCoef, Wannier_Orbs_Grid)
+                    _Calc_CWF_Grid8!(cwf_proj, NO0, CWF_GridN_Atom[cell][atom], CWF_GridOrbs_Grid[cell][atom], CWF_GridListAtom[cell][atom], atom_matrix(Orbs_Grid, atom), ExpnCoef, Wannier_Orbs_Grid)
                 end
             end
 
@@ -166,7 +166,7 @@ function Calc_WannierCenter(cwf_setup::Union{CWF_Setup,CWF_Setup_MO}, filepath::
                         cwf_proj = MP[atom]
                         NO0 = Total_NumOrbs[atom]
 
-                        _Calc_CWF_Grid8!(spin_site+cwf_proj, NO0, CWF_GridN_Atom[cell][atom], CWF_GridOrbs_Grid[cell][atom], CWF_GridListAtom[cell][atom], Orbs_Grid.data[atom], ExpnCoef, Wannier_Orbs_Grid)
+                        _Calc_CWF_Grid8!(spin_site+cwf_proj, NO0, CWF_GridN_Atom[cell][atom], CWF_GridOrbs_Grid[cell][atom], CWF_GridListAtom[cell][atom], atom_matrix(Orbs_Grid, atom), ExpnCoef, Wannier_Orbs_Grid)
                     end
                 end
 

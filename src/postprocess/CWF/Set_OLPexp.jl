@@ -65,7 +65,8 @@ function Set_OLPexp_opt!(tot_bvector, bvector, OLPexp, Orbs_Grid, ucell::UCell)
     MPI_size = system_grid.MPI_size
     Total_Hsize = system_grid.Total_Hsize
     MPI_natn = system_grid.MPI_natn
-    MPI_Hoffset = system_grid.MPI_Hoffset
+    MPHks = system_grid.MPHks
+    Hks_Num = MPHks[myrank+1]
     GridListAtom = ucell.GridListAtom
     CellListAtom = ucell.CellListAtom
     MPI_NumOLG = ucell.MPI_NumOLG
@@ -78,6 +79,17 @@ function Set_OLPexp_opt!(tot_bvector, bvector, OLPexp, Orbs_Grid, ucell::UCell)
 	gLatvecs[3,:] = Latvecs[3,:]/Ngrid3
     
     
+    hst = 0
+    block_starts = zeros(Int, MPI_size)
+    for loop = 1:MPI_size
+        atom = MPI_atom[loop]
+        jatom = MPI_natn[loop]
+        NO0 = Total_NumOrbs[atom]
+        NO1 = Total_NumOrbs[jatom]
+        block_starts[loop] = hst
+        hst += NO0*NO1
+    end
+
     relx = Vector{Vector{Float64}}(undef, MPI_size)
     rely = Vector{Vector{Float64}}(undef, MPI_size)
     relz = Vector{Vector{Float64}}(undef, MPI_size)
@@ -122,13 +134,11 @@ function Set_OLPexp_opt!(tot_bvector, bvector, OLPexp, Orbs_Grid, ucell::UCell)
     for loop = 1:MPI_size
         atom = MPI_atom[loop]
         jatom = MPI_natn[loop]
-        atom_orbitals = atom_matrix(Orbs_Grid, atom)
-        neighbor_orbitals = atom_matrix(Orbs_Grid, jatom)
         NO0 = Total_NumOrbs[atom]
         NO1 = Total_NumOrbs[jatom]
         list1 = MPI_GListTAtoms1[loop]
         list2 = MPI_GListTAtoms2[loop]
-        block_start = MPI_Hoffset[loop]
+        block_start = block_starts[loop]
         count = MPI_NumOLG[loop]
         fill!(block_work, 0.0)
         for first_grid = 1:4096:count
@@ -143,11 +153,13 @@ function Set_OLPexp_opt!(tot_bvector, bvector, OLPexp, Orbs_Grid, ucell::UCell)
                 for ib = 1:tot_bvector
                     phase[ib,local_grid] = cis(-(bx[ib]*x + by[ib]*y + bz[ib]*z))*GridVol
                 end
+                orb1 = Orbs_Grid[atom][Nc]
+                orb2 = Orbs_Grid[jatom][Nh]
                 for ist = 1:NO0
-                    phi1[ist,local_grid] = atom_orbitals[ist,Nc]
+                    phi1[ist,local_grid] = orb1[ist]
                 end
                 for jst = 1:NO1
-                    phi2[jst,local_grid] = neighbor_orbitals[jst,Nh]
+                    phi2[jst,local_grid] = orb2[jst]
                 end
             end
 
@@ -169,7 +181,7 @@ function Set_OLPexp_opt!(tot_bvector, bvector, OLPexp, Orbs_Grid, ucell::UCell)
         @inbounds for ib = 1:tot_bvector
             result_block = view(block_work, 1:NO0, 1:NO1, ib)
             for ist = 1:NO0, jst = 1:NO1
-                idx = block_start + (ist-1)*NO1 + jst
+                idx = Hks_Num + block_start + (ist-1)*NO1 + jst
                 tmp[ib,idx] = result_block[ist,jst]
             end
         end

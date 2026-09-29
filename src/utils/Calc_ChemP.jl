@@ -1,5 +1,13 @@
-function Calc_ChemP(spinsize, Spindeg, Nfsize, TZ, Beta, Enk; loopmax=2000, max_x=60.0)
+function Calc_ChemP(electron::ClusterBloch, kpoints::KPoints)
+    Beta = 1/electron.E_Temp/kb*eV2Hartree
+    ChemP = Calc_ChemP(electron.spinsize, electron.Spindeg, electron.Nfsize, electron.TotalZ, Beta, electron.Enk)
+    return ChemP
+end
+
+
+function Calc_ChemP(spinsize, Spindeg, Nfsize, TZ, Beta, Enk; loopmax=2000)
     
+    Beta_trial = 1.0/kb/1200.0*eV2Hartree
     ChemP = 0.0
     ChemP_max = 30.0
     ChemP_min = -30.0
@@ -13,7 +21,7 @@ function Calc_ChemP(spinsize, Spindeg, Nfsize, TZ, Beta, Enk; loopmax=2000, max_
 
         @inbounds for spin = 1:spinsize, μ = 1:Nfsize
                 
-            x = (Enk[μ,spin] - ChemP)*Beta*0.2
+            x = (Enk[μ,spin] - ChemP)*Beta_trial
             if x <= -max_x
                 x = -max_x
             end
@@ -87,10 +95,18 @@ function Calc_ChemP(spinsize, Spindeg, Nfsize, TZ, Beta, Enk; loopmax=2000, max_
 end
 
 
-function Calc_ChemP(spinsize, Spindeg, Nfsize, Nkpt, TZ, kweight, Beta, Enk; loopmax=2000, max_x=60.0)
+function Calc_ChemP(electron::CrystalBloch, kpoints::KPoints)
+    Beta = 1/electron.E_Temp/kb*eV2Hartree
+    ChemP = Calc_ChemP(electron.spinsize, electron.Spindeg, electron.Nfsize, kpoints.Nkpt, electron.TotalZ, kpoints.All_kweight, Beta, electron.Enk)
+    return ChemP
+end
+
+
+function Calc_ChemP(spinsize, Spindeg, Nfsize, Nkpt, TZ, kweight, Beta, Enk; loopmax=2000)
     
     All_Nkpt = sum(kweight)
-     
+    Beta_trial = 1.0/kb/3000.0*eV2Hartree
+
     ChemP = 0.0
     ChemP_max = 20.0
     ChemP_min = -20.0
@@ -104,7 +120,7 @@ function Calc_ChemP(spinsize, Spindeg, Nfsize, Nkpt, TZ, kweight, Beta, Enk; loo
 
         @inbounds for spin = 1:spinsize, ik = 1:Nkpt, μ = 1:Nfsize
                 
-            x = (Enk[μ,ik,spin] - ChemP)*Beta*0.2
+            x = (Enk[μ,ik,spin] - ChemP)*Beta_trial
             if x <= -max_x
                 x = -max_x
             end

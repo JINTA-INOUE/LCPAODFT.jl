@@ -576,7 +576,6 @@ end
 
     MPI_size = system_grid.MPI_size
     MPI_atom = system_grid.MPI_atom
-    MPI_FNAN = system_grid.MPI_FNAN
     MPI_natn = system_grid.MPI_natn
     Total_NumOrbs = system_grid.Total_NumOrbs
     MPI_Hoffset = system_grid.MPI_Hoffset
@@ -625,7 +624,6 @@ end
         hst = 0
         for loop = 1:MPI_size
             atom = MPI_atom[loop]
-            Rn = MPI_FNAN[loop]
             jatom = MPI_natn[loop]
             NO0 = Total_NumOrbs[atom]
             NO1 = Total_NumOrbs[jatom]
@@ -634,9 +632,9 @@ end
                 hst += 1
                 dm_index += 1
                 Enl +=  DM1[dm_index]*MPI_HNL1[hst]
-                Enl -= iDM1[atom][Rn][ist][jst]*MPI_iHNL1[hst]
+                Enl -= iDM1[dm_index]*MPI_iHNL1[hst]
                 Enl +=  DM2[dm_index]*MPI_HNL2[hst]
-                Enl -= iDM2[atom][Rn][ist][jst]*MPI_iHNL2[hst]
+                Enl -= iDM2[dm_index]*MPI_iHNL2[hst]
                 Enl += 2*DM3[dm_index]*MPI_HNL3[hst]
                 Enl -= 2*DM4[dm_index]*MPI_iHNL3[hst]
             end

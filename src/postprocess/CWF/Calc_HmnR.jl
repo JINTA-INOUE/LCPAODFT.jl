@@ -86,7 +86,7 @@ function _Write_HmnR_block!(HmnR_dataset, HmnR_block, first_cell, last_cell, spi
         io = HmnR_dataset.f.io
         seek(io, HmnR_dataset.data_address + byte_offset)
         written_bytes = write(io, block_view)
-        written_bytes == expected_bytes || error("incomplete HmnR block write: wrote $written_bytes of $expected_bytes bytes",)
+        written_bytes == expected_bytes || error("incomplete HmnR block write: wrote $written_bytes of $expected_bytes bytes")
     else
         HmnR_dataset[:, :, first_cell:last_cell, spin] = block_view
     end
@@ -100,52 +100,19 @@ function _HmnR_fft_compatible(kpoints::KPoints)
 end
 
 
-@timeit timer "Calc_HmnR_stream!" function Calc_HmnR_stream!(
-    HmnR_dataset, spinsize,
-    MinN, MaxN, NCell, Ngsize,
-    cell_list_ijk, Umnk, Enk, kpoints::KPoints; 
-    block_cells=nothing,)
+@timeit timer "Calc_HmnR_stream!" function Calc_HmnR_stream!(HmnR_dataset, spinsize, MinN, MaxN, NCell, Ngsize, cell_list_ijk, Umnk, Enk, kpoints::KPoints; block_cells=nothing)
 
     if _HmnR_fft_compatible(kpoints)
         resolved_block_cells = isnothing(block_cells) ? _HmnR_fft_block_cells(Ngsize, NCell, kpoints.Nkpt) : clamp(Int(block_cells), 1, Int(NCell))
-        return _Calc_HmnR_stream_fft!(
-            HmnR_dataset, spinsize,
-            MinN, MaxN,
-            NCell, Ngsize,
-            cell_list_ijk, Umnk, Enk, kpoints,
-            resolved_block_cells)
+        return _Calc_HmnR_stream_fft!(HmnR_dataset, spinsize, MinN, MaxN, NCell, Ngsize, cell_list_ijk, Umnk, Enk, kpoints, resolved_block_cells)
     end
 
     resolved_block_cells = isnothing(block_cells) ? _HmnR_block_cells(Ngsize, NCell, kpoints.MPI_Nkpt) : clamp(Int(block_cells), 1, Int(NCell))
-    return _Calc_HmnR_stream_direct!(
-        HmnR_dataset,
-        spinsize,
-        MinN,
-        MaxN,
-        NCell,
-        Ngsize,
-        cell_list_ijk,
-        Umnk,
-        Enk,
-        kpoints,
-        resolved_block_cells,
-    )
+    return _Calc_HmnR_stream_direct!(HmnR_dataset, spinsize, MinN, MaxN, NCell, Ngsize, cell_list_ijk, Umnk, Enk, kpoints, resolved_block_cells)
 end
 
 
-function _Calc_HmnR_stream_fft!(
-    HmnR_dataset,
-    spinsize,
-    MinN,
-    MaxN,
-    NCell,
-    Ngsize,
-    cell_list_ijk,
-    Umnk,
-    Enk,
-    kpoints::KPoints,
-    block_cells,
-)
+function _Calc_HmnR_stream_fft!(HmnR_dataset, spinsize, MinN, MaxN, NCell, Ngsize, cell_list_ijk, Umnk, Enk, kpoints::KPoints, block_cells)
 
     comm = MPI.COMM_WORLD
     nprocs = MPI.Comm_size(comm)
@@ -174,15 +141,9 @@ function _Calc_HmnR_stream_fft!(
         work_GiB = _HmnR_memory_GiB(
             Int128(Ngsize) * Ngsize * Nkpt +
             Int128(BANDNUM) * Ngsize +
-            Int128(Ngsize) * Ngsize * block_cells,
-        )
+            Int128(Ngsize) * Ngsize * block_cells)
         @printf("\tHmnR dense allocation avoided: %.3f GiB per MPI rank\n", dense_GiB)
-        @printf(
-            "\tHmnR FFT workspace: %.3f GiB on rank 0 (%d cells/block, %d ranks)\n",
-            work_GiB,
-            block_cells,
-            nprocs,
-        )
+        @printf("\tHmnR FFT workspace: %.3f GiB on rank 0 (%d cells/block, %d ranks)\n", work_GiB, block_cells, nprocs)
         @printf("\tHmnR transform: %d x %d x %d FFT\n", kmesh1, kmesh2, kmesh3)
         flush(stdout)
     end
@@ -192,8 +153,7 @@ function _Calc_HmnR_stream_fft!(
         for ik = 1:MPI_Nkpt
             U = Umnk[spin][ik]
             @inbounds for pst = 1:Ngsize, μ = 1:BANDNUM
-                weighted_conj_U[μ,pst] =
-                    Enk[spin][ik][μ+MinN-1] * conj(U[μ,pst])
+                weighted_conj_U[μ,pst] = Enk[spin][ik][μ+MinN-1] * conj(U[μ,pst])
             end
 
             # Preserve the historical storage convention
@@ -202,12 +162,7 @@ function _Calc_HmnR_stream_fft!(
         end
 
         if myrank == 0
-            MPI.Gatherv!(
-                MPI.IN_PLACE,
-                MPI.VBuffer(Hk_global, receive_counts),
-                comm;
-                root=0,
-            )
+            MPI.Gatherv!(MPI.IN_PLACE, MPI.VBuffer(Hk_global, receive_counts), comm; root=0)
         else
             MPI.Gatherv!(Hk_local, nothing, comm; root=0)
         end
@@ -232,15 +187,7 @@ function _Calc_HmnR_stream_fft!(
                     @. destination = normalization * source
                 end
 
-                _Write_HmnR_block!(
-                    HmnR_dataset,
-                    HmnR_block,
-                    first_cell,
-                    last_cell,
-                    spin,
-                    NCell,
-                    Ngsize,
-                )
+                _Write_HmnR_block!(HmnR_dataset, HmnR_block, first_cell, last_cell, spin, NCell, Ngsize)
             end
         end
     end
@@ -249,19 +196,7 @@ function _Calc_HmnR_stream_fft!(
 end
 
 
-function _Calc_HmnR_stream_direct!(
-    HmnR_dataset,
-    spinsize,
-    MinN,
-    MaxN,
-    NCell,
-    Ngsize,
-    cell_list_ijk,
-    Umnk,
-    Enk,
-    kpoints::KPoints,
-    block_cells,
-)
+function _Calc_HmnR_stream_direct!(HmnR_dataset, spinsize, MinN, MaxN, NCell, Ngsize, cell_list_ijk, Umnk, Enk, kpoints::KPoints, block_cells)
 
     comm = MPI.COMM_WORLD
     nprocs = MPI.Comm_size(comm)
@@ -287,12 +222,7 @@ function _Calc_HmnR_stream_direct!(
             Int128(block_cells) * (Int128(Ngsize) * Ngsize + MPI_Nkpt),
         )
         @printf("\tHmnR dense allocation avoided: %.3f GiB per MPI rank\n", dense_GiB)
-        @printf(
-            "\tHmnR streaming workspace: %.3f GiB per MPI rank (%d cells/block, %d ranks)\n",
-            work_GiB,
-            block_cells,
-            nprocs,
-        )
+        @printf("\tHmnR streaming workspace: %.3f GiB per MPI rank (%d cells/block, %d ranks)\n", work_GiB, block_cells, nprocs)
     end
 
     for spin = 1:spinsize
@@ -323,7 +253,7 @@ function _Calc_HmnR_stream_direct!(
             if MPI_Nkpt == 0
                 fill!(HmnR_view, 0.0)
             else
-                mul!(HmnR_view,Hk_2D,@view(phase_block[:, 1:cells_in_block]),inv(Float64(Nkpt)),0.0)
+                mul!(HmnR_view, Hk_2D, @view(phase_block[:, 1:cells_in_block]), inv(Float64(Nkpt)), 0.0)
             end
 
             # Only rank 0 needs the completed block.  Using Reduce! instead of

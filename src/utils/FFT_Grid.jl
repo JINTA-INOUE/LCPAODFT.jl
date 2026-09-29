@@ -1,14 +1,10 @@
-function FFT_Grid!(Ngrid, Gridxyz::AbstractArray{<:ComplexF64,3}; flags=FFTW.ESTIMATE)
+function FFT_Grid!(Ngrid, in1, in2, in3, Gridxyz; flags=FFTW.ESTIMATE)
 
     Ngrid1, Ngrid2, Ngrid3 = Ngrid
 
-    in1 = zeros(ComplexF64, Ngrid1)
-    in2 = zeros(ComplexF64, Ngrid2)
-    in3 = zeros(ComplexF64, Ngrid3)
-
     planfw = plan_fft!(in3, flags=flags)
     @inbounds for j = 1:Ngrid2, i = 1:Ngrid1
-        @. @views in3 = Density_xyz[i,j,:]
+        @. @views in3 = Gridxyz[i,j,:]
         R_to_G!(planfw, in3)
         @. @views Gridxyz[i,j,:] = in3
     end
@@ -29,13 +25,9 @@ function FFT_Grid!(Ngrid, Gridxyz::AbstractArray{<:ComplexF64,3}; flags=FFTW.EST
 end
 
 
-function iFFT_Grid!(Ngrid, Gridxyz::AbstractArray{<:ComplexF64,3}; flags=FFTW.ESTIMATE)
+function iFFT_Grid!(Ngrid, in1, in2, in3, Gridxyz; flags=FFTW.ESTIMATE)
 
     Ngrid1, Ngrid2, Ngrid3 = Ngrid
-
-    in1 = zeros(ComplexF64, Ngrid1)
-    in2 = zeros(ComplexF64, Ngrid2)
-    in3 = zeros(ComplexF64, Ngrid3)
 
     planbw = plan_ifft!(in1, flags=flags)
     @inbounds for k = 1:Ngrid3, j = 1:Ngrid2

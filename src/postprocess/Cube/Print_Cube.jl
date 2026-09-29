@@ -9,7 +9,6 @@ function Print_Cube(
     MPI.Init()
     comm = MPI.COMM_WORLD
     nprocs = MPI.Comm_size(comm)
-    MKL.set_num_threads(1)
 
     if nprocs > 1
         error("please run serial.")

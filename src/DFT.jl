@@ -23,6 +23,7 @@ function DFT(dft_setup::DFT_Setup)
     Ngrid = dft_setup.Ngrid
     Grid_Origin = dft_setup.Grid_Origin
     kmesh = dft_setup.kmesh
+    crystal_sym = dft_setup.crystal_sym
     E_Temp = dft_setup.E_Temp
     Mixing_method = dft_setup.Mixing_method
     SCF_criterion = dft_setup.SCF_criterion
@@ -68,8 +69,17 @@ function DFT(dft_setup::DFT_Setup)
 
 
     Shift_K_Point = 1.0e-12
-    kpoints = KPoints(kmesh, time_rev, Shift_K_Point)
+    if crystal_sym
+        kpoints = KPoints(kmesh, time_rev, Shift_K_Point, dft_setup.symmetry)
+    else
+        kpoints = KPoints(kmesh, time_rev, 1.0e-12)
+    end
 
+    if myrank == 0 && verbosity>=1 && system == "Crystal"
+        Print_KPoints(kpoints)
+    end
+
+    
     dft_options = DFT_Options(Mixing_method, SCF_criterion, SCF_max, 
                               Init_Mixing_weight, Min_Mixing_weight, Max_Mixing_weight, Max_Mixing_weight,
                               Num_Mixing_Pulay, -1, Start_Pulay_SCF, 3, Gxyz, false, time_rev)
@@ -79,7 +89,7 @@ function DFT(dft_setup::DFT_Setup)
 
     ucell = UCell(Nspin, Latvecs, Natom, atom2spe, Gxyz, Atoms_Cut1, Ngrid, Grid_Origin; Total_NumOrbs, verbosity)
     electron = Electron(kpoints, cal_mode, SpinPol, E_Temp, Atoms_Core_Charge, fsize, system)
-
+    
     
     KSsolve_SCF!(1, dft_setup, pao, pspot, ucell, electron, kpoints, dft_options, energy, force, false, fileout)
 

@@ -1,4 +1,5 @@
 @timeit timer "Calc_Amnk" function Calc_Amnk(MinN, BANDNUM, Enk, Cnk, cwf_setup::CWF_Setup, kpoints::KPoints)
+    
     material = cwf_setup.material
     SpinPol = material.SpinPol
     spinsize = cwf_setup.spinsize
@@ -27,7 +28,8 @@
 end
 
 
-function _build_amn_projection!(projection, kpoint, material::LCPAO_model, Guide_index)
+function _build_amn_projection!(projection, kpts, material::LCPAO_model, Guide_index)
+    
     FNAN = material.FNAN
     natn = material.natn
     ncn = material.ncn
@@ -35,7 +37,7 @@ function _build_amn_projection!(projection, kpoint, material::LCPAO_model, Guide
     MP = material.MP
     Total_NumOrbs = material.Total_NumOrbs
     OLP = material.OLP
-    ka, kb, kc = kpoint
+    ka, kb, kc = kpts
 
     fill!(projection, 0.0)
     pst = 0
@@ -59,12 +61,11 @@ function _build_amn_projection!(projection, kpoint, material::LCPAO_model, Guide
         end
         pst += length(guides)
     end
-
-    return projection
 end
 
 
 function _store_weighted_amn!(Amnk_ik, Awork, energies, MinN, ChemP, Dis_Energy, weight_type)
+    
     BANDNUM, Ngsize = size(Awork)
 
     if weight_type == "fermi"
@@ -84,8 +85,6 @@ function _store_weighted_amn!(Amnk_ik, Awork, energies, MinN, ChemP, Dis_Energy,
             end
         end
     end
-
-    return Amnk_ik
 end
 
 
@@ -114,8 +113,6 @@ function Calc_Amnk_Col!(MinN, BANDNUM, Amnk, Enk, Cnk, cwf_setup::CWF_Setup, kpo
             _store_weighted_amn!(Amnk[spin][ik], Awork, Enk[spin][ik], MinN, ChemP, Dis_Energy, weight_type)
         end
     end
-
-    return Amnk
 end
 
 
@@ -144,8 +141,6 @@ function Calc_Amnk_NonCol!(MinN, BANDNUM, Amnk, Enk, Cnk, cwf_setup::CWF_Setup, 
         mul!(view(Awork, :, gsize+1:2*gsize), adjoint(Cbands_dn), projection)
         _store_weighted_amn!(Amnk[1][ik], Awork, Enk[1][ik], MinN, ChemP, Dis_Energy, weight_type)
     end
-
-    return Amnk
 end
 
 
@@ -222,8 +217,7 @@ end
 end
 
 
-function _build_amn_projection!(projection, kpoint, material::LCPAO_model,
-                                OLPproj, cwf_setup::CWF_Setup_MO)
+function _build_amn_projection!(projection, kpts, material::LCPAO_model, OLPproj, cwf_setup::CWF_Setup_MO)
     FNAN = material.FNAN
     natn = material.natn
     ncn = material.ncn
@@ -234,7 +228,7 @@ function _build_amn_projection!(projection, kpoint, material::LCPAO_model,
     Num_CWF_MOs_Group = cwf_setup.Num_CWF_MOs_Group
     CWF_Grouped_Atoms_EachNum = cwf_setup.CWF_Grouped_Atoms_EachNum
     CWF_Grouped_Atoms = cwf_setup.CWF_Grouped_Atoms
-    ka, kb, kc = kpoint
+    ka, kb, kc = kpts
 
     fill!(projection, 0.0)
     pst = 0
@@ -260,12 +254,11 @@ function _build_amn_projection!(projection, kpoint, material::LCPAO_model,
         end
         pst += Num_CWF_MOs_Group[gidx]
     end
-
-    return projection
 end
 
 
 function Calc_Amnk_Col!(MinN, BANDNUM, OLPproj, Amnk, Enk, Cnk, cwf_setup::CWF_Setup_MO, kpoints::KPoints)
+    
     material = cwf_setup.material
     Total_NumOrbs = material.Total_NumOrbs
     ChemP = material.ChemP
@@ -289,8 +282,6 @@ function Calc_Amnk_Col!(MinN, BANDNUM, OLPproj, Amnk, Enk, Cnk, cwf_setup::CWF_S
             _store_weighted_amn!(Amnk[spin][ik], Awork, Enk[spin][ik], MinN, ChemP, Dis_Energy, weight_type)
         end
     end
-
-    return Amnk
 end
 
 

@@ -34,7 +34,8 @@ struct DFT_Setup
     Start_Pulay_SCF::Int32
     E_Temp::Float64
     kmesh::Tuple{Int32,Int32,Int32}
-    symmetry::Symmetry
+    crystal_sym::Bool
+    symmetry::Symmetry # Spglib.AbstractDataset
     Hub_U::Bool
     Hub_U_atom::Vector{Vector{Float64}}
     Hub_U_orbpol::Vector{Bool}
@@ -44,6 +45,7 @@ struct DFT_Setup
     time_rev::Bool
     cal_force::Bool
     cal_mode::Int32
+    eigen_workspace::Symbol
     fileout::Bool
     filename::String
     restart::Bool
@@ -71,9 +73,9 @@ function Print_DFT_Setup(dft_setup::DFT_Setup)
 
 
     println("<Print_DFT_Setup>")
-    println("\tNatom : $(Natom)")
-    println("\tNspecies : $(Nspecies)")
-    println("\tNspin : $(Nspin)")
+    println("\tNatom : $Natom")
+    println("\tNspecies : $Nspecies")
+    println("\tNspin : $Nspin")
     println("Latvecs (AU)")
     @printf("\tA : %5.10f  %5.10f  %5.10f\n", Latvecs[1,1], Latvecs[1,2], Latvecs[1,3])
     @printf("\tB : %5.10f  %5.10f  %5.10f\n", Latvecs[2,1], Latvecs[2,2], Latvecs[2,3])
@@ -92,7 +94,7 @@ function Print_DFT_Setup(dft_setup::DFT_Setup)
     println("")
     println("Real space Grid number a, b, c : $(Ngrid[1]) $(Ngrid[2]) $(Ngrid[3])")
 	println("Grid_Origin:   $(Grid_Origin[1]) $(Grid_Origin[2]) $(Grid_Origin[3])")
-	println("GridVol    :   $(GridVol)")
+	println("GridVol    :   $GridVol")
     println("")
 
 
@@ -119,20 +121,24 @@ function Print_DFT_Setup(dft_setup::DFT_Setup)
     xc_type = dft_setup.xc_type
     E_Temp = dft_setup.E_Temp
     kmesh = dft_setup.kmesh
+    crystal_sym = dft_setup.crystal_sym
     time_rev = dft_setup.time_rev
     cal_force = dft_setup.cal_force
     cal_mode = dft_setup.cal_mode
+    eigen_workspace = dft_setup.eigen_workspace
     println("")
     println("<SCF Setup>")
-    println("\tSystem : $(system)")
-    println("\tSpinPolarization : $(SpinPol)")
-    println("\tSpinOrbitalCoupling : $(SO_switch)")
-    println("\tExchange Correlation type : $(xc_type)")
-    println("\tElectron Temperatue : $(E_Temp)")
-    println("\tBrillouin zone sampling : $(kmesh)")
-    println("\ttime reversal symmetry : $(time_rev)")
-    println("\tcal_force : $(cal_force)")
-    println("\tcal_mode : $(cal_mode)")
+    println("\tSystem : $system")
+    println("\tSpinPolarization : $SpinPol")
+    println("\tSpinOrbitalCoupling : $SO_switch")
+    println("\tExchange Correlation type : $xc_type")
+    println("\tElectron Temperatue : $E_Temp")
+    println("\tBrillouin zone sampling : $kmesh")
+    println("\tcrystal symmetry : $crystal_sym")
+    println("\ttime reversal symmetry : $time_rev")
+    println("\tcal_force : $cal_force")
+    println("\tcal_mode : $cal_mode")
+    println("\teigen_workspace : $eigen_workspace")
 
 
 
@@ -146,14 +152,14 @@ function Print_DFT_Setup(dft_setup::DFT_Setup)
     Start_Pulay_SCF = dft_setup.Start_Pulay_SCF
     println("")
     println("<Mixing Parameters>")
-    println("\tMixing_method : $(Mixing_method)")
-    println("\tSCF_criterion : $(SCF_criterion)")
-    println("\tSCF_max : $(SCF_max)")
-    println("\tInit_Mixing_weight : $(Init_Mixing_weight)")
-    println("\tMin_Mixing_weight : $(Min_Mixing_weight)")
-    println("\tMax_Mixing_weight : $(Max_Mixing_weight)")
-    println("\tNum_Mixing_Pulay : $(Num_Mixing_Pulay)")
-    println("\tStart_Pulay_SCF : $(Start_Pulay_SCF)")
+    println("\tMixing_method : $Mixing_method")
+    println("\tSCF_criterion : $SCF_criterion")
+    println("\tSCF_max : $SCF_max")
+    println("\tInit_Mixing_weight : $Init_Mixing_weight")
+    println("\tMin_Mixing_weight : $Min_Mixing_weight")
+    println("\tMax_Mixing_weight : $Max_Mixing_weight")
+    println("\tNum_Mixing_Pulay : $Num_Mixing_Pulay")
+    println("\tStart_Pulay_SCF : $Start_Pulay_SCF")
     
 
     Hub_U = dft_setup.Hub_U
@@ -165,9 +171,9 @@ function Print_DFT_Setup(dft_setup::DFT_Setup)
     if Hub_U
         println("")
         println("<Hubbard U>")
-        println("\tHub_U_occ : $(Hub_U_occ)")
-        println("\tHubbard_Type : $(Hub_Type)")
-        println("\tdc_Type : $(dc_Type)")
+        println("\tHub_U_occ : $Hub_U_occ")
+        println("\tHubbard_Type : $Hub_Type")
+        println("\tdc_Type : $dc_Type")
         println("\tHubbard Orbital Polarization")
         for atom = 1:Natom
             if Hub_U_orbpol[atom]
@@ -198,8 +204,8 @@ function Print_DFT_Setup(dft_setup::DFT_Setup)
     end
 
 
-    println("")
-    Print_Symmetry(dft_setup.symmetry)
+    # println("")
+    # Print_Symmetry(dft_setup.symmetry)
     
     fileout = dft_setup.fileout
     filename = dft_setup.filename
@@ -209,14 +215,14 @@ function Print_DFT_Setup(dft_setup::DFT_Setup)
     send_email = dft_setup.send_email
     println("")
     println("<Outputs>")
-    println("\tfileout : $(fileout)")
-    println("\tfilename : $(filename)")
-    println("\trestart : $(restart)")
+    println("\tfileout : $fileout")
+    println("\tfilename : $filename")
+    println("\trestart : $restart")
     if restart
-        println("\tfilepath : $(filepath)")
+        println("\tfilepath : $filepath")
     end
-    println("\tverbosity : $(verbosity)")
-    println("\tsend_email : $(send_email)")
+    println("\tverbosity : $verbosity")
+    println("\tsend_email : $send_email")
 end
 
 
@@ -249,80 +255,13 @@ function RestartFile_check(Natom, Nspin, Latvecs, Gxyz, Grid_Origin, SpinPol, SO
 end
 
 
-"""
-```
-    DFT_Setup(...)
-
-Setup for solving Kohn-Sham equations using Self Consistent calculation.
-
-Mandatory arguments:
-
-- `lattice`: an instance of `Lattice`
-- `Atoms_orb`: 
-- `Atoms_symbol`: 
-- `Atoms_pos`:  an instance of `Atompos`
-- `system`: system name (`Atom`, `Cluster`, `Crystal`)
-
-Thw following is the most commonly used optional arguments:
-- `Atoms_Nspin` : output file name
-- `Atoms_Angle` : output file name
-- `SpinPol` : output file name
-- `SO_switch` : output file name
-- `xc_type` : output file name
-- `Ngrid` : output file name
-- `Mixing_method` : SCF Mixing method [`RMM-DIISH`]
-- `SCF_criterion`: SCF criterion
-- `SCF_max` : SCF iteration max
-- `Init_Mixing_weight` : Initial Mixing weight
-- `Min_Mixing_weight` : minimum Mixing weight
-- `Max_Mixing_weight` : minimum Mixing weight
-- `Num_Mixing_Pulay` : start SCF number of DMM-DIIS mixing
-- `Start_Pulay_SCF` : start SCF number of DMM-DIIS mixing
-- `E_Temp`: Temperatue with eV units
-- `kmesh` : kpoint smapling mesh in first BZ
-- `time_rev` : which use time reversal symmetry
-- `verbosity` : terminal print
-- `fileout` : output bool
-- `filename` : output file name
-- `send_email` : send results email
+@inline check_positive(name::AbstractString, x) = x > 0 || throw(ArgumentError("$name must be > 0, but got $x"))
+@inline check_range(name::AbstractString, x, xmin, xmax) = xmin <= x <= xmax || throw(ArgumentError("$name must be in [$xmin, $xmax], but got $x"))
+@inline check_choice(name::AbstractString, x, choices) = x in choices || throw(ArgumentError("$name must be one of $choices, but got $x"))
+@inline check_size(name::AbstractString, x, n) = length(x) == n || throw(ArgumentError("$name must have length $n, but got length $(length(x))"))
+@inline check_required(name::AbstractString, x) = !isnothing(x) || throw(ArgumentError("$name must be specified"))
 
 
-function DFT_Setup(
-    lattice::Lattice,
-    Atoms_orb::Vector{String},
-    Atoms_symbol::Vector{String},
-    Atoms_pos::Atompos,
-    system::AbstractString;
-    Atoms_Nspin = nothing,
-    Atoms_Angle = nothing,
-    SpinPol::String = "off",
-    SO_switch::Bool = false,
-    xc_type::String = "LDA",
-    Ecut::AbstractFloat = 150.0,
-    Ngrid = nothing,
-    Mixing_method::AbstractString = "RMM-DIISH",
-    SCF_criterion::AbstractFloat = 1e-6,
-    SCF_max::Signed = 10,
-    Init_Mixing_weight::AbstractFloat = 0.3,
-    Min_Mixing_weight::AbstractFloat = 0.001,
-    Max_Mixing_weight::AbstractFloat = 0.4,
-    Num_Mixing_Pulay::Signed = 5,
-    Start_Pulay_SCF::Signed = 6,
-    E_Temp::Union{AbstractFloat,Signed} = 300.0,
-    kmesh::Tuple{Signed,Signed,Signed} = (1,1,1),
-    cal_mode::Singed = 1,
-    Hub_U::Bool = false,
-    Hub_U_atom::Union{Nothing,Vector{Vector{Float64}}} = nothing,
-    Hub_U_occ::AbstractString = "dual",
-    Hub_Type::AbstractString = "Dudarev",
-    dc_Type::AbstractString = "sFLL",
-    verbosity::Int = 1,
-    fileout::Bool = false,
-    filename::AbstractString = PROGRAM_FILE,
-    filepath::AbstractString = nothing,
-    send_email::Bool = false
-)
-"""
 function DFT_Setup(
     lattice::Lattice,
     Atoms_orb::Vector{String},
@@ -345,8 +284,10 @@ function DFT_Setup(
     Start_Pulay_SCF::Signed = 6,
     E_Temp::Union{AbstractFloat,Signed} = 300.0,
     kmesh::Tuple{Signed,Signed,Signed} = (1,1,1),
+    crystal_sym::Bool = false,
     cal_force::Bool = false,
     cal_mode::Signed = 1,
+    eigen_workspace::Symbol = :optimized,
     Hub_U::Bool = false,
     Hub_U_atom::Union{Nothing,Vector{Vector{Float64}}} = nothing,
     Hub_U_orbpol::Union{Nothing,Vector{Bool}} = nothing,
@@ -368,7 +309,7 @@ function DFT_Setup(
     BLAS.set_num_threads(1)
     nthreads = Threads.nthreads()
     nblas = BLAS.get_num_threads()
-    # MKL.set_num_threads(1)
+    MKL.set_num_threads(1)
 
     if myrank == 0 && verbosity >= 1
         cpu_info = Sys.cpu_info()[1]
@@ -381,9 +322,10 @@ function DFT_Setup(
     end
     MPI.Barrier(comm)
 
-    if Hub_U
+    if Hub_U || crystal_sym || cal_mode == 2
         error("not support yet.")
     end
+
 
     Mixing_method = "RMM-DIISH"
 
@@ -393,40 +335,18 @@ function DFT_Setup(
     Nspecies = length(unique(Atoms_symbol))
 
 
-    if Natom ≠ length(Atoms_symbol)
-        println("please check atompos and atomsymbol, Atoms_orb")
-        error("please check input files")
-    end
-
+    check_size("Atoms_symbol", Atoms_symbol, Natom)
 
     system = lowercase(strip(system))
-    if system ∈ ("atom", "atoms", "cluster")
-        system = "Cluster"
-    elseif system ∈ ("band", "bands", "crystal", "crystals")
-        system = "Crystal"
-    else
-        println("only support system = Crystal")
-		error("please check system")
-    end
+    check_choice("system", system, ("atom", "atoms", "cluster", "band", "bands", "crystal", "crystals"))
+    system = system ∈ ("atom", "atoms", "cluster") ? "Cluster" : "Crystal"
 
-
-    if !isnothing(Atoms_Nspin)
-        if length(Atoms_Nspin) ≠ Natom
-            error("please check Atoms_Nspin")
-        end
-    end
-
-    if !isnothing(Atoms_Angle)
-        if length(Atoms_Angle) ≠ Natom
-            error("please check Atoms_Angle")
-        end
-    end
+    check_size("Atoms_orb", Atoms_orb, Nspecies)
+    !isnothing(Atoms_Nspin) && check_size("Atoms_Nspin", Atoms_Nspin, Natom)
+    !isnothing(Atoms_Angle) && check_size("Atoms_Angle", Atoms_Angle, Natom)
 
     SpinPol = lowercase(strip(SpinPol))
-	if SpinPol ∉ ("off", "on", "nc")
-        println("Now SpinPol is $SpinPol")
-        error("please check SpinPol")
-    end
+    check_choice("SpinPol", SpinPol, ("off", "on", "nc"))
 
     if SpinPol ∈ ("off", "on") && SO_switch
         error("please check SpinPol and SO_switch")
@@ -448,61 +368,27 @@ function DFT_Setup(
 		error("please check xc_type")
 	end
 
-    if Ecut < 0.0
-        error("please check Ecut")
-    end
+    check_range("Ecut", Ecut, 0.0, Inf)
 
     if !isnothing(Ngrid)
-        if length(Ngrid) ≠ 3
-            error("please check Ngrid")
-        end
-
-        for i = 1:3
-            if Ngrid[i] <= 0
-                error("please check Ngrid")
-            end
-        end
+        check_size("Ngrid", Ngrid, 3)
+        check_positive("Ngrid", Ngrid)
     end
 
-    if SCF_criterion < 0.0
-        error("please check SCF_criterion")
-    end
-
-    if SCF_max < 1
-        error("please check SCF_max")
-    end
-
-    if Init_Mixing_weight <= 0.0
-        error("please check Init_Mixing_weight")
-    end
-
-    if Min_Mixing_weight <= 0.0
-        error("please check Min_Mixing_weight")
-    end
-
-    if Max_Mixing_weight <= 0.0
-        error("please check Max_Mixing_weight")
-    end
-
-    if Num_Mixing_Pulay <= 0
-        error("please check Num_Mixing_Pulay")
-    end
-
-    if Start_Pulay_SCF <= 0
-        error("please check Start_Pulay_SCF")
-    end
-
-    if E_Temp <= 0.0
-        error("please check Max_Mixing_weight")
-    end
-
-    if kmesh[1] <= 0 || kmesh[2] <= 0 || kmesh[3] <= 0
-        error("please check kmesh")
-    end
-
-    if cal_mode ∉ (1, 2)
-        throw(ArgumentError("cal_mode must be either 1 or 2 (got $cal_mode)"))
-    end
+    check_range("SCF_criterion", SCF_criterion, 0.0, Inf)
+    check_positive("SCF_max", SCF_max)
+    check_positive("Init_Mixing_weight", Init_Mixing_weight)
+    check_positive("Min_Mixing_weight", Min_Mixing_weight)
+    check_positive("Max_Mixing_weight", Max_Mixing_weight)
+    check_positive("Num_Mixing_Pulay", Num_Mixing_Pulay)
+    check_positive("Start_Pulay_SCF", Start_Pulay_SCF)
+    check_positive("E_Temp", E_Temp)
+    check_size("kmesh", kmesh, 3)
+    check_positive("kmesh1", kmesh[1])
+    check_positive("kmesh2", kmesh[2])
+    check_positive("kmesh3", kmesh[3])
+    check_choice("cal_mode", cal_mode, (1, 2))
+    check_choice("eigen_workspace", eigen_workspace, (:optimized, :lapack))
 
     if SpinPol ∈ ("off", "on") && system == "Crystal" && nprocs > div(prod(kmesh),2)
         error("not support number of process > number of Total kmesh points")
@@ -512,36 +398,19 @@ function DFT_Setup(
 
 
     if Hub_U
-        if isnothing(Hub_U_atom)
-            error("please input Hubbard_U_atom")
-        end
+        check_required("Hub_U_atom",   Hub_U_atom)
+        check_required("Hub_U_orbpol", Hub_U_orbpol)
 
-        if isnothing(Hub_U_orbpol)
-            error("please input Hubbard_U_atom")
-        end
+        check_size("Hub_U_atom",   Hub_U_atom,   Natom)
+        check_size("Hub_U_orbpol", Hub_U_orbpol, Natom)
 
-        if length(Hub_U_atom) ≠ length(Atoms_symbol)
-            error("please check Hub_U_atom")
-        end
+        Hub_U_occ = lowercase(strip(Hub_U_occ))
+        Hub_Type  = lowercase(strip(Hub_Type))
+        dc_Type   = lowercase(strip(dc_Type))
 
-        if length(Hub_U_orbpol) ≠ Natom
-            error("please check Hub_U_orbpol")
-        end
-
-        Hub_U_occ = lowercase(Hub_U_occ)
-        if Hub_U_occ ≠ "dual"
-            error("please check Hub_U_occ")
-        end
-
-        Hub_Type = lowercase(Hub_Type)
-        if Hub_Type ≠ "dudarev"
-            error("please check Hub_Type")
-        end
-
-        dc_Type = lowercase(dc_Type)
-        if dc_Type ≠ "sfll"
-            error("please check dc_Type")
-        end
+        check_choice("Hub_U_occ", Hub_U_occ, ("dual",))
+        check_choice("Hub_Type",  Hub_Type,  ("dudarev",))
+        check_choice("dc_Type",   dc_Type,   ("sfll",))
     else
         Hub_U_atom = [[0.0]]
         Hub_U_orbpol = [false]
@@ -704,6 +573,14 @@ function DFT_Setup(
     end
 
 
+    symmetry = Get_Symmetry_Spglib(SpinPol, Latvecs, Gxyz_frac, atom2spe, Atoms_Nspin, Atoms_Angle)
+    # if crystal_sym
+    #     requested_grid = Ngrid
+    #     Ngrid = symmetry_compatible_grid(symmetry, Ngrid)
+    #     if myrank == 0 && Ngrid ≠ requested_grid
+    #         println("FFT grid adjusted for crystal symmetry: $requested_grid -> $Ngrid")
+    #     end
+    # end
 
     # calculate Latvecs/Ngrid
     gLatvecs = zeros(Float64, 3, 3)
@@ -720,13 +597,7 @@ function DFT_Setup(
 
     # Setting the center of unit cell and grids
     Grid_Origin = Calc_Grid_Origin(Natom, Gxyz_AU, gLatvecs, Ngrid, atompos_unit)
-
-
     time_rev = ifelse(SpinPol=="nc", false, true)
-
-
-
-    symmetry = Get_Symmetry_Spglib(Latvecs, Gxyz_frac, atom2spe)
 
 
 
@@ -773,9 +644,10 @@ function DFT_Setup(
         pao_file, pspot_file, Ngrid,
         Mixing_method, SCF_criterion, SCF_max, 
         Init_Mixing_weight, Min_Mixing_weight, Max_Mixing_weight, Num_Mixing_Pulay,
-        Start_Pulay_SCF, E_Temp, kmesh, symmetry,
+        Start_Pulay_SCF, E_Temp, kmesh, crystal_sym, symmetry,
         Hub_U, Hub_U_atom, Hub_U_orbpol, Hub_U_occ, Hub_Type, dc_Type,
-        time_rev, cal_force, cal_mode, fileout, filename2, restart, filepath2, send_email, verbosity
+        time_rev, cal_force, cal_mode, eigen_workspace,
+        fileout, filename2, restart, filepath2, send_email, verbosity
     )
 
 

@@ -206,7 +206,6 @@ function Band_kpath(filepath::String, kpath::Vector{Vector{Float64}}, kname::Vec
     end
 
     model = select_model(filepath)
-    @show model
     if model == 1
         Band_kpath_LCPAO(filepath, seedname, kpath, kname, Nk)
     elseif model == 2

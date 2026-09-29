@@ -3,6 +3,7 @@
     system_grid::System_Grid, 
     electron::CrystalBloch, 
     kpoints::KPoints,
+    eigencache::SCFEigenCache,
     OLP, Hks, iHks, DM, iDM, EDM)
 
     cal_mode = electron.cal_mode
@@ -12,29 +13,38 @@
     end
 
     if cal_mode == 2
+        error("please check")
         if SpinPol ∈ ("off", "on")
-            Crystal_DFT_Col!(cal_force, OLP, Hks, DM, EDM, electron, kpoints, system_grid)
+            # Crystal_DFT_Col!(cal_force, OLP, Hks, DM, EDM, electron, kpoints, system_grid)
         else
-            Crystal_DFT_NonCol!(cal_force, OLP, Hks, iHks, DM, iDM, EDM, electron, kpoints, system_grid)
+            # Crystal_DFT_NonCol!(cal_force, OLP, Hks, iHks, DM, iDM, EDM, electron, kpoints, system_grid)
         end
     elseif cal_mode == 1
+        _crystal_eigen_cached!(eigencache, Hks, iHks, electron, kpoints, system_grid)
         if SpinPol == "off"
-            Crystal_DFT_Collinear_nonpol!(OLP, Hks[1], electron, kpoints, system_grid)
-            Calc_Band_Energy!(electron, kpoints)
+            # Crystal_DFT_Collinear_nonpol!(OLP, Hks[1], electron, kpoints, system_grid)
+            electron.ChemP = Calc_ChemP(electron, kpoints)
+            Calc_fnk!(electron, kpoints)
             Calc_DM_Crystal_Collinear_nopol!(electron, kpoints, system_grid, DM)
+            electron.Eele = Calc_Band_Energy!("off", Hks, DM, system_grid)
         elseif SpinPol == "on"
-            Crystal_DFT_Collinear_pol!(OLP, Hks, electron, kpoints, system_grid)
-            Calc_Band_Energy!(electron, kpoints)
+            # Crystal_DFT_Collinear_pol!(OLP, Hks, electron, kpoints, system_grid)
+            electron.ChemP = Calc_ChemP(electron, kpoints)
+            Calc_fnk!(electron, kpoints)
             Calc_DM_Crystal_Collinear_pol!(electron, kpoints, system_grid, DM)
+            electron.Eele = Calc_Band_Energy!("on", Hks, DM, system_grid)
         elseif SpinPol == "nc"
-            Crystal_DFT_NonCollinear!(OLP, Hks, iHks, electron, kpoints, system_grid)   
-            Calc_Band_Energy!(electron, kpoints)
-            Calc_DM_Crystal_NonCollinear!(electron, kpoints, system_grid, DM)
+            # Crystal_DFT_NonCollinear!(OLP, Hks, iHks, electron, kpoints, system_grid)   
+            electron.ChemP = Calc_ChemP(electron, kpoints)
+            Calc_fnk!(electron, kpoints)
+            Calc_DM_Crystal_NonCollinear!(electron, kpoints, system_grid, DM, iDM)
+            electron.Eele = Calc_Band_Energy!(Hks, iHks, DM, iDM, system_grid)
         end
     end
 end
 
 
+#=
 @timeit timer "Crystal_DFT_Collinear" function Crystal_DFT_Collinear_nonpol!( 
     OLP, Hks, 
     electron::CrystalBloch, 
@@ -172,6 +182,37 @@ end
     MPI.Allreduce!(Enk, MPI.SUM, comm)
     electron.Enk = Enk
     electron.Cnk = Cnk
+end
+=#
+
+
+function Calc_fnk!(electron::CrystalBloch, kpoints::KPoints)
+
+    spinsize = electron.spinsize
+    Nfsize = electron.Nfsize
+    ChemP = electron.ChemP
+    Enk = electron.Enk
+    FF = electron.FF
+    Nkpt = electron.Nkpt
+    AllNkpt = kpoints.AllNkpt
+    All_kweight = kpoints.All_kweight
+    Beta = 1/electron.E_Temp/kb*eV2Hartree
+
+    @inbounds for spin = 1:spinsize, ik = 1:Nkpt, μ = 1:Nfsize
+        x = (Enk[μ,ik,spin]-ChemP)*Beta
+        if x <= -max_x
+            x = -max_x
+         end
+
+        if x >= max_x
+            x = max_x
+        end
+            
+        FermiF = 1/(1 + exp(x))
+        FF[μ,ik,spin] = FermiF
+    end
+
+    electron.FF = FF
 end
 
 
@@ -343,7 +384,8 @@ end
     electron::CrystalBloch, 
     kpoints::KPoints,
     system_grid::System_Grid,
-    DM::Vector{Vector{Float64}})
+    DM::Vector{Vector{Float64}},
+    iDM::Vector{Vector{Float64}})
     
     comm = MPI.COMM_WORLD
     myrank = MPI.Comm_rank(comm)
@@ -371,6 +413,8 @@ end
     fill!(DM[2], 0.0)
     fill!(DM[3], 0.0)
     fill!(DM[4], 0.0)
+    fill!(iDM[1], 0.0)
+    fill!(iDM[2], 0.0)
     DM_dense = zeros(ComplexF64, Nfsize, Nfsize)
     
 
@@ -399,6 +443,8 @@ end
                 DM[2][DMst] += real(matrix_dd*ex)
                 DM[3][DMst] += real(matrix_ud*ex)
                 DM[4][DMst] += imag(matrix_ud*ex)
+                iDM[1][DMst] += imag(matrix_uu*ex)
+                iDM[2][DMst] += imag(matrix_dd*ex)
             end
         end
     end
@@ -407,81 +453,8 @@ end
     MPI.Allreduce!(DM[2], MPI.SUM, comm)
     MPI.Allreduce!(DM[3], MPI.SUM, comm)
     MPI.Allreduce!(DM[4], MPI.SUM, comm)
-end
-
-
-@timeit timer "Calc_iDM_Crystal_NonCollinear" function Calc_iDM_Crystal_NonCollinear!(
-    electron::CrystalBloch, 
-    kpoints::KPoints,
-    system_grid::System_Grid, 
-    iDM)
-    
-    comm = MPI.COMM_WORLD
-    myrank = MPI.Comm_rank(comm)
-
-    Natom = system_grid.Natom
-    Total_NumOrbs = system_grid.Total_NumOrbs
-    FNAN = system_grid.FNAN
-
-    cal_mode = electron.cal_mode
-    if cal_mode == 2
-        @inbounds for atom = 1:Natom, Rn = 1:FNAN[atom]+1, ist = 1:Total_NumOrbs[atom]
-            MPI.Allreduce!(iDM[1][atom][Rn][ist], MPI.SUM, comm)
-            MPI.Allreduce!(iDM[2][atom][Rn][ist], MPI.SUM, comm)
-        end
-        return
-    end
-
-    MP = system_grid.MP
-    natn = system_grid.natn
-    ncn = system_grid.ncn
-    atv_ijk = system_grid.atv_ijk
-    fsize = electron.fsize
-    Nfsize = electron.Nfsize
-    Cnk = electron.Cnk
-
-    AllNkpt = kpoints.AllNkpt
-    MPI_Nkpt = kpoints.MPI_Nkpt
-    MPI_kpts = kpoints.MPI_kpts
-
-
-    iDM_dense = zeros(ComplexF64, Nfsize, Nfsize)
-
-    @inbounds for atom = 1:Natom, Rn = 1:FNAN[atom]+1, ist = 1:Total_NumOrbs[atom]
-        fill!(iDM[1][atom][Rn][ist], 0.0)
-        fill!(iDM[2][atom][Rn][ist], 0.0)
-    end
-
-    for ik = 1:MPI_Nkpt
-        ka, kb, kc = MPI_kpts[ik]
-        ctemp = Cnk[1][ik]
-        mul!(iDM_dense, ctemp, adjoint(ctemp))
-        for atom = 1:Natom, Rn = 1:FNAN[atom]+1
-
-            Anum = MP[atom]
-            NO0 = Total_NumOrbs[atom]
-            cell = ncn[atom][Rn]+1
-            jatom = natn[atom][Rn]
-            Bnum = MP[jatom]
-            NO1 = Total_NumOrbs[jatom]
-            kRn = ka*atv_ijk[cell][1] + kb*atv_ijk[cell][2] + kc*atv_ijk[cell][3]
-            ex = cispi(2*kRn)/AllNkpt
-
-            iDM1 = iDM[1][atom][Rn]
-            iDM2 = iDM[2][atom][Rn]
-            @inbounds for ist = 1:NO0, jst = 1:NO1
-                matrix_uu = iDM_dense[Bnum+jst,Anum+ist]
-                matrix_dd = iDM_dense[fsize+Bnum+jst,fsize+Anum+ist]
-                iDM1[ist][jst] += imag(matrix_uu*ex)
-                iDM2[ist][jst] += imag(matrix_dd*ex)
-            end
-        end
-    end
-
-    @inbounds for atom = 1:Natom, Rn = 1:FNAN[atom]+1, ist = 1:Total_NumOrbs[atom]
-        MPI.Allreduce!(iDM[1][atom][Rn][ist], MPI.SUM, comm)
-        MPI.Allreduce!(iDM[2][atom][Rn][ist], MPI.SUM, comm)
-    end
+    MPI.Allreduce!(iDM[1], MPI.SUM, comm)
+    MPI.Allreduce!(iDM[2], MPI.SUM, comm)
 end
 
 

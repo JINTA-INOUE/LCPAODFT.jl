@@ -14,6 +14,7 @@ function KSsolve_SCF!(
 
     Nspin = dft_setup.Nspin
     Natom = dft_setup.Natom
+    Latvecs = dft_setup.Latvecs
     gLatvecs = dft_setup.gLatvecs
     Init_Atoms_Nspin = dft_setup.Init_Atoms_Nspin
     Init_Atoms_Angle = dft_setup.Init_Atoms_Angle
@@ -58,6 +59,8 @@ function KSsolve_SCF!(
     Ham = Hamiltonian(cal_force, SpinPol, pao, pspot, system_grid)
     OLP = Ham.OLP
 
+    eigencache = prepare_scf_eigensolver(OLP, system_grid, electron, kpoints; workspace=dft_setup.eigen_workspace, cal_force)
+
     myrank == 0 && println("<Set_Orbitals_Grid>  Calculation of the Orbitals Grid")
     Orbs_Grid = Set_Orbitals_Grid(pao, ucell)
 
@@ -84,25 +87,13 @@ function KSsolve_SCF!(
     end
 
     if SpinPol == "nc"
-        system_grid = ucell.system_grid
-        FNAN = system_grid.FNAN
-        natn = system_grid.natn
-        Total_NumOrbs = system_grid.Total_NumOrbs
-        iDM = Vector{Vector{Vector{Vector{Vector{Float64}}}}}(undef, 2)
-		for spin = 1:2
-			iDM[spin] = Vector{Vector{Vector{Vector{Float64}}}}(undef, Natom)
-			for atom = 1:Natom
-				iDM[spin][atom] = Vector{Vector{Vector{Float64}}}(undef, FNAN[atom]+1)
-				for Rn = 1:FNAN[atom]+1
-					iDM[spin][atom][Rn] = Vector{Vector{Float64}}(undef, Total_NumOrbs[atom])
-					for ist = 1:Total_NumOrbs[atom]
-						iDM[spin][atom][Rn][ist] = zeros(Float64, Total_NumOrbs[natn[atom][Rn]])
-					end
-				end
-			end
-		end
+        iDM = Vector{Vector{Float64}}(undef, 2)
+        for spin = 1:2
+            iDM[spin] = zeros(Float64, Total_Hsize)
+        end
     else
-        iDM = [[[[[1.0]]]]]
+        iDM = [[1.0]]
+        iDM_Vec = [[[[[1.0]]]]]
     end
 
     EDM = Vector{Vector{Float64}}(undef, Nspin)
@@ -155,7 +146,7 @@ function KSsolve_SCF!(
     mulliken_charge = Mulliken_Charge(SpinPol, system_grid, Atoms_Core_Charge)
 
 
-    myrank == 0 && memory_usage(cal_force, SpinPol, pao, pspot, ucell, Orbs_Grid, electron, dft_mixing, xc_func, Ham)
+    myrank == 0 && memory_usage(cal_force, SpinPol, pao, pspot, ucell, Orbs_Grid, electron, dft_mixing, xc_func, Ham, eigencache)
     MPI.Barrier(comm)
 
 
@@ -199,11 +190,12 @@ function KSsolve_SCF!(
 
         # solve Hc = ϵSc
         if system == "Cluster"
-            myrank == 0 && println("<Cluster_DFT>  Solving the eigenvalue problem ...")
-            Cluster_DFT!(Ham, system_grid, electron, Hks, DM)
+            error("please check")
+            # myrank == 0 && println("<Cluster_DFT>  Solving the eigenvalue problem ...")
+            # Cluster_DFT!(Ham, system_grid, electron, Hks, DM)
         elseif system == "Crystal"
             myrank == 0 && println("<Crystal_DFT>  Solving the eigenvalue problem ...")
-            Crystal_DFT!(cal_force, system_grid, electron, kpoints, OLP, Hks, iHks, DM, iDM, EDM)
+            Crystal_DFT!(cal_force, system_grid, electron, kpoints, eigencache, OLP, Hks, iHks, DM, iDM, EDM)
         end
 
 
@@ -285,6 +277,7 @@ function KSsolve_SCF!(
         end
         MPI.Barrier(comm)
     end
+    eigencache = nothing
 
 
 
@@ -335,14 +328,6 @@ function KSsolve_SCF!(
     
     myrank == 0 && println("\n")
     myrank == 0 && println("<Energy> Energy calculation ...")
-    DM_Vec = Set_DM2DM_Vec(DM, system_grid)
-    if SpinPol == "nc"
-        if system == "Cluster"
-            Calc_iDM_Cluster_NonCollinear!(electron, system_grid, iDM)
-        elseif system == "Crystal"
-            Calc_iDM_Crystal_NonCollinear!(electron, kpoints, system_grid, iDM)
-        end
-    end
     Total_Energy!(energy, force, DM, iDM, 
                   ADensity_Grid, PCCDensity_Grid, Density_Grid, 
                   dVHart_Grid, Ham, system_grid, pao, pspot)
@@ -356,6 +341,12 @@ function KSsolve_SCF!(
 
 
 
+    if cal_force || fileout
+        DM_Vec = Set_DM2DM_Vec(DM, system_grid)
+        if SpinPol == "nc"
+            iDM_Vec = Set_DM2DM_Vec(iDM, system_grid)
+        end
+    end
     
     if cal_force
         myrank == 0 && println("\n")
@@ -372,7 +363,7 @@ function KSsolve_SCF!(
             end
         end
         Force!(force, 
-            DM_Vec, iDM, EDM, Orbs_Grid,
+            DM_Vec, iDM_Vec, EDM, Orbs_Grid,
             ADensity_Grid, PCCDensity_Grid, 
             dVHart_Grid, xc_func.Vxc_Grid, Vpot_Grid,
             Ham, ucell, pao, pspot)
@@ -394,7 +385,7 @@ function KSsolve_SCF!(
     if fileout && myrank == 0
         OLP_Vec = Set_HVNA2HVNA_Vec(OLP, system_grid)
         Hks_Vec = Set_DM2DM_Vec(Hks, system_grid)
-        WriteFile!(mulliken_charge, dft_setup, system_grid, dipole_moment, energy, force, DM_Vec, iDM, OLP_Vec, Hks_Vec, iHks)
+        WriteFile!(mulliken_charge, dft_setup, system_grid, dipole_moment, energy, force, DM_Vec, iDM_Vec, OLP_Vec, Hks_Vec, iHks)
     end
     MPI.Barrier(comm)
     
@@ -413,5 +404,4 @@ function KSsolve_SCF!(
 
 
     MPI.Barrier(comm)
-    
 end

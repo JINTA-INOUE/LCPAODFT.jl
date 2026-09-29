@@ -15,6 +15,7 @@ function Generate_CWF(cwf_setup::CWF_Setup)
     Dis_Energy = cwf_setup.Dis_Energy
     CWF_HmnR = cwf_setup.CWF_HmnR
     CWF_Wannier = cwf_setup.CWF_Wannier
+    CWF_SOC = cwf_setup.CWF_SOC
     CWF2MLWF = cwf_setup.CWF2MLWF
     write_coef = cwf_setup.write_coef
     filename = cwf_setup.filename
@@ -88,7 +89,7 @@ function Generate_CWF(cwf_setup::CWF_Setup)
         # rm(work_dirname, force=true)
     end
 
-
+    
 
     if verbose>=1 && myrank==0
         println("")

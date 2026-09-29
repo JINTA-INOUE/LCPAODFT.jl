@@ -151,7 +151,7 @@ function get_Mixing_weight!(dft_options::DFT_Options, dft_mixing::Mixing)
     
     if (sign(HisEele[1] - HisEele[2]) == sign(HisEele[2] - HisEele[3]) && NormRD[1] < NormRD[2])
 
-        temp = NormRD[2]/max(NormRD[2]-NormRD[1], 1e-10)*Mixing_weight
+        temp = NormRD[2]/max(NormRD[2]-NormRD[1], 1e-9)*Mixing_weight
 
         if temp < Max_Weight
             Mixing_weight = ifelse(Min_Weight<temp, temp, Min_Weight)
@@ -162,7 +162,7 @@ function get_Mixing_weight!(dft_options::DFT_Options, dft_mixing::Mixing)
 
     elseif (sign(HisEele[1] - HisEele[2]) == sign(HisEele[2] - HisEele[3]) && NormRD[2] < NormRD[1])
 
-        temp = NormRD[2]/max(NormRD[2]+NormRD[1], 1e-10)*Mixing_weight
+        temp = NormRD[2]/max(NormRD[2]+NormRD[1], 1e-9)*Mixing_weight
 
         if temp < Max_Weight
             Mixing_weight = ifelse(Min_Weight<temp, temp, Min_Weight)
@@ -173,7 +173,7 @@ function get_Mixing_weight!(dft_options::DFT_Options, dft_mixing::Mixing)
 
     elseif (sign(HisEele[1] - HisEele[2]) !== sign(HisEele[2] - HisEele[3]) && NormRD[1] < NormRD[2])
 
-        temp = NormRD[2]/max(NormRD[2]-NormRD[1], 1e-10)*Mixing_weight
+        temp = NormRD[2]/max(NormRD[2]-NormRD[1], 1e-9)*Mixing_weight
 
         if temp < Max_Weight
             Mixing_weight = ifelse(Min_Weight<temp, temp, Min_Weight)
@@ -184,7 +184,7 @@ function get_Mixing_weight!(dft_options::DFT_Options, dft_mixing::Mixing)
 
     elseif (sign(HisEele[1] - HisEele[2]) != sign(HisEele[2] - HisEele[3]) && NormRD[1] > NormRD[2])
 
-        temp = NormRD[2]/max(NormRD[2]+NormRD[1], 1e-10)*Mixing_weight
+        temp = NormRD[2]/max(NormRD[2]+NormRD[1], 1e-9)*Mixing_weight
         
         if temp < Max_Weight
             Mixing_weight = ifelse(Min_Weight<temp, temp, Min_Weight)

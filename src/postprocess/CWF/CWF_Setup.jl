@@ -401,7 +401,7 @@ function CWF_Setup(
     nthreads = Threads.nthreads()
     nblas = BLAS.get_num_threads()
     MKL.set_num_threads(1)
-
+    
     LCPAODFT.reset_timer!(LCPAODFT.timer)
 
 

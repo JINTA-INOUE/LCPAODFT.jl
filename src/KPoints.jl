@@ -52,6 +52,7 @@ function Print_KPoints(kpoints::KPoints)
         k1 = i/kmesh3 + 2*Shift_K_Point
         @printf("%9.5f ", k1)
     end
+    println("")
 end
 
 

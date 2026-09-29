@@ -14,7 +14,6 @@ using FortranFiles
 using Dates
 using MPI
 using PrecompileTools
-using MKL
 
 
 const Ang_to_bohr = 1.8897259886
@@ -53,8 +52,8 @@ export Radial_kmin
 
 
 # For Set_Density_Grid, Set_Hamiltonian
-const density_block_size = 512
-const ham_block_size = 512
+const density_block_size = 64
+const ham_block_size = 64
 
 
 # For VNA
@@ -65,7 +64,7 @@ export maxM
 
 
 # For ChemP
-const max_x = 30.0
+const max_x = 60.0
 export max_x
 
 
@@ -102,6 +101,8 @@ const timer = TimerOutput()
 export timer
 
 
+include("eigensolver/LCPAODEigen.jl")
+
 include("utils/split_evenly.jl")
 export split_evenly
 
@@ -112,6 +113,9 @@ export DFT_Options
 
 
 include("Symmetry/Calc_Symmetry.jl")
+# include("Symmetry/symmetrize_density.jl")
+# include("Symmetry/symmetrize_density_real.jl")
+# include("Symmetry/Check_grid.jl")
 export Get_Symmetry_Spglib
 
 
@@ -141,6 +145,7 @@ include("KPoints.jl")
 include("UCell.jl")
 include("Electron.jl")
 include("Hamiltonian.jl")
+include("SCF_Eigensolver.jl")
 export KPoints
 export Gen_KPoints
 export Set_Periodic
@@ -595,8 +600,8 @@ include("utils/sending_mail.jl")
     weight_type = "Poly"
     cwf_filename = "Cdia_AO_Poly"
     CWF_HmnR = true
-    CWF_Wannier = true
-    CWF2MLWF = true
+    CWF_Wannier = false
+    CWF2MLWF = false
     CWF_Plot_Cube = [1]
     CWF_Plot_SuperCells = [1,1,1]
 
@@ -633,9 +638,9 @@ include("utils/sending_mail.jl")
         cwf_setup = CWF_Setup(filepath, CWF_Guide_index, CWF_Dis_Energy; CWF_HmnR, CWF_Wannier, CWF2MLWF, CWF_Plot_Cube, CWF_Plot_SuperCells, filename=cwf_filename, weight_type, Ecut, kmesh=CWF_kmesh)
         Generate_CWF(cwf_setup)
 
-        println("Precompile MLWF ...")
-        mlwf_setup = MLWF_Setup(filepath, MLWF_Guide_index, MLWF_Dis_Energy, MLWF_kmesh; filename=mlwf_filename)
-        Generate_MLWF(mlwf_setup)
+        # println("Precompile MLWF ...")
+        # mlwf_setup = MLWF_Setup(filepath, MLWF_Guide_index, MLWF_Dis_Energy, MLWF_kmesh; filename=mlwf_filename)
+        # Generate_MLWF(mlwf_setup)
         
         println("Precompile Boltz ...")
         boltz_setup = Boltz_Setup(Boltz_filepath, Boltz_kmesh, TDF_Erange, Temp; decomp)

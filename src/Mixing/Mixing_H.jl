@@ -81,10 +81,7 @@ function Simple_Mixing_H!(SCF_iter, MPI_Hks, Hks, dft_options::DFT_Options, dft_
 end
 
 
-function Pulay_Mixing_H!(SCF_iter, MPI_Hks, Hks,
-                         dft_options::DFT_Options,
-                         dft_mixing::Ham_Mixing,
-                         system_grid::System_Grid)
+function Pulay_Mixing_H!(SCF_iter, MPI_Hks, Hks, dft_options::DFT_Options, dft_mixing::Ham_Mixing, system_grid::System_Grid)
     
     comm = MPI.COMM_WORLD
     myrank = MPI.Comm_rank(comm)
@@ -160,7 +157,8 @@ function Pulay_Mixing_H!(SCF_iter, MPI_Hks, Hks,
     end
     A[dim+1,dim+1] = 0.0
 
-    invA = inv(A[1:dim+1,1:dim+1])
+    invA = A[1:dim+1,1:dim+1]
+    Pulay_H_inv!(dim+1, invA)
     coes = zeros(Float64, dim)
     for m = 1:dim
         coes[m] = -invA[m,dim+1]
@@ -226,8 +224,11 @@ function get_metric!(Natom, FNAN, natn, Total_NumOrbs, metric, HisH, ChemP)
 
     hks_sum = 0
     for atom = 1:Natom
-        for ist = 1:Total_NumOrbs[atom]
-            d = abs(HisH[hks_sum+ist,1] - ChemP)
+        NO0 = Total_NumOrbs[atom]
+        for ist = 1:NO0
+            # The self block is stored row by row; select H[ist, ist].
+            idx = hks_sum + (ist-1)*NO0 + ist
+            d = abs(HisH[idx] - ChemP)
             metric[atom][ist] = 5/(d^2 + 5)
         end
 
@@ -256,7 +257,7 @@ function Hmix!(Nspin, myHsize, weight, MPI_Hks, HisH)
     end
 end
 
-#=
+
 function Pulay_H_inv!(dim, IA)
     val, vec = eigen(Symmetric(IA))
     for i = 1:dim
@@ -271,4 +272,3 @@ function Pulay_H_inv!(dim, IA)
         IA[i,j] = Sum
     end
 end
-=#

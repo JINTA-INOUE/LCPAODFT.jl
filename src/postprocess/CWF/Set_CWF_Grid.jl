@@ -30,7 +30,10 @@
     end
         
     ucell = UCell(Nspin, TCpyCell, Latvecs, Natom, atom2spe, Gxyz, Atoms_Cut1, Ngrid, Grid_Origin, Total_NumOrbs)
-    Orbs_Grid = Set_Orbitals_Grid(pao, ucell)
+    # Each rank writes complete CWFs for its assigned projections.  Unlike the
+    # SCF kernels, that work needs contributions from every atom, not only the
+    # atoms owned by the rank's Hamiltonian partition.
+    Orbs_Grid = Set_Orbitals_Grid(pao, ucell; atoms=1:Natom)
 
 
     if SpinPol ∈ ("off", "on")
@@ -91,7 +94,7 @@ function Set_CWF_Grid_Col(filename::AbstractString, material::LCPAO_model, ucell
             for atom = 1:Natom
                 cwf_proj = MP[atom]
                 NO0 = Total_NumOrbs[atom]
-                _Calc_CWF_Grid8!(cwf_proj, NO0, CWF_GridN_Atom[cell][atom], CWF_GridOrbs_Grid[cell][atom], CWF_GridListAtom[cell][atom], Orbs_Grid.data[atom], ExpnCoef, Wannier_Orbs_Grid)
+                _Calc_CWF_Grid8!(cwf_proj, NO0, CWF_GridN_Atom[cell][atom], CWF_GridOrbs_Grid[cell][atom], CWF_GridListAtom[cell][atom], atom_matrix(Orbs_Grid, atom), ExpnCoef, Wannier_Orbs_Grid)
             end
         end
 
@@ -152,7 +155,7 @@ function Set_CWF_Grid_NonCol(filename::AbstractString, material::LCPAO_model, uc
                     for atom = 1:Natom
                         cwf_proj = MP[atom]
                         NO0 = Total_NumOrbs[atom]
-                        _Calc_CWF_Grid8!(spin_site+cwf_proj, NO0, CWF_GridN_Atom[cell][atom], CWF_GridOrbs_Grid[cell][atom], CWF_GridListAtom[cell][atom], Orbs_Grid.data[atom], ExpnCoef, Wannier_Orbs_Grid)
+                        _Calc_CWF_Grid8!(spin_site+cwf_proj, NO0, CWF_GridN_Atom[cell][atom], CWF_GridOrbs_Grid[cell][atom], CWF_GridListAtom[cell][atom], atom_matrix(Orbs_Grid, atom), ExpnCoef, Wannier_Orbs_Grid)
                     end
                 end
 
@@ -241,10 +244,16 @@ function _Calc_CWF_Grid8!(
     CWF_GridN_Atom::Integer,
     CWF_GridOrbs_Grid::AbstractVector{<:Integer},
     CWF_GridListAtom::AbstractVector{<:Integer},
-    Orbs_Grid::AbstractMatrix{Float64},
-    ExpnCoef::AbstractVector{T},
-    Wannier_Orbs_Grid::AbstractVector{T},
-) where {T<:Union{Float64,ComplexF64}}
+    Orbs_Grid::AbstractMatrix{TO},
+    ExpnCoef::AbstractVector{TC},
+    Wannier_Orbs_Grid::AbstractVector{TW},
+) where {TO<:Real,TC<:Number,TW<:Number}
+
+    # ExpnCoef and Wannier_Orbs_Grid need not have identical element types.
+    # In particular, a real coefficient vector can be accumulated safely into
+    # a complex output vector.  Requiring a single type parameter for both
+    # arrays caused a MethodError before the kernel was entered.
+    T = promote_type(TO, TC, TW)
 
     @inbounds for Noc = 1:8:CWF_GridN_Atom-7
 

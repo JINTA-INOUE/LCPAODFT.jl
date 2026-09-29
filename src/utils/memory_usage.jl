@@ -1,4 +1,12 @@
-function memory_usage(cal_force::Bool, SpinPol::String, pao::Vector{PAO}, pspot::Vector{Pspot}, ucell::UCell, Orbs_Grid, electron, dft_mixing, xc_func, Ham::Hamiltonian)
+function memory_usage(
+    cal_force::Bool, SpinPol::String, 
+    pao::Vector{PAO}, pspot::Vector{Pspot}, ucell::UCell, 
+    Orbs_Grid, 
+    electron, 
+    dft_mixing, 
+    xc_func, 
+    Ham::Hamiltonian,
+    eigencache)
     
     ram_pao = memory_usage(pao)
     ram_pspot = memory_usage(pspot)
@@ -8,11 +16,15 @@ function memory_usage(cal_force::Bool, SpinPol::String, pao::Vector{PAO}, pspot:
     ram_Ham = memory_usage_Hamiltonian(Ham)
     ram_Orbs_Grid = memory_usage_Orbs_Grid(cal_force, Orbs_Grid)
     ram_electron = memory_usage(electron)
+    ram_eigensolver = memory_usage(eigencache)
     ram_Den_Pot = memory_usage_Density_Potentials(ucell.system_grid.Ngrid, SpinPol)
     ram_Hks_DM = memory_usage_Hks_DM(SpinPol, ucell.system_grid.MPI_Hsize, ucell.system_grid.Total_Hsize)
     ram_EDM = memory_usage_EDM(SpinPol, cal_force, ucell.system_grid.Total_Hsize)
 
-    ram_total = ram_pao + ram_pspot + ram_ucell + ram_dft_mixing + ram_xc_func + ram_Ham + ram_Orbs_Grid + ram_Den_Pot + ram_Hks_DM + ram_EDM
+    ram_total  = ram_pao + ram_pspot + ram_ucell
+    ram_total += ram_dft_mixing + ram_xc_func + ram_Ham
+    ram_total += ram_Orbs_Grid + ram_electron + ram_eigensolver
+    ram_total += ram_Den_Pot + ram_Hks_DM + ram_EDM
 
     println("<memory_usage>")
     @printf("\tram_pao : %6.3f MB\n", ram_pao)
@@ -23,6 +35,7 @@ function memory_usage(cal_force::Bool, SpinPol::String, pao::Vector{PAO}, pspot:
     @printf("\tram_Ham : %6.3f MB\n", ram_Ham)
     @printf("\tram_Orbs_Grid : %6.3f MB\n", ram_Orbs_Grid)
     @printf("\tram_electron : %6.3f MB\n", ram_electron)
+    @printf("\tram_eigensolver : %6.3f MB\n", ram_eigensolver)
     @printf("\tram_Den_Pot : %6.3f MB\n", ram_Den_Pot)
     @printf("\tram_Hks_DM : %6.3f MB\n", ram_Hks_DM)
     @printf("\tram_EDM : %6.3f MB\n", ram_EDM)
@@ -125,6 +138,8 @@ function memory_usage(dft_mixing::RMM_DIISH_Mixing)
 end
 
 
+memory_usage(xc_func::Union{XC_LDA,XC_LSDA}) = Base.summarysize(xc_func.Vxc_Grid) / 1024^2
+
 function memory_usage(xc_func::XC_GGA_PBE)
     MB = 1024^2
     ram = Base.summarysize(xc_func.Diff_Coef)
@@ -198,4 +213,16 @@ function memory_usage_EDM(SpinPol, cal_force, Total_Hsize)
     ram = Nspin_EDM*EDMsize*sizeof(Float64)
 
     return ram/MB
+end
+
+
+function memory_usage(cache::SCFEigenCache)
+    bytes = sum(f -> Base.summarysize(f.matrix), cache.factors; init=0)
+    bytes += sum(Base.summarysize, cache.buffers; init=0)
+    ws = cache.workspace
+    if ws !== nothing
+        bytes += sum(Base.summarysize, (ws.matrix, ws.overlap_factor, ws.values,
+                                       ws.work, ws.rwork, ws.iwork))
+    end
+    return bytes / 1024^2
 end
